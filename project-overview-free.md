@@ -6,17 +6,14 @@ Source Tree:
 dbdoverlaytools-free
 ├── README.md
 ├── electron
-│   ├── main.ts
-│   ├── preload.ts
+│   ├── main.cjs
+│   ├── preload.cjs
 │   └── tsconfig.json
 ├── index.html
 ├── overlay.html
 ├── package.json
 ├── postcss.config.js
 ├── scripts
-│   ├── debug.js
-│   ├── fix.js
-│   ├── setup.js
 │   └── start.js
 ├── src
 │   ├── App.tsx
@@ -39,7 +36,6 @@ dbdoverlaytools-free
 │   │           ├── MinimalStyle.tsx
 │   │           └── NostalgiaStyle.tsx
 │   ├── hooks
-│   │   ├── useElectronStore.ts
 │   │   ├── useGlobalHotkeys.ts
 │   │   └── useTimer.ts
 │   ├── index.css
@@ -211,409 +207,326 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/electron\main.ts`:
+`dbdoverlaytools-free/electron\main.cjs`:
 
-```ts
+```cjs
    1 | const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
    2 | const { join } = require('path');
    3 | const Store = require('electron-store');
    4 | 
-   5 | interface WindowState {
-   6 |   x?: number;
-   7 |   y?: number;
-   8 |   width?: number;
-   9 |   height?: number;
-  10 | }
-  11 | 
-  12 | class TimerOverlayApp {
-  13 |   private mainWindow: BrowserWindow | null = null;
-  14 |   private overlayWindow: BrowserWindow | null = null;
-  15 |   private store: Store;
-  16 |   private isDev: boolean;
-  17 | 
-  18 |   constructor() {
-  19 |     this.store = new Store();
-  20 |     this.isDev = process.env.NODE_ENV === 'development';
-  21 |     console.log(`App started in ${this.isDev ? 'development' : 'production'} mode`);
-  22 |     this.initializeApp();
-  23 |   }
-  24 | 
-  25 |   private initializeApp(): void {
-  26 |     app.whenReady().then(() => {
-  27 |       this.createMainWindow();
-  28 |       this.setupIPC();
-  29 |       this.setupGlobalShortcuts();
-  30 |       
-  31 |       // Auto-show overlay on startup
-  32 |       setTimeout(() => {
-  33 |         this.createOverlayWindow();
-  34 |       }, 2000);
-  35 |     });
-  36 | 
-  37 |     app.on('window-all-closed', () => {
-  38 |       if (process.platform !== 'darwin') {
-  39 |         globalShortcut.unregisterAll();
-  40 |         app.quit();
-  41 |       }
-  42 |     });
-  43 | 
-  44 |     app.on('activate', () => {
-  45 |       if (BrowserWindow.getAllWindows().length === 0) {
-  46 |         this.createMainWindow();
-  47 |       }
-  48 |     });
-  49 |   }
-  50 | 
-  51 |   private createMainWindow(): void {
-  52 |     const savedState = this.store.get('windowState') as WindowState;
-  53 | 
-  54 |     this.mainWindow = new BrowserWindow({
-  55 |       width: savedState?.width || 800,
-  56 |       height: savedState?.height || 600,
-  57 |       x: savedState?.x,
-  58 |       y: savedState?.y,
-  59 |       minWidth: 600,
-  60 |       minHeight: 400,
-  61 |       show: false,
-  62 |       autoHideMenuBar: true,
-  63 |       webPreferences: {
-  64 |         nodeIntegration: false,
-  65 |         contextIsolation: true,
-  66 |         preload: join(__dirname, 'preload.js'),
-  67 |         webSecurity: false
-  68 |       }
-  69 |     });
-  70 | 
-  71 |     if (this.isDev) {
-  72 |       this.mainWindow.loadURL('http://localhost:5173');
-  73 |       this.mainWindow.webContents.openDevTools();
-  74 |     } else {
-  75 |       this.mainWindow.loadFile(join(__dirname, '../dist/index.html'));
-  76 |     }
-  77 | 
-  78 |     this.mainWindow.once('ready-to-show', () => {
-  79 |       this.mainWindow?.show();
-  80 |       this.mainWindow?.focus();
-  81 |       console.log('Main window ready and shown');
-  82 |     });
-  83 | 
-  84 |     this.mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-  85 |       console.error('Main window failed to load:', errorCode, errorDescription);
-  86 |     });
-  87 | 
-  88 |     this.mainWindow.on('close', () => {
-  89 |       const bounds = this.mainWindow?.getBounds();
-  90 |       if (bounds) {
-  91 |         this.store.set('windowState', bounds);
-  92 |       }
+   5 | class TimerOverlayApp {
+   6 |   constructor() {
+   7 |     this.mainWindow = null;
+   8 |     this.overlayWindow = null;
+   9 |     this.store = new Store();
+  10 |     this.isDev = process.env.NODE_ENV === 'development';
+  11 |     this.initializeApp();
+  12 |   }
+  13 | 
+  14 |   initializeApp() {
+  15 |     app.whenReady().then(() => {
+  16 |       this.createMainWindow();
+  17 |       this.setupIPC();
+  18 |       this.setupGlobalShortcuts();
+  19 |     });
+  20 | 
+  21 |     app.on('window-all-closed', () => {
+  22 |       globalShortcut.unregisterAll();
+  23 |       app.quit();
+  24 |     });
+  25 | 
+  26 |     app.on('activate', () => {
+  27 |       if (BrowserWindow.getAllWindows().length === 0) {
+  28 |         this.createMainWindow();
+  29 |       }
+  30 |     });
+  31 |   }
+  32 | 
+  33 |   createMainWindow() {
+  34 |     const savedState = this.store.get('windowState') || {};
+  35 | 
+  36 |     this.mainWindow = new BrowserWindow({
+  37 |       width: savedState.width || 800,
+  38 |       height: savedState.height || 600,
+  39 |       x: savedState.x,
+  40 |       y: savedState.y,
+  41 |       minWidth: 600,
+  42 |       minHeight: 400,
+  43 |       show: false,
+  44 |       autoHideMenuBar: true,
+  45 |       webPreferences: {
+  46 |         nodeIntegration: false,
+  47 |         contextIsolation: true,
+  48 |         preload: join(__dirname, 'preload.cjs'),
+  49 |         webSecurity: false
+  50 |       }
+  51 |     });
+  52 | 
+  53 |     if (this.isDev) {
+  54 |       this.mainWindow.loadURL('http://localhost:5173');
+  55 |       this.mainWindow.webContents.openDevTools();
+  56 |     } else {
+  57 |       this.mainWindow.loadFile(join(__dirname, '../dist/index.html'));
+  58 |     }
+  59 | 
+  60 |     this.mainWindow.once('ready-to-show', () => {
+  61 |       this.mainWindow.show();
+  62 |       this.mainWindow.focus();
+  63 |       setTimeout(() => this.createOverlayWindow(), 1000);
+  64 |     });
+  65 | 
+  66 |     this.mainWindow.on('close', () => {
+  67 |       const bounds = this.mainWindow.getBounds();
+  68 |       if (bounds) {
+  69 |         this.store.set('windowState', bounds);
+  70 |       }
+  71 |     });
+  72 | 
+  73 |     this.mainWindow.on('closed', () => {
+  74 |       if (this.overlayWindow) {
+  75 |         this.overlayWindow.close();
+  76 |       }
+  77 |       app.quit();
+  78 |     });
+  79 |   }
+  80 | 
+  81 |   createOverlayWindow() {
+  82 |     if (this.overlayWindow) {
+  83 |       this.overlayWindow.show();
+  84 |       return;
+  85 |     }
+  86 | 
+  87 |     const overlaySettings = this.store.get('overlaySettings', {
+  88 |       x: 100,
+  89 |       y: 100,
+  90 |       scale: 100,
+  91 |       locked: false,
+  92 |       alwaysOnTop: true
   93 |     });
-  94 |   }
-  95 | 
-  96 |   private createOverlayWindow(): void {
-  97 |     if (this.overlayWindow) {
-  98 |       console.log('Overlay window already exists, focusing...');
-  99 |       this.overlayWindow.show();
- 100 |       this.overlayWindow.focus();
- 101 |       return;
- 102 |     }
- 103 | 
- 104 |     console.log('Creating overlay window...');
- 105 | 
- 106 |     const overlaySettings = this.store.get('overlaySettings', {
- 107 |       x: 100,
- 108 |       y: 100,
- 109 |       scale: 100,
- 110 |       locked: false,
- 111 |       alwaysOnTop: true
- 112 |     }) as any;
- 113 | 
- 114 |     console.log('Overlay settings:', overlaySettings);
- 115 | 
- 116 |     this.overlayWindow = new BrowserWindow({
- 117 |       width: 520,
- 118 |       height: 120,
- 119 |       x: overlaySettings.x,
- 120 |       y: overlaySettings.y,
- 121 |       frame: false,
- 122 |       transparent: true,
- 123 |       alwaysOnTop: overlaySettings.alwaysOnTop,
- 124 |       skipTaskbar: true,
- 125 |       resizable: false,
- 126 |       focusable: !overlaySettings.locked,
- 127 |       show: false,
- 128 |       webPreferences: {
- 129 |         nodeIntegration: false,
- 130 |         contextIsolation: true,
- 131 |         preload: join(__dirname, 'preload.js'),
- 132 |         webSecurity: false
- 133 |       }
- 134 |     });
- 135 | 
- 136 |     if (overlaySettings.locked) {
- 137 |       this.overlayWindow.setIgnoreMouseEvents(true, { forward: true });
- 138 |     }
- 139 | 
- 140 |     const overlayUrl = this.isDev 
- 141 |       ? 'http://localhost:5173/overlay.html' 
- 142 |       : join(__dirname, '../dist/overlay.html');
- 143 |     
- 144 |     console.log('Loading overlay URL:', overlayUrl);
- 145 | 
- 146 |     if (this.isDev) {
- 147 |       this.overlayWindow.loadURL(overlayUrl);
- 148 |     } else {
- 149 |       this.overlayWindow.loadFile(overlayUrl);
- 150 |     }
- 151 | 
- 152 |     this.overlayWindow.webContents.on('did-finish-load', () => {
- 153 |       console.log('Overlay window loaded successfully');
- 154 |       this.overlayWindow?.show();
- 155 |       
- 156 |       // Notify main window that overlay is ready and visible
- 157 |       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 158 |         this.mainWindow.webContents.send('overlay-ready', true);
- 159 |       }
- 160 |       
- 161 |       // Synchronize initial data
- 162 |       const timerData = this.store.get('timerData');
- 163 |       if (timerData && this.overlayWindow) {
- 164 |         console.log('Syncing initial timer data to overlay');
- 165 |         setTimeout(() => {
- 166 |           this.overlayWindow?.webContents.send('timer-data-sync', timerData);
- 167 |         }, 100);
- 168 |       }
- 169 |     });
- 170 | 
- 171 |     this.overlayWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
- 172 |       console.error('Overlay window failed to load:', errorCode, errorDescription);
- 173 |     });
- 174 | 
- 175 |     this.overlayWindow.on('closed', () => {
- 176 |       console.log('Overlay window closed');
- 177 |       this.overlayWindow = null;
- 178 |       
- 179 |       // Notify main window that overlay is closed
- 180 |       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 181 |         this.mainWindow.webContents.send('overlay-ready', false);
- 182 |       }
- 183 |     });
- 184 | 
- 185 |     this.overlayWindow.on('move', () => {
- 186 |       const bounds = this.overlayWindow?.getBounds();
- 187 |       if (bounds) {
- 188 |         this.store.set('overlaySettings.x', bounds.x);
- 189 |         this.store.set('overlaySettings.y', bounds.y);
- 190 |       }
- 191 |     });
- 192 | 
- 193 |     if (this.isDev) {
- 194 |       this.overlayWindow.webContents.openDevTools();
- 195 |     }
- 196 | 
- 197 |     console.log('Overlay window created and configured');
- 198 |   }
+  94 | 
+  95 |     this.overlayWindow = new BrowserWindow({
+  96 |       width: 520,
+  97 |       height: 120,
+  98 |       x: overlaySettings.x,
+  99 |       y: overlaySettings.y,
+ 100 |       frame: false,
+ 101 |       transparent: true,
+ 102 |       alwaysOnTop: overlaySettings.alwaysOnTop,
+ 103 |       skipTaskbar: true,
+ 104 |       resizable: false,
+ 105 |       focusable: !overlaySettings.locked,
+ 106 |       show: false,
+ 107 |       webPreferences: {
+ 108 |         nodeIntegration: false,
+ 109 |         contextIsolation: true,
+ 110 |         preload: join(__dirname, 'preload.cjs'),
+ 111 |         webSecurity: false
+ 112 |       }
+ 113 |     });
+ 114 | 
+ 115 |     if (overlaySettings.locked) {
+ 116 |       this.overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+ 117 |     }
+ 118 | 
+ 119 |     const overlayUrl = this.isDev 
+ 120 |       ? 'http://localhost:5173/overlay.html' 
+ 121 |       : join(__dirname, '../dist/overlay.html');
+ 122 | 
+ 123 |     if (this.isDev) {
+ 124 |       this.overlayWindow.loadURL(overlayUrl);
+ 125 |       this.overlayWindow.webContents.openDevTools();
+ 126 |     } else {
+ 127 |       this.overlayWindow.loadFile(overlayUrl);
+ 128 |     }
+ 129 | 
+ 130 |     this.overlayWindow.webContents.on('did-finish-load', () => {
+ 131 |       this.overlayWindow.show();
+ 132 |       
+ 133 |       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+ 134 |         this.mainWindow.webContents.send('overlay-ready', true);
+ 135 |       }
+ 136 |       
+ 137 |       const timerData = this.store.get('timerData');
+ 138 |       if (timerData && this.overlayWindow) {
+ 139 |         setTimeout(() => {
+ 140 |           this.overlayWindow.webContents.send('timer-data-sync', timerData);
+ 141 |         }, 100);
+ 142 |       }
+ 143 |     });
+ 144 | 
+ 145 |     this.overlayWindow.on('closed', () => {
+ 146 |       this.overlayWindow = null;
+ 147 |       
+ 148 |       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+ 149 |         this.mainWindow.webContents.send('overlay-ready', false);
+ 150 |       }
+ 151 |     });
+ 152 | 
+ 153 |     this.overlayWindow.on('move', () => {
+ 154 |       const bounds = this.overlayWindow.getBounds();
+ 155 |       if (bounds) {
+ 156 |         this.store.set('overlaySettings.x', bounds.x);
+ 157 |         this.store.set('overlaySettings.y', bounds.y);
+ 158 |       }
+ 159 |     });
+ 160 |   }
+ 161 | 
+ 162 |   setupIPC() {
+ 163 |     ipcMain.handle('store-get', (_, key) => this.store.get(key));
+ 164 |     
+ 165 |     ipcMain.handle('store-set', (_, key, value) => {
+ 166 |       this.store.set(key, value);
+ 167 |       
+ 168 |       if (key === 'timerData' && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 169 |         this.overlayWindow.webContents.send('timer-data-sync', value);
+ 170 |       }
+ 171 |     });
+ 172 | 
+ 173 |     ipcMain.handle('overlay-show', async () => {
+ 174 |       try {
+ 175 |         this.createOverlayWindow();
+ 176 |         return { success: true };
+ 177 |       } catch (error) {
+ 178 |         return { success: false, error: error.message };
+ 179 |       }
+ 180 |     });
+ 181 | 
+ 182 |     ipcMain.handle('overlay-hide', async () => {
+ 183 |       if (this.overlayWindow) {
+ 184 |         this.overlayWindow.close();
+ 185 |         this.overlayWindow = null;
+ 186 |         return { success: true };
+ 187 |       }
+ 188 |       return { success: false, error: 'No overlay window to hide' };
+ 189 |     });
+ 190 | 
+ 191 |     ipcMain.handle('overlay-settings-update', async (_, settings) => {
+ 192 |       if (!this.overlayWindow) return;
+ 193 | 
+ 194 |       try {
+ 195 |         if (settings.locked !== undefined) {
+ 196 |           this.overlayWindow.setIgnoreMouseEvents(settings.locked, { forward: true });
+ 197 |           this.overlayWindow.setFocusable(!settings.locked);
+ 198 |         }
  199 | 
- 200 |   private setupIPC(): void {
- 201 |     ipcMain.handle('store-get', (_, key: string) => {
- 202 |       const value = this.store.get(key);
- 203 |       console.log(`Store get: ${key} =`, value);
- 204 |       return value;
- 205 |     });
- 206 | 
- 207 |     ipcMain.handle('store-set', (_, key: string, value: any) => {
- 208 |       console.log(`Store set: ${key} =`, value);
- 209 |       this.store.set(key, value);
- 210 |       
- 211 |       // Auto-sync timer data changes to overlay
- 212 |       if (key === 'timerData' && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 213 |         this.overlayWindow.webContents.send('timer-data-sync', value);
+ 200 |         if (settings.alwaysOnTop !== undefined) {
+ 201 |           this.overlayWindow.setAlwaysOnTop(settings.alwaysOnTop);
+ 202 |         }
+ 203 | 
+ 204 |         if (settings.x !== undefined || settings.y !== undefined) {
+ 205 |           this.overlayWindow.setPosition(settings.x || 0, settings.y || 0);
+ 206 |         }
+ 207 | 
+ 208 |         this.store.set('overlaySettings', {
+ 209 |           ...this.store.get('overlaySettings', {}),
+ 210 |           ...settings
+ 211 |         });
+ 212 |       } catch (error) {
+ 213 |         console.error('Error updating overlay settings:', error);
  214 |       }
  215 |     });
  216 | 
- 217 |     ipcMain.handle('overlay-show', async () => {
- 218 |       console.log('IPC: overlay-show called');
- 219 |       try {
- 220 |         this.createOverlayWindow();
- 221 |         return { success: true };
- 222 |       } catch (error) {
- 223 |         console.error('Error showing overlay:', error);
- 224 |         return { success: false, error: (error as Error).message };
- 225 |       }
- 226 |     });
- 227 | 
- 228 |     ipcMain.handle('overlay-hide', async () => {
- 229 |       console.log('IPC: overlay-hide called');
- 230 |       if (this.overlayWindow) {
- 231 |         this.overlayWindow.close();
- 232 |         this.overlayWindow = null;
- 233 |         return { success: true };
- 234 |       }
- 235 |       return { success: false, error: 'No overlay window to hide' };
- 236 |     });
- 237 | 
- 238 |     ipcMain.handle('overlay-settings-update', async (_, settings: any) => {
- 239 |       console.log('IPC: overlay-settings-update called with:', settings);
- 240 |       
- 241 |       if (!this.overlayWindow) {
- 242 |         console.log('No overlay window to update');
- 243 |         return;
- 244 |       }
- 245 | 
- 246 |       try {
- 247 |         if (settings.locked !== undefined) {
- 248 |           this.overlayWindow.setIgnoreMouseEvents(settings.locked, { forward: true });
- 249 |           this.overlayWindow.setFocusable(!settings.locked);
- 250 |         }
- 251 | 
- 252 |         if (settings.alwaysOnTop !== undefined) {
- 253 |           this.overlayWindow.setAlwaysOnTop(settings.alwaysOnTop);
- 254 |         }
- 255 | 
- 256 |         if (settings.x !== undefined || settings.y !== undefined) {
- 257 |           this.overlayWindow.setPosition(settings.x || 0, settings.y || 0);
- 258 |         }
- 259 | 
- 260 |         this.store.set('overlaySettings', {
- 261 |           ...this.store.get('overlaySettings', {}),
- 262 |           ...settings
- 263 |         });
- 264 |       } catch (error) {
- 265 |         console.error('Error updating overlay settings:', error);
- 266 |       }
- 267 |     });
- 268 | 
- 269 |     ipcMain.handle('timer-update-display', async (_, data: any) => {
- 270 |       console.log('IPC: timer-update-display called with:', data);
- 271 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 272 |         this.overlayWindow.webContents.send('timer-update-display', data);
- 273 |       }
- 274 |     });
- 275 | 
- 276 |     ipcMain.handle('timer-data-sync', async (_, data: any) => {
- 277 |       console.log('IPC: timer-data-sync called with:', data);
- 278 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 279 |         this.overlayWindow.webContents.send('timer-data-sync', data);
- 280 |       }
- 281 |       
- 282 |       // Also save to store for persistence
- 283 |       this.store.set('timerData', data);
- 284 |     });
- 285 | 
- 286 |     ipcMain.handle('overlay-style-change', async (_, style: string) => {
- 287 |       console.log('IPC: overlay-style-change called with:', style);
- 288 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 289 |         this.overlayWindow.webContents.send('overlay-style-change', style);
- 290 |       }
- 291 |     });
- 292 |   }
- 293 | 
- 294 |   private setupGlobalShortcuts(): void {
- 295 |     const registerShortcut = (key: string, action: string) => {
- 296 |       try {
- 297 |         globalShortcut.register(key, () => {
- 298 |           console.log(`Global shortcut pressed: ${key} -> ${action}`);
- 299 |           this.mainWindow?.webContents.send('hotkey-pressed', action);
- 300 |         });
- 301 |       } catch (error) {
- 302 |         console.warn(`Failed to register shortcut ${key}:`, error);
- 303 |       }
- 304 |     };
- 305 | 
- 306 |     const savedHotkeys = this.store.get('timerData.hotkeys', {
- 307 |       start: 'F1',
- 308 |       swap: 'F2'
- 309 |     }) as any;
- 310 | 
- 311 |     console.log('Registering global shortcuts:', savedHotkeys);
- 312 | 
- 313 |     registerShortcut(savedHotkeys.start, 'start');
- 314 |     registerShortcut(savedHotkeys.swap, 'swap');
- 315 | 
- 316 |     ipcMain.handle('hotkey-register', async (_, hotkeys: { start: string; swap: string }) => {
- 317 |       console.log('Re-registering hotkeys:', hotkeys);
- 318 |       globalShortcut.unregisterAll();
- 319 |       registerShortcut(hotkeys.start, 'start');
- 320 |       registerShortcut(hotkeys.swap, 'swap');
- 321 |       
- 322 |       this.store.set('timerData.hotkeys', hotkeys);
- 323 |     });
- 324 |   }
- 325 | }
- 326 | 
- 327 | new TimerOverlayApp();
+ 217 |     ipcMain.handle('timer-data-sync', async (_, data) => {
+ 218 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 219 |         this.overlayWindow.webContents.send('timer-data-sync', data);
+ 220 |       }
+ 221 |       this.store.set('timerData', data);
+ 222 |     });
+ 223 | 
+ 224 |     ipcMain.handle('overlay-style-change', async (_, style) => {
+ 225 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 226 |         this.overlayWindow.webContents.send('overlay-style-change', style);
+ 227 |       }
+ 228 |     });
+ 229 |   }
+ 230 | 
+ 231 |   setupGlobalShortcuts() {
+ 232 |     const registerShortcut = (key, action) => {
+ 233 |       try {
+ 234 |         globalShortcut.register(key, () => {
+ 235 |           this.mainWindow.webContents.send('hotkey-pressed', action);
+ 236 |         });
+ 237 |       } catch (error) {
+ 238 |         console.warn(`Failed to register shortcut ${key}:`, error);
+ 239 |       }
+ 240 |     };
+ 241 | 
+ 242 |     const savedHotkeys = this.store.get('timerData.hotkeys', {
+ 243 |       start: 'F1',
+ 244 |       swap: 'F2'
+ 245 |     });
+ 246 | 
+ 247 |     registerShortcut(savedHotkeys.start, 'start');
+ 248 |     registerShortcut(savedHotkeys.swap, 'swap');
+ 249 | 
+ 250 |     ipcMain.handle('hotkey-register', async (_, hotkeys) => {
+ 251 |       globalShortcut.unregisterAll();
+ 252 |       registerShortcut(hotkeys.start, 'start');
+ 253 |       registerShortcut(hotkeys.swap, 'swap');
+ 254 |       this.store.set('timerData.hotkeys', hotkeys);
+ 255 |     });
+ 256 |   }
+ 257 | }
+ 258 | 
+ 259 | new TimerOverlayApp();
 
 ```
 
-`dbdoverlaytools-free/electron\preload.ts`:
+`dbdoverlaytools-free/electron\preload.cjs`:
 
-```ts
-   1 | // electron/preload.ts
-   2 | const { contextBridge, ipcRenderer } = require('electron');
-   3 | 
-   4 | const api = {
-   5 |   store: {
-   6 |     get: (key: string) => ipcRenderer.invoke('store-get', key),
-   7 |     set: (key: string, value: any) => ipcRenderer.invoke('store-set', key, value),
-   8 |   },
-   9 |   
-  10 |   overlay: {
-  11 |     show: () => ipcRenderer.invoke('overlay-show'),
-  12 |     hide: () => ipcRenderer.invoke('overlay-hide'),
-  13 |     updateSettings: (settings: any) => ipcRenderer.invoke('overlay-settings-update', settings),
-  14 |     styleChange: (style: string) => ipcRenderer.invoke('overlay-style-change', style),
-  15 |     
-  16 |     onTimerUpdate: (callback: (data: any) => void) => {
-  17 |       ipcRenderer.on('timer-update-display', (_, data) => callback(data));
-  18 |       return () => ipcRenderer.removeAllListeners('timer-update-display');
-  19 |     },
-  20 |     
-  21 |     onDataSync: (callback: (data: any) => void) => {
-  22 |       ipcRenderer.on('timer-data-sync', (_, data) => callback(data));
-  23 |       return () => ipcRenderer.removeAllListeners('timer-data-sync');
-  24 |     },
-  25 |     
-  26 |     onStyleChange: (callback: (style: string) => void) => {
-  27 |       ipcRenderer.on('overlay-style-change', (_, style) => callback(style));
-  28 |       return () => ipcRenderer.removeAllListeners('overlay-style-change');
-  29 |     },
-  30 |     
-  31 |     onReady: (callback: (isReady: boolean) => void) => {
-  32 |       ipcRenderer.on('overlay-ready', (_, isReady) => callback(isReady));
-  33 |       return () => ipcRenderer.removeAllListeners('overlay-ready');
-  34 |     },
-  35 |   },
-  36 |   
-  37 |   timer: {
-  38 |     updateDisplay: (data: any) => ipcRenderer.invoke('timer-update-display', data),
-  39 |     syncData: (data: any) => ipcRenderer.invoke('timer-data-sync', data),
-  40 |   },
-  41 |   
-  42 |   hotkeys: {
-  43 |     register: (hotkeys: { start: string; swap: string }) => 
-  44 |       ipcRenderer.invoke('hotkey-register', hotkeys),
-  45 |     
-  46 |     onPressed: (callback: (action: string) => void) => {
-  47 |       ipcRenderer.on('hotkey-pressed', (_, action) => callback(action));
-  48 |       return () => ipcRenderer.removeAllListeners('hotkey-pressed');
-  49 |     },
-  50 |   },
-  51 |   
-  52 |   removeAllListeners: () => {
-  53 |     ipcRenderer.removeAllListeners('timer-update-display');
-  54 |     ipcRenderer.removeAllListeners('timer-data-sync');
-  55 |     ipcRenderer.removeAllListeners('overlay-style-change');
-  56 |     ipcRenderer.removeAllListeners('hotkey-pressed');
-  57 |     ipcRenderer.removeAllListeners('overlay-ready');
-  58 |   },
-  59 | };
-  60 | 
-  61 | contextBridge.exposeInMainWorld('electronAPI', api);
-  62 | 
-  63 | declare global {
-  64 |   interface Window {
-  65 |     electronAPI: typeof api;
-  66 |   }
-  67 | }
+```cjs
+   1 | const { contextBridge, ipcRenderer } = require('electron');
+   2 | 
+   3 | const api = {
+   4 |   store: {
+   5 |     get: (key) => ipcRenderer.invoke('store-get', key),
+   6 |     set: (key, value) => ipcRenderer.invoke('store-set', key, value),
+   7 |   },
+   8 |   
+   9 |   overlay: {
+  10 |     show: () => ipcRenderer.invoke('overlay-show'),
+  11 |     hide: () => ipcRenderer.invoke('overlay-hide'),
+  12 |     updateSettings: (settings) => ipcRenderer.invoke('overlay-settings-update', settings),
+  13 |     styleChange: (style) => ipcRenderer.invoke('overlay-style-change', style),
+  14 |     
+  15 |     onDataSync: (callback) => {
+  16 |       ipcRenderer.on('timer-data-sync', (_, data) => callback(data));
+  17 |       return () => ipcRenderer.removeAllListeners('timer-data-sync');
+  18 |     },
+  19 |     
+  20 |     onStyleChange: (callback) => {
+  21 |       ipcRenderer.on('overlay-style-change', (_, style) => callback(style));
+  22 |       return () => ipcRenderer.removeAllListeners('overlay-style-change');
+  23 |     },
+  24 |     
+  25 |     onReady: (callback) => {
+  26 |       ipcRenderer.on('overlay-ready', (_, isReady) => callback(isReady));
+  27 |       return () => ipcRenderer.removeAllListeners('overlay-ready');
+  28 |     },
+  29 |   },
+  30 |   
+  31 |   timer: {
+  32 |     syncData: (data) => ipcRenderer.invoke('timer-data-sync', data),
+  33 |   },
+  34 |   
+  35 |   hotkeys: {
+  36 |     register: (hotkeys) => ipcRenderer.invoke('hotkey-register', hotkeys),
+  37 |     
+  38 |     onPressed: (callback) => {
+  39 |       ipcRenderer.on('hotkey-pressed', (_, action) => callback(action));
+  40 |       return () => ipcRenderer.removeAllListeners('hotkey-pressed');
+  41 |     },
+  42 |   },
+  43 |   
+  44 |   removeAllListeners: () => {
+  45 |     ipcRenderer.removeAllListeners('timer-data-sync');
+  46 |     ipcRenderer.removeAllListeners('overlay-style-change');
+  47 |     ipcRenderer.removeAllListeners('hotkey-pressed');
+  48 |     ipcRenderer.removeAllListeners('overlay-ready');
+  49 |   },
+  50 | };
+  51 | 
+  52 | contextBridge.exposeInMainWorld('electronAPI', api);
 
 ```
 
@@ -694,112 +607,93 @@ dbdoverlaytools-free
    2 |   "name": "dbd-timer-overlay",
    3 |   "version": "1.0.0",
    4 |   "description": "Dead by Daylight 1v1 Timer Overlay - Lightweight and performant desktop application",
-   5 |   "main": "dist-electron/main.js",
-   6 |   "scripts": {
-   7 |     "dev": "vite",
-   8 |     "build": "tsc && vite build && electron-builder",
-   9 |     "build-only": "vite build",
-  10 |     "build-electron": "vite build --config vite.config.ts",
-  11 |     "electron": "wait-on tcp:5173 && wait-on file:./dist-electron/main.js && cross-env NODE_ENV=development electron .",
-  12 |     "electron:pack": "electron-builder",
-  13 |     "electron:dev": "node scripts/start.js",
-  14 |     "electron:build": "npm run build-electron && cross-env NODE_ENV=development electron .",
-  15 |     "preview": "vite preview",
-  16 |     "postinstall": "electron-builder install-app-deps",
-  17 |     "clean": "rimraf dist dist-electron release",
-  18 |     "setup": "node scripts/setup.js",
-  19 |     "debug": "node scripts/debug.js",
-  20 |     "fix": "node scripts/fix.js"
-  21 |   },
-  22 |   "keywords": [
-  23 |     "electron",
-  24 |     "react",
-  25 |     "typescript",
-  26 |     "vite",
-  27 |     "dead-by-daylight",
-  28 |     "overlay",
-  29 |     "timer"
-  30 |   ],
-  31 |   "author": "Doc & Steaxs",
-  32 |   "license": "MIT",
-  33 |   "devDependencies": {
-  34 |     "@types/node": "^20.10.0",
-  35 |     "@types/react": "^18.2.43",
-  36 |     "@types/react-dom": "^18.2.17",
-  37 |     "@typescript-eslint/eslint-plugin": "^6.14.0",
-  38 |     "@typescript-eslint/parser": "^6.14.0",
-  39 |     "@vitejs/plugin-react": "^4.2.1",
-  40 |     "autoprefixer": "^10.4.16",
-  41 |     "concurrently": "^8.2.2",
-  42 |     "cross-env": "^7.0.3",
-  43 |     "electron": "^28.1.0",
-  44 |     "electron-builder": "^24.9.1",
-  45 |     "eslint": "^8.55.0",
-  46 |     "eslint-plugin-react-hooks": "^4.6.0",
-  47 |     "eslint-plugin-react-refresh": "^0.4.5",
-  48 |     "postcss": "^8.4.32",
-  49 |     "rimraf": "^5.0.5",
-  50 |     "tailwindcss": "^3.3.6",
-  51 |     "typescript": "^5.2.2",
-  52 |     "vite": "^5.0.8",
-  53 |     "vite-plugin-electron": "^0.28.1",
-  54 |     "vite-plugin-electron-renderer": "^0.14.5",
-  55 |     "wait-on": "^7.2.0"
-  56 |   },
-  57 |   "dependencies": {
-  58 |     "electron-store": "^8.2.0",
-  59 |     "react": "^18.2.0",
-  60 |     "react-dom": "^18.2.0",
-  61 |     "zustand": "^4.4.7"
-  62 |   },
-  63 |   "build": {
-  64 |     "appId": "com.dbdtools.timer-overlay",
-  65 |     "productName": "DBD Timer Overlay",
-  66 |     "directories": {
-  67 |       "output": "release"
-  68 |     },
-  69 |     "files": [
-  70 |       "dist/**/*",
-  71 |       "dist-electron/**/*",
-  72 |       "node_modules/**/*",
-  73 |       "package.json"
-  74 |     ],
-  75 |     "mac": {
-  76 |       "icon": "resources/icon.icns",
-  77 |       "target": [
-  78 |         {
-  79 |           "target": "dmg",
-  80 |           "arch": [
-  81 |             "arm64",
-  82 |             "x64"
-  83 |           ]
-  84 |         }
-  85 |       ]
-  86 |     },
-  87 |     "win": {
-  88 |       "icon": "resources/icon.ico",
-  89 |       "target": [
-  90 |         {
-  91 |           "target": "nsis",
-  92 |           "arch": [
-  93 |             "x64"
-  94 |           ]
-  95 |         }
-  96 |       ]
-  97 |     },
-  98 |     "linux": {
-  99 |       "icon": "resources/icon.png",
- 100 |       "target": [
- 101 |         {
- 102 |           "target": "AppImage",
- 103 |           "arch": [
- 104 |             "x64"
- 105 |           ]
- 106 |         }
- 107 |       ]
- 108 |     }
- 109 |   }
- 110 | }
+   5 |   "main": "electron/main.cjs",
+   6 |   "type": "module",
+   7 |   "scripts": {
+   8 |     "dev": "vite",
+   9 |     "build": "vite build",
+  10 |     "electron:dev": "node scripts/start.js",
+  11 |     "electron:build": "npm run build && electron-builder",
+  12 |     "clean": "rimraf dist dist-electron release"
+  13 |   },
+  14 |   "keywords": [
+  15 |     "electron",
+  16 |     "react",
+  17 |     "typescript",
+  18 |     "dead-by-daylight",
+  19 |     "overlay",
+  20 |     "timer"
+  21 |   ],
+  22 |   "author": "Doc & Steaxs",
+  23 |   "license": "MIT",
+  24 |   "devDependencies": {
+  25 |     "@types/node": "^20.10.0",
+  26 |     "@types/react": "^18.2.43",
+  27 |     "@types/react-dom": "^18.2.17",
+  28 |     "@vitejs/plugin-react": "^4.2.1",
+  29 |     "autoprefixer": "^10.4.16",
+  30 |     "cross-env": "^7.0.3",
+  31 |     "electron": "^28.1.0",
+  32 |     "electron-builder": "^24.9.1",
+  33 |     "postcss": "^8.4.32",
+  34 |     "rimraf": "^5.0.5",
+  35 |     "tailwindcss": "^3.3.6",
+  36 |     "typescript": "^5.2.2",
+  37 |     "vite": "^5.0.8",
+  38 |     "vite-plugin-electron": "^0.28.1",
+  39 |     "vite-plugin-electron-renderer": "^0.14.5"
+  40 |   },
+  41 |   "dependencies": {
+  42 |     "electron-store": "^8.2.0",
+  43 |     "react": "^18.2.0",
+  44 |     "react-dom": "^18.2.0",
+  45 |     "zustand": "^4.4.7"
+  46 |   },
+  47 |   "build": {
+  48 |     "appId": "com.dbdtools.timer-overlay",
+  49 |     "productName": "DBD Timer Overlay",
+  50 |     "directories": {
+  51 |       "output": "release"
+  52 |     },
+  53 |     "files": [
+  54 |       "dist/**/*",
+  55 |       "dist-electron/**/*",
+  56 |       "node_modules/**/*",
+  57 |       "package.json"
+  58 |     ],
+  59 |     "mac": {
+  60 |       "target": [
+  61 |         {
+  62 |           "target": "dmg",
+  63 |           "arch": [
+  64 |             "arm64",
+  65 |             "x64"
+  66 |           ]
+  67 |         }
+  68 |       ]
+  69 |     },
+  70 |     "win": {
+  71 |       "target": [
+  72 |         {
+  73 |           "target": "nsis",
+  74 |           "arch": [
+  75 |             "x64"
+  76 |           ]
+  77 |         }
+  78 |       ]
+  79 |     },
+  80 |     "linux": {
+  81 |       "target": [
+  82 |         {
+  83 |           "target": "AppImage",
+  84 |           "arch": [
+  85 |             "x64"
+  86 |           ]
+  87 |         }
+  88 |       ]
+  89 |     }
+  90 |   }
+  91 | }
 
 ```
 
@@ -815,237 +709,6 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/scripts\debug.js`:
-
-```js
-   1 | import fs from 'fs';
-   2 | import path from 'path';
-   3 | import { fileURLToPath } from 'url';
-   4 | 
-   5 | const __filename = fileURLToPath(import.meta.url);
-   6 | const __dirname = path.dirname(__filename);
-   7 | 
-   8 | console.log('🔍 Checking project structure...\n');
-   9 | 
-  10 | // Check required files
-  11 | const requiredFiles = [
-  12 |   'package.json',
-  13 |   'tsconfig.json',
-  14 |   'vite.config.ts',
-  15 |   'tailwind.config.js',
-  16 |   'src/App.tsx',
-  17 |   'src/main.tsx',
-  18 |   'src/overlay.tsx',
-  19 |   'electron/main.ts',
-  20 |   'electron/preload.ts',
-  21 |   'index.html',
-  22 |   'overlay.html'
-  23 | ];
-  24 | 
-  25 | requiredFiles.forEach(file => {
-  26 |   const exists = fs.existsSync(path.join(__dirname, '..', file));
-  27 |   console.log(`${exists ? '✅' : '❌'} ${file}`);
-  28 | });
-  29 | 
-  30 | // Check dependencies
-  31 | console.log('\n📦 Checking package.json...');
-  32 | try {
-  33 |   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-  34 |   console.log(`Name: ${pkg.name}`);
-  35 |   console.log(`Version: ${pkg.version}`);
-  36 |   console.log(`Main: ${pkg.main}`);
-  37 |   
-  38 |   const requiredDeps = ['react', 'react-dom', 'zustand', 'electron-store'];
-  39 |   const requiredDevDeps = ['electron', 'vite', 'typescript', '@vitejs/plugin-react'];
-  40 |   
-  41 |   console.log('\n📋 Required dependencies:');
-  42 |   requiredDeps.forEach(dep => {
-  43 |     const exists = pkg.dependencies && pkg.dependencies[dep];
-  44 |     console.log(`${exists ? '✅' : '❌'} ${dep}`);
-  45 |   });
-  46 |   
-  47 |   console.log('\n🛠️ Required dev dependencies:');
-  48 |   requiredDevDeps.forEach(dep => {
-  49 |     const exists = pkg.devDependencies && pkg.devDependencies[dep];
-  50 |     console.log(`${exists ? '✅' : '❌'} ${dep}`);
-  51 |   });
-  52 |   
-  53 | } catch (error) {
-  54 |   console.log('❌ Failed to read package.json');
-  55 | }
-  56 | 
-  57 | console.log('\n🎯 Debug complete!');
-
-```
-
-`dbdoverlaytools-free/scripts\fix.js`:
-
-```js
-   1 | import fs from 'fs';
-   2 | import path from 'path';
-   3 | import { fileURLToPath } from 'url';
-   4 | 
-   5 | const __filename = fileURLToPath(import.meta.url);
-   6 | const __dirname = path.dirname(__filename);
-   7 | 
-   8 | console.log('🔧 Fixing common DBD Timer Overlay issues...\n');
-   9 | 
-  10 | // Create missing directories
-  11 | const dirs = ['dist', 'dist-electron', 'resources'];
-  12 | dirs.forEach(dir => {
-  13 |   const dirPath = path.join(__dirname, '..', dir);
-  14 |   if (!fs.existsSync(dirPath)) {
-  15 |     fs.mkdirSync(dirPath, { recursive: true });
-  16 |     console.log(`✅ Created directory: ${dir}`);
-  17 |   }
-  18 | });
-  19 | 
-  20 | // Create resources and dummy icons
-  21 | const resourcesDir = path.join(__dirname, '..', 'resources');
-  22 | const iconFiles = [
-  23 |   { name: 'icon.ico', content: 'ICON_PLACEHOLDER' },
-  24 |   { name: 'icon.icns', content: 'ICON_PLACEHOLDER' },
-  25 |   { name: 'icon.png', content: 'ICON_PLACEHOLDER' }
-  26 | ];
-  27 | 
-  28 | iconFiles.forEach(icon => {
-  29 |   const iconPath = path.join(resourcesDir, icon.name);
-  30 |   if (!fs.existsSync(iconPath)) {
-  31 |     fs.writeFileSync(iconPath, icon.content);
-  32 |     console.log(`✅ Created dummy ${icon.name}`);
-  33 |   }
-  34 | });
-  35 | 
-  36 | // Check main entry points
-  37 | const entryPoints = [
-  38 |   'electron/main.ts',
-  39 |   'electron/preload.ts',
-  40 |   'src/main.tsx',
-  41 |   'src/overlay.tsx',
-  42 |   'index.html',
-  43 |   'overlay.html'
-  44 | ];
-  45 | 
-  46 | console.log('\n📋 Checking entry points:');
-  47 | let allGood = true;
-  48 | entryPoints.forEach(file => {
-  49 |   const exists = fs.existsSync(path.join(__dirname, '..', file));
-  50 |   console.log(`${exists ? '✅' : '❌'} ${file}`);
-  51 |   if (!exists) allGood = false;
-  52 | });
-  53 | 
-  54 | // Check package.json
-  55 | console.log('\n📦 Checking package.json...');
-  56 | try {
-  57 |   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-  58 |   console.log(`✅ Package name: ${pkg.name}`);
-  59 |   console.log(`✅ Main entry: ${pkg.main}`);
-  60 |   
-  61 |   const requiredDeps = ['react', 'react-dom', 'zustand', 'electron-store'];
-  62 |   const missingDeps = requiredDeps.filter(dep => !pkg.dependencies || !pkg.dependencies[dep]);
-  63 |   
-  64 |   if (missingDeps.length > 0) {
-  65 |     console.log('❌ Missing dependencies:', missingDeps.join(', '));
-  66 |     allGood = false;
-  67 |   } else {
-  68 |     console.log('✅ All required dependencies present');
-  69 |   }
-  70 | } catch (error) {
-  71 |   console.log('❌ Failed to read package.json');
-  72 |   allGood = false;
-  73 | }
-  74 | 
-  75 | // Check node_modules
-  76 | console.log('\n📁 Checking node_modules...');
-  77 | const nodeModulesExists = fs.existsSync(path.join(__dirname, '..', 'node_modules'));
-  78 | if (!nodeModulesExists) {
-  79 |   console.log('❌ node_modules not found - run "npm install"');
-  80 |   allGood = false;
-  81 | } else {
-  82 |   console.log('✅ node_modules exists');
-  83 | }
-  84 | 
-  85 | if (allGood) {
-  86 |   console.log('\n🎉 All checks passed! You can now run:');
-  87 |   console.log('   npm run electron:dev');
-  88 | } else {
-  89 |   console.log('\n⚠️  Some issues found. Try running:');
-  90 |   console.log('   npm install');
-  91 |   console.log('   npm run clean');
-  92 |   console.log('   npm run electron:dev');
-  93 | }
-  94 | 
-  95 | console.log('\n🎯 Fix complete!');
-
-```
-
-`dbdoverlaytools-free/scripts\setup.js`:
-
-```js
-   1 | import fs from 'fs';
-   2 | import path from 'path';
-   3 | import { fileURLToPath } from 'url';
-   4 | 
-   5 | const __filename = fileURLToPath(import.meta.url);
-   6 | const __dirname = path.dirname(__filename);
-   7 | 
-   8 | console.log('🔧 Setting up DBD Timer Overlay project...\n');
-   9 | 
-  10 | // Create resources directory for icons
-  11 | const resourcesDir = path.join(__dirname, '..', 'resources');
-  12 | if (!fs.existsSync(resourcesDir)) {
-  13 |   fs.mkdirSync(resourcesDir);
-  14 |   console.log('✅ Created resources directory');
-  15 | }
-  16 | 
-  17 | // Create dummy icon files if they don't exist
-  18 | const iconFiles = [
-  19 |   { name: 'icon.ico', content: 'Dummy Windows icon' },
-  20 |   { name: 'icon.icns', content: 'Dummy macOS icon' },
-  21 |   { name: 'icon.png', content: 'Dummy Linux icon' }
-  22 | ];
-  23 | 
-  24 | iconFiles.forEach(icon => {
-  25 |   const iconPath = path.join(resourcesDir, icon.name);
-  26 |   if (!fs.existsSync(iconPath)) {
-  27 |     fs.writeFileSync(iconPath, icon.content);
-  28 |     console.log(`✅ Created dummy ${icon.name}`);
-  29 |   }
-  30 | });
-  31 | 
-  32 | // Check if main entry points exist
-  33 | const entryPoints = [
-  34 |   'electron/main.ts',
-  35 |   'electron/preload.ts',
-  36 |   'src/main.tsx',
-  37 |   'src/overlay.tsx',
-  38 |   'index.html',
-  39 |   'overlay.html'
-  40 | ];
-  41 | 
-  42 | console.log('\n📋 Checking entry points:');
-  43 | entryPoints.forEach(file => {
-  44 |   const exists = fs.existsSync(path.join(__dirname, '..', file));
-  45 |   console.log(`${exists ? '✅' : '❌'} ${file}`);
-  46 | });
-  47 | 
-  48 | // Check dist-electron directory
-  49 | const distElectronDir = path.join(__dirname, '..', 'dist-electron');
-  50 | console.log(`\n📁 dist-electron exists: ${fs.existsSync(distElectronDir) ? '✅' : '❌'}`);
-  51 | 
-  52 | if (fs.existsSync(distElectronDir)) {
-  53 |   const files = fs.readdirSync(distElectronDir);
-  54 |   console.log('Files in dist-electron:', files);
-  55 |   
-  56 |   // Check if main.js exists
-  57 |   const mainJsExists = files.includes('main.js');
-  58 |   console.log(`main.js exists: ${mainJsExists ? '✅' : '❌'}`);
-  59 | }
-  60 | 
-  61 | console.log('\n🎯 Setup complete! Try running: npm run electron:dev');
-
-```
-
 `dbdoverlaytools-free/scripts\start.js`:
 
 ```js
@@ -1058,376 +721,318 @@ dbdoverlaytools-free
    7 | const __filename = fileURLToPath(import.meta.url);
    8 | const __dirname = path.dirname(__filename);
    9 | 
-  10 | console.log('🚀 Starting DBD Timer Overlay in development mode...\n');
+  10 | console.log('🚀 Starting DBD Timer Overlay...\n');
   11 | 
-  12 | // Function to wait for file existence
-  13 | function waitForFile(filepath, timeout = 30000) {
-  14 |   return new Promise((resolve, reject) => {
-  15 |     const startTime = Date.now();
-  16 |     
-  17 |     const checkFile = () => {
-  18 |       if (fs.existsSync(filepath)) {
-  19 |         console.log(`✅ Found ${filepath}`);
-  20 |         resolve(true);
-  21 |         return;
-  22 |       }
-  23 |       
-  24 |       if (Date.now() - startTime > timeout) {
-  25 |         reject(new Error(`Timeout waiting for ${filepath}`));
-  26 |         return;
-  27 |       }
-  28 |       
-  29 |       setTimeout(checkFile, 100);
-  30 |     };
-  31 |     
-  32 |     checkFile();
-  33 |   });
-  34 | }
-  35 | 
-  36 | // Function to wait for server
-  37 | function waitForServer(port, timeout = 30000) {
-  38 |   return new Promise((resolve, reject) => {
-  39 |     const startTime = Date.now();
-  40 |     
-  41 |     const checkServer = () => {
-  42 |       const socket = new net.Socket();
-  43 |       
-  44 |       socket.setTimeout(1000);
-  45 |       socket.on('connect', () => {
-  46 |         socket.destroy();
-  47 |         console.log(`✅ Server ready on port ${port}`);
-  48 |         resolve(true);
-  49 |       });
-  50 |       
-  51 |       socket.on('timeout', () => {
-  52 |         socket.destroy();
-  53 |         checkAgain();
-  54 |       });
-  55 |       
-  56 |       socket.on('error', () => {
-  57 |         checkAgain();
-  58 |       });
-  59 |       
-  60 |       const checkAgain = () => {
-  61 |         if (Date.now() - startTime > timeout) {
-  62 |           reject(new Error(`Timeout waiting for server on port ${port}`));
-  63 |           return;
-  64 |         }
-  65 |         setTimeout(checkServer, 500);
-  66 |       };
-  67 |       
-  68 |       socket.connect(port, 'localhost');
-  69 |     };
-  70 |     
-  71 |     checkServer();
-  72 |   });
-  73 | }
-  74 | 
-  75 | async function startApp() {
-  76 |   try {
-  77 |     // Nettoyer les anciens builds
-  78 |     console.log('🧹 Cleaning old builds...');
-  79 |     const distElectronPath = path.join(__dirname, '..', 'dist-electron');
-  80 |     if (fs.existsSync(distElectronPath)) {
-  81 |       fs.rmSync(distElectronPath, { recursive: true, force: true });
-  82 |     }
-  83 |     
-  84 |     // Étape 1: Build Electron en premier
-  85 |     console.log('🔧 Building Electron main process...');
-  86 |     const buildElectron = spawn('npx', ['vite', 'build', '--config', 'vite.config.ts', '--mode', 'development'], {
-  87 |       stdio: 'pipe',
-  88 |       shell: true,
-  89 |       env: { ...process.env, NODE_ENV: 'development' }
-  90 |     });
-  91 |     
-  92 |     buildElectron.stdout.on('data', (data) => {
-  93 |       process.stdout.write(`[BUILD] ${data}`);
-  94 |     });
-  95 |     
-  96 |     buildElectron.stderr.on('data', (data) => {
-  97 |       process.stderr.write(`[BUILD ERROR] ${data}`);
-  98 |     });
-  99 |     
- 100 |     await new Promise((resolve, reject) => {
- 101 |       buildElectron.on('close', (code) => {
- 102 |         if (code === 0) {
- 103 |           console.log('✅ Electron build completed');
- 104 |           resolve(null);
- 105 |         } else {
- 106 |           reject(new Error(`Electron build failed with code ${code}`));
- 107 |         }
- 108 |       });
- 109 |     });
- 110 |     
- 111 |     // Vérifier que main.js existe
- 112 |     const mainJsPath = path.join(__dirname, '..', 'dist-electron', 'main.js');
- 113 |     await waitForFile(mainJsPath);
- 114 |     
- 115 |     // Étape 2: Démarrer Vite dev server
- 116 |     console.log('📦 Starting Vite dev server...');
- 117 |     const viteProcess = spawn('npx', ['vite', '--port', '5173'], {
- 118 |       stdio: 'pipe',
- 119 |       shell: true
- 120 |     });
- 121 |     
- 122 |     viteProcess.stdout.on('data', (data) => {
- 123 |       const output = data.toString();
- 124 |       process.stdout.write(`[VITE] ${output}`);
- 125 |     });
- 126 |     
- 127 |     viteProcess.stderr.on('data', (data) => {
- 128 |       process.stderr.write(`[VITE ERROR] ${data}`);
- 129 |     });
- 130 |     
- 131 |     // Attendre que le serveur Vite soit prêt
- 132 |     await waitForServer(5173);
- 133 |     
- 134 |     // Petite pause pour s'assurer que tout est stable
- 135 |     await new Promise(resolve => setTimeout(resolve, 1000));
- 136 |     
- 137 |     // Étape 3: Démarrer Electron
- 138 |     console.log('⚡ Starting Electron...');
- 139 |     const electronProcess = spawn('npx', ['cross-env', 'NODE_ENV=development', 'electron', '.'], {
- 140 |       stdio: 'pipe',
- 141 |       shell: true,
- 142 |       cwd: path.join(__dirname, '..')
- 143 |     });
- 144 |     
- 145 |     electronProcess.stdout.on('data', (data) => {
- 146 |       process.stdout.write(`[ELECTRON] ${data}`);
- 147 |     });
- 148 |     
- 149 |     electronProcess.stderr.on('data', (data) => {
- 150 |       const output = data.toString();
- 151 |       // Ignorer les erreurs de cache GPU qui sont normales
- 152 |       if (output.includes('cache') || output.includes('Cache') || output.includes('GPU')) {
- 153 |         return;
- 154 |       }
- 155 |       process.stderr.write(`[ELECTRON] ${data}`);
- 156 |     });
- 157 |     
- 158 |     // Gestion de la fermeture
- 159 |     process.on('SIGINT', () => {
- 160 |       console.log('\n🛑 Shutting down...');
- 161 |       viteProcess.kill('SIGTERM');
- 162 |       electronProcess.kill('SIGTERM');
- 163 |       setTimeout(() => {
- 164 |         process.exit(0);
- 165 |       }, 1000);
- 166 |     });
- 167 |     
- 168 |     electronProcess.on('close', (code) => {
- 169 |       console.log(`\n📱 Electron exited with code ${code}`);
- 170 |       viteProcess.kill('SIGTERM');
- 171 |       process.exit(code);
- 172 |     });
- 173 |     
- 174 |     viteProcess.on('close', (code) => {
- 175 |       console.log(`\n📦 Vite exited with code ${code}`);
- 176 |       electronProcess.kill('SIGTERM');
- 177 |       process.exit(code);
- 178 |     });
- 179 |     
- 180 |     console.log('🎉 Application started successfully!');
- 181 |     
- 182 |   } catch (error) {
- 183 |     console.error('❌ Error starting application:', error.message);
- 184 |     process.exit(1);
- 185 |   }
- 186 | }
- 187 | 
- 188 | startApp();
+  12 | function waitForServer(port, timeout = 30000) {
+  13 |   return new Promise((resolve, reject) => {
+  14 |     const startTime = Date.now();
+  15 |     
+  16 |     const checkServer = () => {
+  17 |       const socket = new net.Socket();
+  18 |       
+  19 |       socket.setTimeout(1000);
+  20 |       socket.on('connect', () => {
+  21 |         socket.destroy();
+  22 |         console.log(`✅ Server ready on port ${port}`);
+  23 |         resolve(true);
+  24 |       });
+  25 |       
+  26 |       socket.on('timeout', () => {
+  27 |         socket.destroy();
+  28 |         checkAgain();
+  29 |       });
+  30 |       
+  31 |       socket.on('error', () => {
+  32 |         checkAgain();
+  33 |       });
+  34 |       
+  35 |       const checkAgain = () => {
+  36 |         if (Date.now() - startTime > timeout) {
+  37 |           reject(new Error(`Timeout waiting for server on port ${port}`));
+  38 |           return;
+  39 |         }
+  40 |         setTimeout(checkServer, 500);
+  41 |       };
+  42 |       
+  43 |       socket.connect(port, 'localhost');
+  44 |     };
+  45 |     
+  46 |     checkServer();
+  47 |   });
+  48 | }
+  49 | 
+  50 | async function startApp() {
+  51 |   try {
+  52 |     console.log('📦 Starting Vite dev server...');
+  53 |     const viteProcess = spawn('npx', ['vite', '--port', '5173'], {
+  54 |       stdio: 'pipe',
+  55 |       shell: true
+  56 |     });
+  57 |     
+  58 |     viteProcess.stdout.on('data', (data) => {
+  59 |       process.stdout.write(`[VITE] ${data}`);
+  60 |     });
+  61 |     
+  62 |     await waitForServer(5173);
+  63 |     await new Promise(resolve => setTimeout(resolve, 1000));
+  64 |     
+  65 |     console.log('⚡ Starting Electron...');
+  66 |     const electronProcess = spawn('npx', ['cross-env', 'NODE_ENV=development', 'electron', '.'], {
+  67 |       stdio: 'inherit',
+  68 |       shell: true,
+  69 |       cwd: path.join(__dirname, '..')
+  70 |     });
+  71 |     
+  72 |     process.on('SIGINT', () => {
+  73 |       console.log('\n🛑 Shutting down...');
+  74 |       viteProcess.kill('SIGTERM');
+  75 |       electronProcess.kill('SIGTERM');
+  76 |       setTimeout(() => process.exit(0), 1000);
+  77 |     });
+  78 |     
+  79 |     electronProcess.on('close', (code) => {
+  80 |       console.log(`\n📱 Electron exited with code ${code}`);
+  81 |       viteProcess.kill('SIGTERM');
+  82 |       process.exit(code);
+  83 |     });
+  84 |     
+  85 |     console.log('🎉 Application started successfully!');
+  86 |     
+  87 |   } catch (error) {
+  88 |     console.error('❌ Error starting application:', error.message);
+  89 |     process.exit(1);
+  90 |   }
+  91 | }
+  92 | 
+  93 | startApp();
 
 ```
 
 `dbdoverlaytools-free/src\App.tsx`:
 
 ```tsx
-   1 | // src/App.tsx
-   2 | import React, { useEffect } from 'react';
-   3 | import { useTimerStore } from './store/timerStore';
-   4 | import ControlPanel from './components/ControlPanel';
-   5 | import useElectronStore from './hooks/useElectronStore';
-   6 | import useGlobalHotkeys from './hooks/useGlobalHotkeys';
-   7 | 
-   8 | const App: React.FC = () => {
-   9 |   const { loadFromStorage, saveToStorage } = useTimerStore();
-  10 |   
-  11 |   useElectronStore();
-  12 |   useGlobalHotkeys();
-  13 | 
-  14 |   useEffect(() => {
-  15 |     loadFromStorage();
-  16 | 
-  17 |     const handleBeforeUnload = () => {
-  18 |       saveToStorage();
-  19 |     };
-  20 | 
-  21 |     window.addEventListener('beforeunload', handleBeforeUnload);
-  22 | 
-  23 |     return () => {
-  24 |       window.removeEventListener('beforeunload', handleBeforeUnload);
-  25 |       if (window.electronAPI) {
-  26 |         window.electronAPI.removeAllListeners();
-  27 |       }
-  28 |     };
-  29 |   }, [loadFromStorage, saveToStorage]);
-  30 | 
-  31 |   return (
-  32 |     <div className="min-h-screen bg-gray-900 text-white">
-  33 |       <div className="container mx-auto p-6">
-  34 |         <header className="mb-8">
-  35 |           <h1 className="text-3xl font-bold text-primary-400 mb-2">
-  36 |             DBD Timer Overlay
-  37 |           </h1>
-  38 |           <p className="text-gray-400">
-  39 |             Lightweight 1v1 timer for Dead by Daylight competitive matches
-  40 |           </p>
-  41 |         </header>
-  42 |         
-  43 |         <ControlPanel />
-  44 |       </div>
-  45 |     </div>
-  46 |   );
-  47 | };
-  48 | 
-  49 | export default App;
+   1 | import React, { useEffect, useState } from 'react';
+   2 | import { useTimerStore } from './store/timerStore';
+   3 | import ControlPanel from './components/ControlPanel';
+   4 | import useGlobalHotkeys from './hooks/useGlobalHotkeys';
+   5 | import type { TimerData } from './types';
+   6 | 
+   7 | declare global {
+   8 |   interface Window {
+   9 |     electronAPI?: {
+  10 |       store: {
+  11 |         get: (key: string) => Promise<any>;
+  12 |         set: (key: string, value: any) => Promise<void>;
+  13 |       };
+  14 |       overlay: {
+  15 |         show: () => Promise<{ success: boolean; error?: string }>;
+  16 |         hide: () => Promise<{ success: boolean; error?: string }>;
+  17 |         updateSettings: (settings: any) => Promise<void>;
+  18 |         styleChange: (style: any) => Promise<void>;
+  19 |         onDataSync: (callback: (data: TimerData) => void) => () => void;
+  20 |         onStyleChange: (callback: (style: any) => void) => () => void;
+  21 |         onReady: (callback: (isReady: boolean) => void) => () => void;
+  22 |       };
+  23 |       timer: {
+  24 |         syncData: (data: TimerData) => Promise<void>;
+  25 |       };
+  26 |       hotkeys: {
+  27 |         register: (hotkeys: { start: string; swap: string }) => Promise<void>;
+  28 |         onPressed: (callback: (action: string) => void) => () => void;
+  29 |       };
+  30 |       removeAllListeners: () => void;
+  31 |     };
+  32 |   }
+  33 | }
+  34 | 
+  35 | const App: React.FC = () => {
+  36 |   const { loadFromStorage, timerData } = useTimerStore();
+  37 |   const [isInitialized, setIsInitialized] = useState(false);
+  38 | 
+  39 |   useGlobalHotkeys();
+  40 | 
+  41 |   useEffect(() => {
+  42 |     const initializeApp = async () => {
+  43 |       try {
+  44 |         await loadFromStorage();
+  45 |         setIsInitialized(true);
+  46 |         console.log('App initialized with data:', timerData);
+  47 |       } catch (error) {
+  48 |         console.error('Failed to initialize app:', error);
+  49 |         setIsInitialized(true);
+  50 |       }
+  51 |     };
+  52 | 
+  53 |     initializeApp();
+  54 |   }, [loadFromStorage]);
+  55 | 
+  56 |   if (!isInitialized) {
+  57 |     return (
+  58 |       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+  59 |         <div className="text-white text-lg">Loading...</div>
+  60 |       </div>
+  61 |     );
+  62 |   }
+  63 | 
+  64 |   return (
+  65 |     <div className="min-h-screen bg-gray-900 text-white">
+  66 |       <div className="container mx-auto p-6">
+  67 |         <header className="text-center mb-8">
+  68 |           <h1 className="text-4xl font-bold text-primary-400 mb-2">
+  69 |             DBD Timer Overlay
+  70 |           </h1>
+  71 |           <p className="text-gray-400">
+  72 |             Professional timer overlay for Dead by Daylight 1v1 matches
+  73 |           </p>
+  74 |         </header>
+  75 | 
+  76 |         <main>
+  77 |           <ControlPanel />
+  78 |         </main>
+  79 | 
+  80 |         <footer className="text-center mt-8 text-gray-500 text-sm">
+  81 |           <p>Press your configured hotkeys to control timers globally</p>
+  82 |         </footer>
+  83 |       </div>
+  84 |     </div>
+  85 |   );
+  86 | };
+  87 | 
+  88 | export default App;
 
 ```
 
 `dbdoverlaytools-free/src\components\ControlPanel.tsx`:
 
 ```tsx
-   1 | // src/components/ControlPanel.tsx
-   2 | import React, { useEffect } from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | import useTimer from '../hooks/useTimer';
-   5 | import TimerControls from './TimerControls';
-   6 | import PlayerSettings from './PlayerSettings';
-   7 | import OverlaySettings from './OverlaySettings';
-   8 | import HotkeySettings from './HotkeySettings';
-   9 | 
-  10 | const ControlPanel: React.FC = () => {
-  11 |   const {
-  12 |     timerData,
-  13 |     overlaySettings,
-  14 |     isOverlayVisible,
-  15 |     setOverlayVisible,
-  16 |     saveToStorage,
-  17 |   } = useTimerStore();
-  18 | 
-  19 |   const { formattedTime1, formattedTime2, isRunning } = useTimer();
-  20 | 
-  21 |   // Listen for overlay status changes
-  22 |   useEffect(() => {
-  23 |     if (!window.electronAPI) return;
-  24 | 
-  25 |     const unsubscribeOverlayReady = window.electronAPI.overlay.onReady((isReady: boolean) => {
-  26 |       setOverlayVisible(isReady);
-  27 |     });
-  28 | 
-  29 |     return () => {
-  30 |       unsubscribeOverlayReady();
-  31 |     };
-  32 |   }, [setOverlayVisible]);
-  33 | 
-  34 |   const handleToggleOverlay = async () => {
-  35 |     if (!window.electronAPI) return;
-  36 | 
-  37 |     try {
-  38 |       if (isOverlayVisible) {
-  39 |         await window.electronAPI.overlay.hide();
-  40 |         setOverlayVisible(false);
-  41 |       } else {
-  42 |         await window.electronAPI.overlay.show();
-  43 |         setOverlayVisible(true);
-  44 |       }
-  45 |       saveToStorage();
-  46 |     } catch (error) {
-  47 |       console.error('Failed to toggle overlay:', error);
-  48 |     }
-  49 |   };
-  50 | 
-  51 |   return (
-  52 |     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  53 |       <div className="space-y-6">
-  54 |         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-  55 |           <h2 className="text-xl font-semibold text-primary-400 mb-4">
-  56 |             Timer Control
-  57 |           </h2>
-  58 |           
-  59 |           <div className="mb-6">
-  60 |             <div className="grid grid-cols-2 gap-4 mb-4">
-  61 |               <div className="text-center">
-  62 |                 <div className="text-sm text-gray-400 mb-1">
-  63 |                   {timerData.player1Name}
-  64 |                 </div>
-  65 |                 <div className={`text-2xl font-mono font-bold ${
-  66 |                   timerData.currentTimer === 1 && isRunning 
-  67 |                     ? 'text-primary-400 timer-glow' 
-  68 |                     : 'text-white'
-  69 |                 }`}>
-  70 |                   {formattedTime1}
-  71 |                 </div>
-  72 |               </div>
-  73 |               
-  74 |               <div className="text-center">
-  75 |                 <div className="text-sm text-gray-400 mb-1">
-  76 |                   {timerData.player2Name}
-  77 |                 </div>
-  78 |                 <div className={`text-2xl font-mono font-bold ${
-  79 |                   timerData.currentTimer === 2 && isRunning 
-  80 |                     ? 'text-primary-400 timer-glow' 
-  81 |                     : 'text-white'
-  82 |                 }`}>
-  83 |                   {formattedTime2}
-  84 |                 </div>
-  85 |               </div>
-  86 |             </div>
-  87 |             
-  88 |             <div className="text-center text-lg font-semibold">
-  89 |               Score: {timerData.player1Score} - {timerData.player2Score}
-  90 |             </div>
-  91 |           </div>
-  92 |           
-  93 |           <TimerControls />
-  94 |         </div>
-  95 | 
-  96 |         <PlayerSettings />
-  97 |       </div>
-  98 | 
-  99 |       <div className="space-y-6">
- 100 |         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
- 101 |           <h2 className="text-xl font-semibold text-primary-400 mb-4">
- 102 |             Overlay Control
- 103 |           </h2>
- 104 |           
- 105 |           <div className="space-y-4">
- 106 |             <button
- 107 |               onClick={handleToggleOverlay}
- 108 |               className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${
- 109 |                 isOverlayVisible
- 110 |                   ? 'bg-success-600 hover:bg-success-700 text-white'
- 111 |                   : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
- 112 |               }`}
- 113 |             >
- 114 |               {isOverlayVisible ? 'Hide Overlay' : 'Show Overlay'}
- 115 |             </button>
- 116 |             
- 117 |             <div className="text-sm text-gray-400">
- 118 |               Status: {isOverlayVisible ? 'Visible' : 'Hidden'}
- 119 |             </div>
- 120 |           </div>
- 121 |         </div>
- 122 | 
- 123 |         <OverlaySettings />
- 124 |         <HotkeySettings />
- 125 |       </div>
- 126 |     </div>
- 127 |   );
- 128 | };
- 129 | 
- 130 | export default ControlPanel;
+   1 | import React, { useEffect } from 'react';
+   2 | import { useTimerStore } from '../store/timerStore';
+   3 | import useTimer from '../hooks/useTimer';
+   4 | import TimerControls from './TimerControls';
+   5 | import PlayerSettings from './PlayerSettings';
+   6 | import OverlaySettings from './OverlaySettings';
+   7 | import HotkeySettings from './HotkeySettings';
+   8 | 
+   9 | const ControlPanel: React.FC = () => {
+  10 |   const {
+  11 |     timerData,
+  12 |     overlaySettings,
+  13 |     isOverlayVisible,
+  14 |     setOverlayVisible,
+  15 |     saveToStorage,
+  16 |   } = useTimerStore();
+  17 | 
+  18 |   const { formattedTime1, formattedTime2, isRunning } = useTimer();
+  19 | 
+  20 |   useEffect(() => {
+  21 |     if (!window.electronAPI) return;
+  22 | 
+  23 |     const unsubscribeOverlayReady = window.electronAPI.overlay.onReady((isReady: boolean) => {
+  24 |       setOverlayVisible(isReady);
+  25 |     });
+  26 | 
+  27 |     return () => {
+  28 |       unsubscribeOverlayReady();
+  29 |     };
+  30 |   }, [setOverlayVisible]);
+  31 | 
+  32 |   const handleToggleOverlay = async () => {
+  33 |     if (!window.electronAPI) return;
+  34 | 
+  35 |     try {
+  36 |       if (isOverlayVisible) {
+  37 |         await window.electronAPI.overlay.hide();
+  38 |         setOverlayVisible(false);
+  39 |       } else {
+  40 |         await window.electronAPI.overlay.show();
+  41 |         setOverlayVisible(true);
+  42 |       }
+  43 |       saveToStorage();
+  44 |     } catch (error) {
+  45 |       console.error('Failed to toggle overlay:', error);
+  46 |     }
+  47 |   };
+  48 | 
+  49 |   return (
+  50 |     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  51 |       <div className="space-y-6">
+  52 |         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+  53 |           <h2 className="text-xl font-semibold text-primary-400 mb-4">
+  54 |             Timer Control
+  55 |           </h2>
+  56 |           
+  57 |           <div className="mb-6">
+  58 |             <div className="grid grid-cols-2 gap-4 mb-4">
+  59 |               <div className="text-center">
+  60 |                 <div className="text-sm text-gray-400 mb-1">
+  61 |                   {timerData.player1Name}
+  62 |                 </div>
+  63 |                 <div className={`text-2xl font-mono font-bold ${
+  64 |                   timerData.currentTimer === 1 && isRunning 
+  65 |                     ? 'text-primary-400 timer-glow' 
+  66 |                     : 'text-white'
+  67 |                 }`}>
+  68 |                   {formattedTime1}
+  69 |                 </div>
+  70 |               </div>
+  71 |               
+  72 |               <div className="text-center">
+  73 |                 <div className="text-sm text-gray-400 mb-1">
+  74 |                   {timerData.player2Name}
+  75 |                 </div>
+  76 |                 <div className={`text-2xl font-mono font-bold ${
+  77 |                   timerData.currentTimer === 2 && isRunning 
+  78 |                     ? 'text-primary-400 timer-glow' 
+  79 |                     : 'text-white'
+  80 |                 }`}>
+  81 |                   {formattedTime2}
+  82 |                 </div>
+  83 |               </div>
+  84 |             </div>
+  85 |             
+  86 |             <div className="text-center text-lg font-semibold">
+  87 |               Score: {timerData.player1Score} - {timerData.player2Score}
+  88 |             </div>
+  89 |           </div>
+  90 |           
+  91 |           <TimerControls />
+  92 |         </div>
+  93 | 
+  94 |         <PlayerSettings />
+  95 |       </div>
+  96 | 
+  97 |       <div className="space-y-6">
+  98 |         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+  99 |           <h2 className="text-xl font-semibold text-primary-400 mb-4">
+ 100 |             Overlay Control
+ 101 |           </h2>
+ 102 |           
+ 103 |           <div className="space-y-4">
+ 104 |             <button
+ 105 |               onClick={handleToggleOverlay}
+ 106 |               className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${
+ 107 |                 isOverlayVisible
+ 108 |                   ? 'bg-success-600 hover:bg-success-700 text-white'
+ 109 |                   : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+ 110 |               }`}
+ 111 |             >
+ 112 |               {isOverlayVisible ? 'Hide Overlay' : 'Show Overlay'}
+ 113 |             </button>
+ 114 |             
+ 115 |             <div className="text-sm text-gray-400">
+ 116 |               Status: {isOverlayVisible ? 'Visible' : 'Hidden'}
+ 117 |             </div>
+ 118 |           </div>
+ 119 |         </div>
+ 120 | 
+ 121 |         <OverlaySettings />
+ 122 |         <HotkeySettings />
+ 123 |       </div>
+ 124 |     </div>
+ 125 |   );
+ 126 | };
+ 127 | 
+ 128 | export default ControlPanel;
 
 ```
 
@@ -1932,104 +1537,127 @@ dbdoverlaytools-free
   15 |   const { isRunning, startTimer, pauseTimer, swapTimer } = useTimer();
   16 | 
   17 |   const handleStartPause = () => {
-  18 |     if (isRunning) {
-  19 |       pauseTimer();
-  20 |     } else {
-  21 |       startTimer();
-  22 |     }
-  23 |     saveToStorage();
-  24 |   };
-  25 | 
-  26 |   const handleSwap = () => {
-  27 |     swapTimer();
-  28 |     saveToStorage();
-  29 |   };
-  30 | 
-  31 |   const handleResetCurrent = () => {
-  32 |     resetTimer();
-  33 |     saveToStorage();
-  34 |   };
-  35 | 
-  36 |   const handleResetAll = () => {
-  37 |     resetAllTimers();
-  38 |     saveToStorage();
+  18 |     console.log('Start/Pause clicked. Current running state:', isRunning);
+  19 |     
+  20 |     if (isRunning) {
+  21 |       pauseTimer();
+  22 |     } else {
+  23 |       startTimer();
+  24 |     }
+  25 |     
+  26 |     // Sauvegarder après un délai pour laisser le temps aux états de se mettre à jour
+  27 |     setTimeout(() => {
+  28 |       saveToStorage();
+  29 |     }, 100);
+  30 |   };
+  31 | 
+  32 |   const handleSwap = () => {
+  33 |     console.log('Swap clicked. Current timer:', timerData.currentTimer);
+  34 |     swapTimer();
+  35 |     
+  36 |     setTimeout(() => {
+  37 |       saveToStorage();
+  38 |     }, 100);
   39 |   };
   40 | 
-  41 |   const handleTimerSelect = (timer: 1 | 2) => {
-  42 |     setCurrentTimer(timer);
-  43 |     saveToStorage();
-  44 |   };
-  45 | 
-  46 |   return (
-  47 |     <div className="space-y-4">
-  48 |       <div className="grid grid-cols-2 gap-3">
-  49 |         <button
-  50 |           onClick={() => handleTimerSelect(1)}
-  51 |           className={`py-2 px-4 rounded-md font-medium transition-colors ${
-  52 |             timerData.currentTimer === 1
-  53 |               ? 'bg-primary-600 text-white'
-  54 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-  55 |           }`}
-  56 |         >
-  57 |           Timer 1
-  58 |         </button>
-  59 |         
-  60 |         <button
-  61 |           onClick={() => handleTimerSelect(2)}
-  62 |           className={`py-2 px-4 rounded-md font-medium transition-colors ${
-  63 |             timerData.currentTimer === 2
-  64 |               ? 'bg-primary-600 text-white'
-  65 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-  66 |           }`}
-  67 |         >
-  68 |           Timer 2
-  69 |         </button>
-  70 |       </div>
-  71 | 
-  72 |       <div className="grid grid-cols-2 gap-3">
-  73 |         <button
-  74 |           onClick={handleStartPause}
-  75 |           className={`py-3 px-4 rounded-md font-semibold transition-colors ${
-  76 |             isRunning
-  77 |               ? 'bg-danger-600 hover:bg-danger-700 text-white'
-  78 |               : 'bg-success-600 hover:bg-success-700 text-white'
-  79 |           }`}
-  80 |         >
-  81 |           {isRunning ? 'Pause' : 'Start'}
-  82 |         </button>
-  83 |         
-  84 |         <button
-  85 |           onClick={handleSwap}
-  86 |           className="py-3 px-4 bg-info-600 hover:bg-info-700 text-white rounded-md font-semibold transition-colors"
-  87 |         >
-  88 |           Swap
-  89 |         </button>
-  90 |       </div>
-  91 | 
-  92 |       <div className="grid grid-cols-2 gap-3">
-  93 |         <button
-  94 |           onClick={handleResetCurrent}
-  95 |           className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
-  96 |         >
-  97 |           Reset Current
-  98 |         </button>
-  99 |         
- 100 |         <button
- 101 |           onClick={handleResetAll}
- 102 |           className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
- 103 |         >
- 104 |           Reset All
- 105 |         </button>
- 106 |       </div>
- 107 | 
- 108 |       <div className="text-sm text-gray-400 text-center">
- 109 |         Active Timer: {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
- 110 |       </div>
- 111 |     </div>
- 112 |   );
- 113 | };
- 114 | 
- 115 | export default TimerControls;
+  41 |   const handleResetCurrent = () => {
+  42 |     console.log('Reset current clicked. Current timer:', timerData.currentTimer);
+  43 |     resetTimer();
+  44 |     
+  45 |     setTimeout(() => {
+  46 |       saveToStorage();
+  47 |     }, 100);
+  48 |   };
+  49 | 
+  50 |   const handleResetAll = () => {
+  51 |     console.log('Reset all clicked');
+  52 |     resetAllTimers();
+  53 |     
+  54 |     setTimeout(() => {
+  55 |       saveToStorage();
+  56 |     }, 100);
+  57 |   };
+  58 | 
+  59 |   const handleTimerSelect = (timer: 1 | 2) => {
+  60 |     console.log('Timer selected:', timer);
+  61 |     setCurrentTimer(timer);
+  62 |     
+  63 |     setTimeout(() => {
+  64 |       saveToStorage();
+  65 |     }, 100);
+  66 |   };
+  67 | 
+  68 |   return (
+  69 |     <div className="space-y-4">
+  70 |       <div className="grid grid-cols-2 gap-3">
+  71 |         <button
+  72 |           onClick={() => handleTimerSelect(1)}
+  73 |           className={`py-2 px-4 rounded-md font-medium transition-colors ${
+  74 |             timerData.currentTimer === 1
+  75 |               ? 'bg-primary-600 text-white'
+  76 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+  77 |           }`}
+  78 |         >
+  79 |           Timer 1 {timerData.currentTimer === 1 && isRunning && '●'}
+  80 |         </button>
+  81 |         
+  82 |         <button
+  83 |           onClick={() => handleTimerSelect(2)}
+  84 |           className={`py-2 px-4 rounded-md font-medium transition-colors ${
+  85 |             timerData.currentTimer === 2
+  86 |               ? 'bg-primary-600 text-white'
+  87 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+  88 |           }`}
+  89 |         >
+  90 |           Timer 2 {timerData.currentTimer === 2 && isRunning && '●'}
+  91 |         </button>
+  92 |       </div>
+  93 | 
+  94 |       <div className="grid grid-cols-2 gap-3">
+  95 |         <button
+  96 |           onClick={handleStartPause}
+  97 |           className={`py-3 px-4 rounded-md font-semibold transition-colors ${
+  98 |             isRunning
+  99 |               ? 'bg-danger-600 hover:bg-danger-700 text-white'
+ 100 |               : 'bg-success-600 hover:bg-success-700 text-white'
+ 101 |           }`}
+ 102 |         >
+ 103 |           {isRunning ? 'Pause' : 'Start'}
+ 104 |         </button>
+ 105 |         
+ 106 |         <button
+ 107 |           onClick={handleSwap}
+ 108 |           className="py-3 px-4 bg-info-600 hover:bg-info-700 text-white rounded-md font-semibold transition-colors"
+ 109 |         >
+ 110 |           Swap
+ 111 |         </button>
+ 112 |       </div>
+ 113 | 
+ 114 |       <div className="grid grid-cols-2 gap-3">
+ 115 |         <button
+ 116 |           onClick={handleResetCurrent}
+ 117 |           className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
+ 118 |         >
+ 119 |           Reset Current
+ 120 |         </button>
+ 121 |         
+ 122 |         <button
+ 123 |           onClick={handleResetAll}
+ 124 |           className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
+ 125 |         >
+ 126 |           Reset All
+ 127 |         </button>
+ 128 |       </div>
+ 129 | 
+ 130 |       <div className="text-sm text-gray-400 text-center">
+ 131 |         Active Timer: {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
+ 132 |         {isRunning && <span className="text-success-400 ml-2">● Running</span>}
+ 133 |       </div>
+ 134 |     </div>
+ 135 |   );
+ 136 | };
+ 137 | 
+ 138 | export default TimerControls;
 
 ```
 
@@ -2504,69 +2132,6 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/src\hooks\useElectronStore.ts`:
-
-```ts
-   1 | import { useEffect } from 'react';
-   2 | import { useTimerStore } from '../store/timerStore';
-   3 | 
-   4 | const useElectronStore = () => {
-   5 |   const { updateTimerData, updateOverlaySettings, setOverlayVisible } = useTimerStore();
-   6 | 
-   7 |   useEffect(() => {
-   8 |     if (!window.electronAPI) return;
-   9 | 
-  10 |     const loadElectronData = async () => {
-  11 |       try {
-  12 |         const timerData = await window.electronAPI.store.get('timerData');
-  13 |         const overlaySettings = await window.electronAPI.store.get('overlaySettings');
-  14 | 
-  15 |         if (timerData) {
-  16 |           updateTimerData(timerData);
-  17 |         }
-  18 | 
-  19 |         if (overlaySettings) {
-  20 |           updateOverlaySettings(overlaySettings);
-  21 |         }
-  22 |       } catch (error) {
-  23 |         console.warn('Failed to load data from electron store:', error);
-  24 |       }
-  25 |     };
-  26 | 
-  27 |     loadElectronData();
-  28 | 
-  29 |     // Listen for overlay ready status
-  30 |     const unsubscribeOverlayReady = window.electronAPI.overlay.onReady((isReady: boolean) => {
-  31 |       console.log('Overlay ready status changed:', isReady);
-  32 |       setOverlayVisible(isReady);
-  33 |     });
-  34 | 
-  35 |     return () => {
-  36 |       unsubscribeOverlayReady();
-  37 |     };
-  38 |   }, [updateTimerData, updateOverlaySettings, setOverlayVisible]);
-  39 | 
-  40 |   const saveToElectronStore = async () => {
-  41 |     if (!window.electronAPI) return;
-  42 | 
-  43 |     try {
-  44 |       const { timerData, overlaySettings } = useTimerStore.getState();
-  45 |       await window.electronAPI.store.set('timerData', timerData);
-  46 |       await window.electronAPI.store.set('overlaySettings', overlaySettings);
-  47 |       
-  48 |       console.log('Data saved to electron store');
-  49 |     } catch (error) {
-  50 |       console.warn('Failed to save data to electron store:', error);
-  51 |     }
-  52 |   };
-  53 | 
-  54 |   return { saveToElectronStore };
-  55 | };
-  56 | 
-  57 | export default useElectronStore;
-
-```
-
 `dbdoverlaytools-free/src\hooks\useGlobalHotkeys.ts`:
 
 ```ts
@@ -2582,58 +2147,68 @@ dbdoverlaytools-free
   10 |     if (!window.electronAPI) return;
   11 | 
   12 |     const handleHotkeyPress = (action: string) => {
-  13 |       console.log('Hotkey pressed:', action);
+  13 |       console.log('Global hotkey pressed:', action, 'Current running state:', isRunning);
   14 |       
   15 |       switch (action) {
   16 |         case 'start':
   17 |           if (isRunning) {
-  18 |             pauseTimer();
-  19 |           } else {
-  20 |             startTimer();
-  21 |           }
-  22 |           saveToStorage();
-  23 |           break;
+  18 |             console.log('Pausing via hotkey');
+  19 |             pauseTimer();
+  20 |           } else {
+  21 |             console.log('Starting via hotkey');
+  22 |             startTimer();
+  23 |           }
   24 |           
-  25 |         case 'swap':
-  26 |           swapTimer();
-  27 |           saveToStorage();
-  28 |           break;
-  29 |           
-  30 |         default:
-  31 |           console.warn('Unknown hotkey action:', action);
-  32 |       }
-  33 |     };
-  34 | 
-  35 |     window.electronAPI.hotkeys.onPressed(handleHotkeyPress);
-  36 | 
-  37 |     return () => {
-  38 |       if (window.electronAPI?.removeAllListeners) {
-  39 |         window.electronAPI.removeAllListeners();
-  40 |       }
-  41 |     };
-  42 |   }, [isRunning, startTimer, pauseTimer, swapTimer, saveToStorage]);
-  43 | 
-  44 |   const registerHotkeys = async (startKey: string, swapKey: string) => {
-  45 |     if (!window.electronAPI) {
-  46 |       console.warn('Electron API not available');
-  47 |       return;
-  48 |     }
-  49 | 
-  50 |     try {
-  51 |       await window.electronAPI.hotkeys.register({
-  52 |         start: startKey,
-  53 |         swap: swapKey,
-  54 |       });
-  55 |       console.log('Hotkeys registered:', { start: startKey, swap: swapKey });
-  56 |     } catch (error) {
-  57 |       console.error('Failed to register hotkeys:', error);
+  25 |           // Sauvegarder après un délai
+  26 |           setTimeout(() => {
+  27 |             saveToStorage();
+  28 |           }, 200);
+  29 |           break;
+  30 |           
+  31 |         case 'swap':
+  32 |           console.log('Swapping via hotkey');
+  33 |           swapTimer();
+  34 |           
+  35 |           setTimeout(() => {
+  36 |             saveToStorage();
+  37 |           }, 200);
+  38 |           break;
+  39 |           
+  40 |         default:
+  41 |           console.warn('Unknown hotkey action:', action);
+  42 |       }
+  43 |     };
+  44 | 
+  45 |     window.electronAPI.hotkeys.onPressed(handleHotkeyPress);
+  46 | 
+  47 |     return () => {
+  48 |       if (window.electronAPI?.removeAllListeners) {
+  49 |         window.electronAPI.removeAllListeners();
+  50 |       }
+  51 |     };
+  52 |   }, [isRunning, startTimer, pauseTimer, swapTimer, saveToStorage]);
+  53 | 
+  54 |   const registerHotkeys = async (startKey: string, swapKey: string) => {
+  55 |     if (!window.electronAPI) {
+  56 |       console.warn('Electron API not available');
+  57 |       return;
   58 |     }
-  59 |   };
-  60 | 
-  61 |   return { registerHotkeys };
-  62 | };
-  63 | 
-  64 | export default useGlobalHotkeys;
+  59 | 
+  60 |     try {
+  61 |       await window.electronAPI.hotkeys.register({
+  62 |         start: startKey,
+  63 |         swap: swapKey,
+  64 |       });
+  65 |       console.log('Hotkeys registered:', { start: startKey, swap: swapKey });
+  66 |     } catch (error) {
+  67 |       console.error('Failed to register hotkeys:', error);
+  68 |     }
+  69 |   };
+  70 | 
+  71 |   return { registerHotkeys };
+  72 | };
+  73 | 
+  74 | export default useGlobalHotkeys;
 
 ```
 
@@ -2651,167 +2226,147 @@ dbdoverlaytools-free
    9 |     setTimerRunning,
   10 |     setCurrentTimer,
   11 |     resetTimer,
-  12 |     saveToStorage,
-  13 |   } = useTimerStore();
-  14 | 
-  15 |   const timer1Ref = useRef<PreciseTimer | null>(null);
-  16 |   const timer2Ref = useRef<PreciseTimer | null>(null);
-  17 |   const [formattedTime1, setFormattedTime1] = useState('0:00.0');
-  18 |   const [formattedTime2, setFormattedTime2] = useState('0:00.0');
-  19 | 
-  20 |   const syncToOverlay = useCallback((updateData: any) => {
-  21 |     if (window.electronAPI) {
-  22 |       window.electronAPI.timer.updateDisplay(updateData);
-  23 |       
-  24 |       // Also sync complete timer data
-  25 |       window.electronAPI.timer.syncData({
-  26 |         ...timerData,
-  27 |         ...updateData,
-  28 |         timer1Value: updateData.timer1Value || timerData.timer1Value,
-  29 |         timer2Value: updateData.timer2Value || timerData.timer2Value,
-  30 |       });
-  31 |     }
-  32 |   }, [timerData]);
-  33 | 
-  34 |   useEffect(() => {
-  35 |     if (!timer1Ref.current) {
-  36 |       timer1Ref.current = new PreciseTimer((value) => {
-  37 |         setTimerValue(1, value);
-  38 |         const formatted = formatTime(value);
-  39 |         setFormattedTime1(formatted);
-  40 |         
-  41 |         syncToOverlay({
-  42 |           timer1: formatted,
-  43 |           timer2: formatTime(timerData.timer2Value),
-  44 |           timer1Value: value,
-  45 |           timer2Value: timerData.timer2Value,
-  46 |           currentTimer: timerData.currentTimer,
-  47 |           isRunning: timerData.isRunning,
-  48 |           player1Name: timerData.player1Name,
-  49 |           player2Name: timerData.player2Name,
-  50 |           player1Score: timerData.player1Score,
-  51 |           player2Score: timerData.player2Score,
-  52 |         });
-  53 |       });
-  54 |     }
-  55 | 
-  56 |     if (!timer2Ref.current) {
-  57 |       timer2Ref.current = new PreciseTimer((value) => {
-  58 |         setTimerValue(2, value);
-  59 |         const formatted = formatTime(value);
-  60 |         setFormattedTime2(formatted);
-  61 |         
-  62 |         syncToOverlay({
-  63 |           timer1: formatTime(timerData.timer1Value),
-  64 |           timer2: formatted,
-  65 |           timer1Value: timerData.timer1Value,
-  66 |           timer2Value: value,
-  67 |           currentTimer: timerData.currentTimer,
-  68 |           isRunning: timerData.isRunning,
-  69 |           player1Name: timerData.player1Name,
-  70 |           player2Name: timerData.player2Name,
-  71 |           player1Score: timerData.player1Score,
-  72 |           player2Score: timerData.player2Score,
-  73 |         });
-  74 |       });
-  75 |     }
-  76 | 
-  77 |     return () => {
-  78 |       timer1Ref.current?.stop();
-  79 |       timer2Ref.current?.stop();
-  80 |     };
-  81 |   }, [setTimerValue, syncToOverlay]);
-  82 | 
-  83 |   useEffect(() => {
-  84 |     setFormattedTime1(formatTime(timerData.timer1Value));
-  85 |     setFormattedTime2(formatTime(timerData.timer2Value));
-  86 |     
-  87 |     // Sync any timer data changes to overlay
-  88 |     syncToOverlay({
-  89 |       timer1: formatTime(timerData.timer1Value),
-  90 |       timer2: formatTime(timerData.timer2Value),
-  91 |       timer1Value: timerData.timer1Value,
-  92 |       timer2Value: timerData.timer2Value,
-  93 |       currentTimer: timerData.currentTimer,
-  94 |       isRunning: timerData.isRunning,
-  95 |       player1Name: timerData.player1Name,
-  96 |       player2Name: timerData.player2Name,
-  97 |       player1Score: timerData.player1Score,
-  98 |       player2Score: timerData.player2Score,
-  99 |     });
- 100 |   }, [timerData, syncToOverlay]);
- 101 | 
- 102 |   const startTimer = useCallback(() => {
- 103 |     const currentTimer = timerData.currentTimer;
- 104 |     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
- 105 |     const initialValue = currentTimer === 1 ? timerData.timer1Value : timerData.timer2Value;
- 106 | 
- 107 |     if (timerRef && !timerRef.running) {
- 108 |       timerRef.start(initialValue);
- 109 |       setTimerRunning(true);
- 110 |     }
- 111 |   }, [timerData.currentTimer, timerData.timer1Value, timerData.timer2Value, setTimerRunning]);
- 112 | 
- 113 |   const pauseTimer = useCallback(() => {
- 114 |     const currentTimer = timerData.currentTimer;
- 115 |     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
- 116 | 
- 117 |     if (timerRef && timerRef.running) {
- 118 |       const finalValue = timerRef.pause();
- 119 |       setTimerValue(currentTimer, finalValue);
- 120 |       setTimerRunning(false);
- 121 |     }
- 122 |   }, [timerData.currentTimer, setTimerValue, setTimerRunning]);
- 123 | 
- 124 |   const swapTimer = useCallback(() => {
- 125 |     if (timerData.isRunning) {
- 126 |       pauseTimer();
- 127 |     }
- 128 |     
- 129 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
- 130 |     setCurrentTimer(newTimer);
- 131 | 
- 132 |     // Immediate sync to overlay
- 133 |     if (window.electronAPI) {
- 134 |       window.electronAPI.timer.syncData({
- 135 |         ...timerData,
- 136 |         currentTimer: newTimer,
- 137 |         isRunning: false,
- 138 |       });
- 139 |     }
- 140 |   }, [timerData, pauseTimer, setCurrentTimer]);
- 141 | 
- 142 |   const resetCurrentTimer = useCallback(() => {
- 143 |     if (timerData.isRunning) {
- 144 |       pauseTimer();
- 145 |     }
- 146 |     
- 147 |     resetTimer();
- 148 |     
- 149 |     const timerRef = timerData.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
- 150 |     timerRef?.reset();
- 151 |   }, [timerData.isRunning, timerData.currentTimer, pauseTimer, resetTimer]);
- 152 | 
- 153 |   const resetAllTimers = useCallback(() => {
- 154 |     timer1Ref.current?.reset();
- 155 |     timer2Ref.current?.reset();
- 156 |     setTimerRunning(false);
- 157 |   }, [setTimerRunning]);
- 158 | 
- 159 |   return {
- 160 |     formattedTime1,
- 161 |     formattedTime2,
- 162 |     isRunning: timerData.isRunning,
- 163 |     currentTimer: timerData.currentTimer,
- 164 |     startTimer,
- 165 |     pauseTimer,
- 166 |     swapTimer,
- 167 |     resetCurrentTimer,
- 168 |     resetAllTimers,
- 169 |   };
- 170 | };
- 171 | 
- 172 | export default useTimer;
+  12 |   } = useTimerStore();
+  13 | 
+  14 |   const timer1Ref = useRef<PreciseTimer | null>(null);
+  15 |   const timer2Ref = useRef<PreciseTimer | null>(null);
+  16 |   const [formattedTime1, setFormattedTime1] = useState('0:00.0');
+  17 |   const [formattedTime2, setFormattedTime2] = useState('0:00.0');
+  18 | 
+  19 |   const syncToOverlay = useCallback((data: any) => {
+  20 |     if (window.electronAPI) {
+  21 |       window.electronAPI.timer.syncData(data);
+  22 |     }
+  23 |   }, []);
+  24 | 
+  25 |   useEffect(() => {
+  26 |     if (!timer1Ref.current) {
+  27 |       timer1Ref.current = new PreciseTimer((value) => {
+  28 |         setTimerValue(1, value);
+  29 |         const formatted = formatTime(value);
+  30 |         setFormattedTime1(formatted);
+  31 |         
+  32 |         const currentData = useTimerStore.getState().timerData;
+  33 |         syncToOverlay({
+  34 |           ...currentData,
+  35 |           timer1Value: value,
+  36 |           timer1: formatted,
+  37 |           timer2: formatTime(currentData.timer2Value),
+  38 |         });
+  39 |       });
+  40 |     }
+  41 | 
+  42 |     if (!timer2Ref.current) {
+  43 |       timer2Ref.current = new PreciseTimer((value) => {
+  44 |         setTimerValue(2, value);
+  45 |         const formatted = formatTime(value);
+  46 |         setFormattedTime2(formatted);
+  47 |         
+  48 |         const currentData = useTimerStore.getState().timerData;
+  49 |         syncToOverlay({
+  50 |           ...currentData,
+  51 |           timer2Value: value,
+  52 |           timer2: formatted,
+  53 |           timer1: formatTime(currentData.timer1Value),
+  54 |         });
+  55 |       });
+  56 |     }
+  57 | 
+  58 |     return () => {
+  59 |       timer1Ref.current?.stop();
+  60 |       timer2Ref.current?.stop();
+  61 |     };
+  62 |   }, [setTimerValue, syncToOverlay]);
+  63 | 
+  64 |   useEffect(() => {
+  65 |     const newTime1 = formatTime(timerData.timer1Value);
+  66 |     const newTime2 = formatTime(timerData.timer2Value);
+  67 |     
+  68 |     setFormattedTime1(newTime1);
+  69 |     setFormattedTime2(newTime2);
+  70 |     
+  71 |     syncToOverlay({
+  72 |       ...timerData,
+  73 |       timer1: newTime1,
+  74 |       timer2: newTime2,
+  75 |     });
+  76 |   }, [
+  77 |     timerData.timer1Value,
+  78 |     timerData.timer2Value,
+  79 |     timerData.player1Name,
+  80 |     timerData.player2Name,
+  81 |     timerData.player1Score,
+  82 |     timerData.player2Score,
+  83 |     timerData.currentTimer,
+  84 |     timerData.isRunning,
+  85 |     timerData.style,
+  86 |     syncToOverlay
+  87 |   ]);
+  88 | 
+  89 |   const startTimer = useCallback(() => {
+  90 |     const currentTimer = timerData.currentTimer;
+  91 |     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+  92 |     const initialValue = currentTimer === 1 ? timerData.timer1Value : timerData.timer2Value;
+  93 | 
+  94 |     if (timerRef && !timerRef.running) {
+  95 |       timerRef.start(initialValue);
+  96 |       setTimerRunning(true);
+  97 |     }
+  98 |   }, [timerData.currentTimer, timerData.timer1Value, timerData.timer2Value, setTimerRunning]);
+  99 | 
+ 100 |   const pauseTimer = useCallback(() => {
+ 101 |     const currentTimer = timerData.currentTimer;
+ 102 |     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+ 103 | 
+ 104 |     if (timerRef && timerRef.running) {
+ 105 |       const finalValue = timerRef.pause();
+ 106 |       setTimerValue(currentTimer, finalValue);
+ 107 |       setTimerRunning(false);
+ 108 |     }
+ 109 |   }, [timerData.currentTimer, setTimerValue, setTimerRunning]);
+ 110 | 
+ 111 |   const swapTimer = useCallback(() => {
+ 112 |     if (timerData.isRunning) {
+ 113 |       pauseTimer();
+ 114 |     }
+ 115 |     
+ 116 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
+ 117 |     setCurrentTimer(newTimer);
+ 118 |   }, [timerData.currentTimer, timerData.isRunning, pauseTimer, setCurrentTimer]);
+ 119 | 
+ 120 |   const resetCurrentTimer = useCallback(() => {
+ 121 |     if (timerData.isRunning) {
+ 122 |       pauseTimer();
+ 123 |     }
+ 124 |     
+ 125 |     resetTimer();
+ 126 |     
+ 127 |     const timerRef = timerData.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+ 128 |     if (timerRef) {
+ 129 |       timerRef.reset();
+ 130 |     }
+ 131 |   }, [timerData.isRunning, timerData.currentTimer, pauseTimer, resetTimer]);
+ 132 | 
+ 133 |   const resetAllTimers = useCallback(() => {
+ 134 |     timer1Ref.current?.reset();
+ 135 |     timer2Ref.current?.reset();
+ 136 |     setTimerRunning(false);
+ 137 |   }, [setTimerRunning]);
+ 138 | 
+ 139 |   return {
+ 140 |     formattedTime1,
+ 141 |     formattedTime2,
+ 142 |     isRunning: timerData.isRunning,
+ 143 |     currentTimer: timerData.currentTimer,
+ 144 |     startTimer,
+ 145 |     pauseTimer,
+ 146 |     swapTimer,
+ 147 |     resetCurrentTimer,
+ 148 |     resetAllTimers,
+ 149 |   };
+ 150 | };
+ 151 | 
+ 152 | export default useTimer;
 
 ```
 
@@ -2912,13 +2467,24 @@ dbdoverlaytools-free
    2 | import React from 'react';
    3 | import ReactDOM from 'react-dom/client';
    4 | import OverlayApp from './components/OverlayApp';
-   5 | import './index.css';
-   6 | 
-   7 | ReactDOM.createRoot(document.getElementById('overlay-root')!).render(
-   8 |   <React.StrictMode>
-   9 |     <OverlayApp />
-  10 |   </React.StrictMode>
-  11 | );
+   5 | import { useTimerStore } from './store/timerStore';
+   6 | import './index.css';
+   7 | 
+   8 | // Initialize store for overlay
+   9 | const initializeOverlay = async () => {
+  10 |   const store = useTimerStore.getState();
+  11 |   await store.loadFromStorage();
+  12 |   console.log('Overlay initialized with data:', store.timerData);
+  13 | };
+  14 | 
+  15 | // Initialize store
+  16 | initializeOverlay().catch(console.error);
+  17 | 
+  18 | ReactDOM.createRoot(document.getElementById('overlay-root')!).render(
+  19 |   <React.StrictMode>
+  20 |     <OverlayApp />
+  21 |   </React.StrictMode>
+  22 | );
 
 ```
 
@@ -2947,230 +2513,222 @@ dbdoverlaytools-free
   20 |   updateStyle: (style: TimerStyle) => void;
   21 |   
   22 |   updateOverlaySettings: (settings: Partial<OverlaySettings>) => void;
-  23 |   toggleOverlayVisibility: () => void;
-  24 |   setOverlayVisible: (visible: boolean) => void;
-  25 |   toggleOverlayLock: () => void;
-  26 |   updateOverlayScale: (scale: number) => void;
-  27 |   updateOverlayPosition: (x: number, y: number) => void;
-  28 |   
-  29 |   loadFromStorage: () => void;
-  30 |   saveToStorage: () => void;
-  31 |   syncToElectron: () => void;
-  32 | }
-  33 | 
-  34 | export const useTimerStore = create<TimerStore>((set, get) => ({
-  35 |   timerData: { ...DEFAULT_TIMER_DATA },
-  36 |   overlaySettings: { ...DEFAULT_OVERLAY_SETTINGS },
-  37 |   isOverlayVisible: false,
-  38 |   
-  39 |   updateTimerData: (data) => {
-  40 |     set((state) => ({
-  41 |       timerData: { ...state.timerData, ...data }
-  42 |     }));
-  43 |     get().syncToElectron();
-  44 |   },
-  45 |   
-  46 |   updatePlayerName: (player, name) => {
-  47 |     set((state) => ({
-  48 |       timerData: {
-  49 |         ...state.timerData,
-  50 |         [player === 1 ? 'player1Name' : 'player2Name']: name
-  51 |       }
-  52 |     }));
-  53 |     get().syncToElectron();
-  54 |   },
-  55 |   
-  56 |   updatePlayerScore: (player, delta) => {
-  57 |     set((state) => {
-  58 |       const currentScore = player === 1 ? state.timerData.player1Score : state.timerData.player2Score;
-  59 |       const newScore = Math.max(0, currentScore + delta);
-  60 |       
-  61 |       return {
-  62 |         timerData: {
-  63 |           ...state.timerData,
-  64 |           [player === 1 ? 'player1Score' : 'player2Score']: newScore
-  65 |         }
-  66 |       };
-  67 |     });
-  68 |     get().syncToElectron();
-  69 |   },
-  70 |   
-  71 |   setTimerValue: (timer, value) => {
-  72 |     set((state) => ({
-  73 |       timerData: {
-  74 |         ...state.timerData,
-  75 |         [timer === 1 ? 'timer1Value' : 'timer2Value']: Math.max(0, value)
-  76 |       }
+  23 |   setOverlayVisible: (visible: boolean) => void;
+  24 |   toggleOverlayLock: () => void;
+  25 |   updateOverlayScale: (scale: number) => void;
+  26 |   
+  27 |   loadFromStorage: () => void;
+  28 |   saveToStorage: () => void;
+  29 | }
+  30 | 
+  31 | export const useTimerStore = create<TimerStore>((set, get) => ({
+  32 |   timerData: { ...DEFAULT_TIMER_DATA },
+  33 |   overlaySettings: { ...DEFAULT_OVERLAY_SETTINGS },
+  34 |   isOverlayVisible: false,
+  35 |   
+  36 |   updateTimerData: (data) => {
+  37 |     set((state) => ({
+  38 |       timerData: { ...state.timerData, ...data }
+  39 |     }));
+  40 |   },
+  41 |   
+  42 |   updatePlayerName: (player, name) => {
+  43 |     set((state) => ({
+  44 |       timerData: {
+  45 |         ...state.timerData,
+  46 |         [player === 1 ? 'player1Name' : 'player2Name']: name
+  47 |       }
+  48 |     }));
+  49 |   },
+  50 |   
+  51 |   updatePlayerScore: (player, delta) => {
+  52 |     set((state) => {
+  53 |       const currentScore = player === 1 ? state.timerData.player1Score : state.timerData.player2Score;
+  54 |       const newScore = Math.max(0, currentScore + delta);
+  55 |       
+  56 |       return {
+  57 |         timerData: {
+  58 |           ...state.timerData,
+  59 |           [player === 1 ? 'player1Score' : 'player2Score']: newScore
+  60 |         }
+  61 |       };
+  62 |     });
+  63 |   },
+  64 |   
+  65 |   setTimerValue: (timer, value) => {
+  66 |     set((state) => ({
+  67 |       timerData: {
+  68 |         ...state.timerData,
+  69 |         [timer === 1 ? 'timer1Value' : 'timer2Value']: Math.max(0, value)
+  70 |       }
+  71 |     }));
+  72 |   },
+  73 |   
+  74 |   setCurrentTimer: (timer) => {
+  75 |     set((state) => ({
+  76 |       timerData: { ...state.timerData, currentTimer: timer }
   77 |     }));
-  78 |     get().syncToElectron();
-  79 |   },
-  80 |   
-  81 |   setCurrentTimer: (timer) => {
-  82 |     set((state) => ({
-  83 |       timerData: { ...state.timerData, currentTimer: timer }
-  84 |     }));
-  85 |     get().syncToElectron();
-  86 |   },
-  87 |   
-  88 |   setTimerRunning: (running) => {
-  89 |     set((state) => ({
-  90 |       timerData: { ...state.timerData, isRunning: running }
-  91 |     }));
-  92 |     get().syncToElectron();
-  93 |   },
-  94 |   
-  95 |   swapTimer: () => {
-  96 |     set((state) => ({
-  97 |       timerData: {
-  98 |         ...state.timerData,
-  99 |         currentTimer: state.timerData.currentTimer === 1 ? 2 : 1,
- 100 |         isRunning: false
- 101 |       }
- 102 |     }));
- 103 |     get().syncToElectron();
- 104 |   },
- 105 |   
- 106 |   resetTimer: (timer) => {
- 107 |     set((state) => {
- 108 |       if (timer) {
- 109 |         return {
- 110 |           timerData: {
- 111 |             ...state.timerData,
- 112 |             [timer === 1 ? 'timer1Value' : 'timer2Value']: 0,
- 113 |             isRunning: false
- 114 |           }
- 115 |         };
- 116 |       } else {
- 117 |         return {
- 118 |           timerData: {
- 119 |             ...state.timerData,
- 120 |             [state.timerData.currentTimer === 1 ? 'timer1Value' : 'timer2Value']: 0,
- 121 |             isRunning: false
- 122 |           }
- 123 |         };
- 124 |       }
- 125 |     });
- 126 |     get().syncToElectron();
- 127 |   },
- 128 |   
- 129 |   resetAllTimers: () => {
- 130 |     set((state) => ({
- 131 |       timerData: {
- 132 |         ...state.timerData,
- 133 |         timer1Value: 0,
- 134 |         timer2Value: 0,
- 135 |         player1Score: 0,
- 136 |         player2Score: 0,
- 137 |         currentTimer: 1,
- 138 |         isRunning: false
- 139 |       }
- 140 |     }));
- 141 |     get().syncToElectron();
- 142 |   },
- 143 |   
- 144 |   updateHotkeys: (hotkeys) => {
- 145 |     set((state) => ({
- 146 |       timerData: {
- 147 |         ...state.timerData,
- 148 |         ...(hotkeys.start && { startHotkey: hotkeys.start }),
- 149 |         ...(hotkeys.swap && { swapHotkey: hotkeys.swap })
- 150 |       }
+  78 |   },
+  79 |   
+  80 |   setTimerRunning: (running) => {
+  81 |     set((state) => ({
+  82 |       timerData: { ...state.timerData, isRunning: running }
+  83 |     }));
+  84 |   },
+  85 |   
+  86 |   swapTimer: () => {
+  87 |     set((state) => ({
+  88 |       timerData: {
+  89 |         ...state.timerData,
+  90 |         currentTimer: state.timerData.currentTimer === 1 ? 2 : 1,
+  91 |         isRunning: false
+  92 |       }
+  93 |     }));
+  94 |   },
+  95 |   
+  96 |   resetTimer: (timer) => {
+  97 |     set((state) => {
+  98 |       if (timer) {
+  99 |         return {
+ 100 |           timerData: {
+ 101 |             ...state.timerData,
+ 102 |             [timer === 1 ? 'timer1Value' : 'timer2Value']: 0,
+ 103 |             isRunning: false
+ 104 |           }
+ 105 |         };
+ 106 |       } else {
+ 107 |         return {
+ 108 |           timerData: {
+ 109 |             ...state.timerData,
+ 110 |             [state.timerData.currentTimer === 1 ? 'timer1Value' : 'timer2Value']: 0,
+ 111 |             isRunning: false
+ 112 |           }
+ 113 |         };
+ 114 |       }
+ 115 |     });
+ 116 |   },
+ 117 |   
+ 118 |   resetAllTimers: () => {
+ 119 |     set((state) => ({
+ 120 |       timerData: {
+ 121 |         ...state.timerData,
+ 122 |         timer1Value: 0,
+ 123 |         timer2Value: 0,
+ 124 |         player1Score: 0,
+ 125 |         player2Score: 0,
+ 126 |         currentTimer: 1,
+ 127 |         isRunning: false
+ 128 |       }
+ 129 |     }));
+ 130 |   },
+ 131 |   
+ 132 |   updateHotkeys: (hotkeys) => {
+ 133 |     set((state) => ({
+ 134 |       timerData: {
+ 135 |         ...state.timerData,
+ 136 |         ...(hotkeys.start && { startHotkey: hotkeys.start }),
+ 137 |         ...(hotkeys.swap && { swapHotkey: hotkeys.swap })
+ 138 |       }
+ 139 |     }));
+ 140 |   },
+ 141 |   
+ 142 |   updateStyle: (style) => {
+ 143 |     set((state) => ({
+ 144 |       timerData: { ...state.timerData, style }
+ 145 |     }));
+ 146 |   },
+ 147 |   
+ 148 |   updateOverlaySettings: (settings) => {
+ 149 |     set((state) => ({
+ 150 |       overlaySettings: { ...state.overlaySettings, ...settings }
  151 |     }));
- 152 |     get().syncToElectron();
- 153 |   },
- 154 |   
- 155 |   updateStyle: (style) => {
- 156 |     set((state) => ({
- 157 |       timerData: { ...state.timerData, style }
- 158 |     }));
- 159 |     get().syncToElectron();
- 160 |   },
- 161 |   
- 162 |   updateOverlaySettings: (settings) => {
- 163 |     set((state) => ({
- 164 |       overlaySettings: { ...state.overlaySettings, ...settings }
- 165 |     }));
- 166 |     get().saveToStorage();
- 167 |   },
- 168 |   
- 169 |   toggleOverlayVisibility: () => {
- 170 |     set((state) => ({
- 171 |       isOverlayVisible: !state.isOverlayVisible
- 172 |     }));
- 173 |   },
- 174 |   
- 175 |   setOverlayVisible: (visible) => {
- 176 |     set({ isOverlayVisible: visible });
- 177 |   },
- 178 |   
- 179 |   toggleOverlayLock: () => {
- 180 |     set((state) => ({
- 181 |       overlaySettings: {
- 182 |         ...state.overlaySettings,
- 183 |         locked: !state.overlaySettings.locked
- 184 |       }
- 185 |     }));
- 186 |     get().saveToStorage();
- 187 |   },
- 188 |   
- 189 |   updateOverlayScale: (scale) => {
- 190 |     set((state) => ({
- 191 |       overlaySettings: { ...state.overlaySettings, scale }
- 192 |     }));
- 193 |     get().saveToStorage();
- 194 |   },
- 195 |   
- 196 |   updateOverlayPosition: (x, y) => {
- 197 |     set((state) => ({
- 198 |       overlaySettings: { ...state.overlaySettings, x, y }
- 199 |     }));
- 200 |     get().saveToStorage();
- 201 |   },
- 202 |   
- 203 |   loadFromStorage: () => {
- 204 |     if (typeof window === 'undefined') return;
- 205 |     
- 206 |     try {
- 207 |       const savedData = localStorage.getItem('dbd-timer-data');
- 208 |       const savedSettings = localStorage.getItem('dbd-overlay-settings');
- 209 |       
- 210 |       if (savedData) {
- 211 |         const timerData = JSON.parse(savedData);
- 212 |         set((state) => ({
- 213 |           timerData: { ...state.timerData, ...timerData }
- 214 |         }));
+ 152 |   },
+ 153 |   
+ 154 |   setOverlayVisible: (visible) => {
+ 155 |     set({ isOverlayVisible: visible });
+ 156 |   },
+ 157 |   
+ 158 |   toggleOverlayLock: () => {
+ 159 |     set((state) => ({
+ 160 |       overlaySettings: {
+ 161 |         ...state.overlaySettings,
+ 162 |         locked: !state.overlaySettings.locked
+ 163 |       }
+ 164 |     }));
+ 165 |   },
+ 166 |   
+ 167 |   updateOverlayScale: (scale) => {
+ 168 |     set((state) => ({
+ 169 |       overlaySettings: { ...state.overlaySettings, scale }
+ 170 |     }));
+ 171 |   },
+ 172 |   
+ 173 |   loadFromStorage: async () => {
+ 174 |     if (typeof window === 'undefined') return;
+ 175 |     
+ 176 |     try {
+ 177 |       // Load from localStorage first
+ 178 |       const savedData = localStorage.getItem('dbd-timer-data');
+ 179 |       const savedSettings = localStorage.getItem('dbd-overlay-settings');
+ 180 |       
+ 181 |       if (savedData) {
+ 182 |         const timerData = JSON.parse(savedData);
+ 183 |         set((state) => ({
+ 184 |           timerData: { ...state.timerData, ...timerData }
+ 185 |         }));
+ 186 |       }
+ 187 |       
+ 188 |       if (savedSettings) {
+ 189 |         const overlaySettings = JSON.parse(savedSettings);
+ 190 |         set((state) => ({
+ 191 |           overlaySettings: { ...state.overlaySettings, ...overlaySettings }
+ 192 |         }));
+ 193 |       }
+ 194 | 
+ 195 |       // Load from Electron store if available
+ 196 |       if (window.electronAPI) {
+ 197 |         try {
+ 198 |           const electronTimerData = await window.electronAPI.store.get('timerData');
+ 199 |           const electronOverlaySettings = await window.electronAPI.store.get('overlaySettings');
+ 200 |           
+ 201 |           if (electronTimerData) {
+ 202 |             set((state) => ({
+ 203 |               timerData: { ...state.timerData, ...electronTimerData }
+ 204 |             }));
+ 205 |           }
+ 206 |           
+ 207 |           if (electronOverlaySettings) {
+ 208 |             set((state) => ({
+ 209 |               overlaySettings: { ...state.overlaySettings, ...electronOverlaySettings }
+ 210 |             }));
+ 211 |           }
+ 212 |         } catch (error) {
+ 213 |           console.warn('Failed to load from Electron store:', error);
+ 214 |         }
  215 |       }
- 216 |       
- 217 |       if (savedSettings) {
- 218 |         const overlaySettings = JSON.parse(savedSettings);
- 219 |         set((state) => ({
- 220 |           overlaySettings: { ...state.overlaySettings, ...overlaySettings }
- 221 |         }));
- 222 |       }
- 223 |     } catch (error) {
- 224 |       console.warn('Failed to load data from storage:', error);
- 225 |     }
- 226 |   },
- 227 |   
- 228 |   saveToStorage: () => {
- 229 |     if (typeof window === 'undefined') return;
- 230 |     
- 231 |     try {
- 232 |       const { timerData, overlaySettings } = get();
- 233 |       localStorage.setItem('dbd-timer-data', JSON.stringify(timerData));
- 234 |       localStorage.setItem('dbd-overlay-settings', JSON.stringify(overlaySettings));
- 235 |     } catch (error) {
- 236 |       console.warn('Failed to save data to storage:', error);
- 237 |     }
- 238 |   },
- 239 |   
- 240 |   syncToElectron: () => {
- 241 |     if (window.electronAPI) {
- 242 |       const { timerData } = get();
- 243 |       window.electronAPI.timer.syncData(timerData);
- 244 |     }
- 245 |   }
- 246 | }));
+ 216 |     } catch (error) {
+ 217 |       console.warn('Failed to load data from storage:', error);
+ 218 |     }
+ 219 |   },
+ 220 |   
+ 221 |   saveToStorage: () => {
+ 222 |     if (typeof window === 'undefined') return;
+ 223 |     
+ 224 |     try {
+ 225 |       const { timerData, overlaySettings } = get();
+ 226 |       localStorage.setItem('dbd-timer-data', JSON.stringify(timerData));
+ 227 |       localStorage.setItem('dbd-overlay-settings', JSON.stringify(overlaySettings));
+ 228 |       
+ 229 |       if (window.electronAPI) {
+ 230 |         window.electronAPI.timer.syncData(timerData);
+ 231 |         window.electronAPI.store.set('timerData', timerData);
+ 232 |         window.electronAPI.store.set('overlaySettings', overlaySettings);
+ 233 |       }
+ 234 |     } catch (error) {
+ 235 |       console.warn('Failed to save data to storage:', error);
+ 236 |     }
+ 237 |   }
+ 238 | }));
 
 ```
 
@@ -3286,7 +2844,7 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\utils\cn.ts`:
 
 ```ts
-   1 | export function cn(...inputs: string[]) {
+   1 | export function cn(...inputs: (string | undefined | null | boolean)[]): string {
    2 |   return inputs.filter(Boolean).join(' ');
    3 | }
 
@@ -3625,88 +3183,27 @@ dbdoverlaytools-free
 ```ts
    1 | import { defineConfig } from 'vite'
    2 | import react from '@vitejs/plugin-react'
-   3 | import electron from 'vite-plugin-electron'
-   4 | import renderer from 'vite-plugin-electron-renderer'
-   5 | import { resolve } from 'path'
-   6 | 
-   7 | export default defineConfig({
-   8 |   plugins: [
-   9 |     react(),
-  10 |     electron([
-  11 |       {
-  12 |         entry: 'electron/main.ts',
-  13 |         onstart(options) {
-  14 |           console.log('Electron main process built')
-  15 |         },
-  16 |         vite: {
-  17 |           build: {
-  18 |             sourcemap: process.env.NODE_ENV === 'development',
-  19 |             minify: process.env.NODE_ENV !== 'development',
-  20 |             outDir: 'dist-electron',
-  21 |             lib: {
-  22 |               entry: 'electron/main.ts',
-  23 |               formats: ['cjs'],
-  24 |               fileName: () => 'main.js'
-  25 |             },
-  26 |             rollupOptions: {
-  27 |               external: ['electron', 'electron-store']
-  28 |             }
-  29 |           }
-  30 |         }
-  31 |       },
-  32 |       {
-  33 |         entry: 'electron/preload.ts',
-  34 |         onstart(options) {
-  35 |           console.log('Electron preload script built')
-  36 |         },
-  37 |         vite: {
-  38 |           build: {
-  39 |             sourcemap: process.env.NODE_ENV === 'development',
-  40 |             minify: process.env.NODE_ENV !== 'development',
-  41 |             outDir: 'dist-electron',
-  42 |             lib: {
-  43 |               entry: 'electron/preload.ts',
-  44 |               formats: ['cjs'],
-  45 |               fileName: () => 'preload.js'
-  46 |             },
-  47 |             rollupOptions: {
-  48 |               external: ['electron']
-  49 |             }
-  50 |           }
-  51 |         }
-  52 |       }
-  53 |     ]),
-  54 |     renderer()
-  55 |   ],
-  56 |   resolve: {
-  57 |     alias: {
-  58 |       '@': resolve(__dirname, 'src'),
-  59 |       '@/components': resolve(__dirname, 'src/components'),
-  60 |       '@/stores': resolve(__dirname, 'src/stores'),
-  61 |       '@/types': resolve(__dirname, 'src/types'),
-  62 |       '@/utils': resolve(__dirname, 'src/utils')
-  63 |     }
-  64 |   },
-  65 |   base: './',
-  66 |   build: {
-  67 |     outDir: 'dist',
-  68 |     assetsDir: 'assets',
-  69 |     emptyOutDir: true,
-  70 |     rollupOptions: {
-  71 |       input: {
-  72 |         main: resolve(__dirname, 'index.html'),
-  73 |         overlay: resolve(__dirname, 'overlay.html')
-  74 |       }
-  75 |     }
-  76 |   },
-  77 |   server: {
-  78 |     port: 5173,
-  79 |     strictPort: true,
-  80 |     cors: true,
-  81 |     hmr: {
-  82 |       port: 5174
-  83 |     }
-  84 |   }
-  85 | })
+   3 | import { resolve } from 'path'
+   4 | 
+   5 | export default defineConfig({
+   6 |   plugins: [react()],
+   7 |   base: './',
+   8 |   build: {
+   9 |     outDir: 'dist',
+  10 |     assetsDir: 'assets',
+  11 |     emptyOutDir: true,
+  12 |     rollupOptions: {
+  13 |       input: {
+  14 |         main: resolve(__dirname, 'index.html'),
+  15 |         overlay: resolve(__dirname, 'overlay.html')
+  16 |       }
+  17 |     }
+  18 |   },
+  19 |   server: {
+  20 |     port: 5173,
+  21 |     strictPort: true,
+  22 |     cors: true
+  23 |   }
+  24 | })
 
 ```

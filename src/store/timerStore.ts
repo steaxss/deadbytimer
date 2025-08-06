@@ -20,11 +20,9 @@ interface TimerStore {
   updateStyle: (style: TimerStyle) => void;
   
   updateOverlaySettings: (settings: Partial<OverlaySettings>) => void;
-  toggleOverlayVisibility: () => void;
   setOverlayVisible: (visible: boolean) => void;
   toggleOverlayLock: () => void;
   updateOverlayScale: (scale: number) => void;
-  updateOverlayPosition: (x: number, y: number) => void;
   
   loadFromStorage: () => void;
   saveToStorage: () => void;
@@ -74,14 +72,12 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   },
   
   setCurrentTimer: (timer) => {
-    console.log('Store: Setting current timer to', timer);
     set((state) => ({
       timerData: { ...state.timerData, currentTimer: timer }
     }));
   },
   
   setTimerRunning: (running) => {
-    console.log('Store: Setting timer running to', running);
     set((state) => ({
       timerData: { ...state.timerData, isRunning: running }
     }));
@@ -155,12 +151,6 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
     }));
   },
   
-  toggleOverlayVisibility: () => {
-    set((state) => ({
-      isOverlayVisible: !state.isOverlayVisible
-    }));
-  },
-  
   setOverlayVisible: (visible) => {
     set({ isOverlayVisible: visible });
   },
@@ -180,16 +170,11 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
     }));
   },
   
-  updateOverlayPosition: (x, y) => {
-    set((state) => ({
-      overlaySettings: { ...state.overlaySettings, x, y }
-    }));
-  },
-  
-  loadFromStorage: () => {
+  loadFromStorage: async () => {
     if (typeof window === 'undefined') return;
     
     try {
+      // Load from localStorage first
       const savedData = localStorage.getItem('dbd-timer-data');
       const savedSettings = localStorage.getItem('dbd-overlay-settings');
       
@@ -206,6 +191,28 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
           overlaySettings: { ...state.overlaySettings, ...overlaySettings }
         }));
       }
+
+      // Load from Electron store if available
+      if (window.electronAPI) {
+        try {
+          const electronTimerData = await window.electronAPI.store.get('timerData');
+          const electronOverlaySettings = await window.electronAPI.store.get('overlaySettings');
+          
+          if (electronTimerData) {
+            set((state) => ({
+              timerData: { ...state.timerData, ...electronTimerData }
+            }));
+          }
+          
+          if (electronOverlaySettings) {
+            set((state) => ({
+              overlaySettings: { ...state.overlaySettings, ...electronOverlaySettings }
+            }));
+          }
+        } catch (error) {
+          console.warn('Failed to load from Electron store:', error);
+        }
+      }
     } catch (error) {
       console.warn('Failed to load data from storage:', error);
     }
@@ -219,7 +226,6 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
       localStorage.setItem('dbd-timer-data', JSON.stringify(timerData));
       localStorage.setItem('dbd-overlay-settings', JSON.stringify(overlaySettings));
       
-      // Sync vers Electron après sauvegarde
       if (window.electronAPI) {
         window.electronAPI.timer.syncData(timerData);
         window.electronAPI.store.set('timerData', timerData);

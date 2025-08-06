@@ -1,4 +1,3 @@
-// src/components/OverlayApp.tsx
 import React, { useEffect, useState } from 'react';
 import { useTimerStore } from '../store/timerStore';
 import TimerOverlay from './overlay/TimerOverlay';
@@ -13,26 +12,29 @@ const OverlayApp: React.FC = () => {
   useEffect(() => {
     if (!window.electronAPI) return;
 
-    const handleTimerUpdate = (data: any) => {
-      setLocalTimerData(prev => ({ ...prev, ...data }));
-    };
-
     const handleDataSync = (data: TimerData) => {
+      console.log('Overlay received data sync:', data);
       setLocalTimerData(data);
     };
 
     const handleStyleChange = (style: TimerStyle) => {
+      console.log('Overlay received style change:', style);
       setCurrentStyle(style);
     };
 
-    window.electronAPI.overlay.onTimerUpdate(handleTimerUpdate);
-    window.electronAPI.overlay.onDataSync(handleDataSync);
-    window.electronAPI.overlay.onStyleChange(handleStyleChange);
+    const unsubscribeDataSync = window.electronAPI.overlay.onDataSync(handleDataSync);
+    const unsubscribeStyleChange = window.electronAPI.overlay.onStyleChange(handleStyleChange);
 
     return () => {
-      window.electronAPI.removeAllListeners();
+      unsubscribeDataSync();
+      unsubscribeStyleChange();
     };
   }, []);
+
+  useEffect(() => {
+    setLocalTimerData(timerData);
+    setCurrentStyle(timerData.style);
+  }, [timerData]);
 
   const containerStyle: React.CSSProperties = {
     transform: `scale(${overlaySettings.scale / 100})`,
@@ -45,6 +47,12 @@ const OverlayApp: React.FC = () => {
     pointerEvents: overlaySettings.locked ? 'none' : 'auto',
     userSelect: 'none',
   };
+
+  console.log('Overlay rendering with data:', {
+    localTimerData,
+    currentStyle,
+    overlaySettings
+  });
 
   return (
     <div style={containerStyle}>

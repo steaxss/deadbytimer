@@ -1,4 +1,3 @@
-// src/components/ControlPanel.tsx
 import React, { useEffect } from 'react';
 import { useTimerStore } from '../store/timerStore';
 import useTimer from '../hooks/useTimer';
@@ -18,7 +17,6 @@ const ControlPanel: React.FC = () => {
 
   const { formattedTime1, formattedTime2, isRunning } = useTimer();
 
-  // Listen for overlay status changes
   useEffect(() => {
     if (!window.electronAPI) return;
 
