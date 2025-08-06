@@ -10,21 +10,31 @@ const useGlobalHotkeys = () => {
     if (!window.electronAPI) return;
 
     const handleHotkeyPress = (action: string) => {
-      console.log('Hotkey pressed:', action);
+      console.log('Global hotkey pressed:', action, 'Current running state:', isRunning);
       
       switch (action) {
         case 'start':
           if (isRunning) {
+            console.log('Pausing via hotkey');
             pauseTimer();
           } else {
+            console.log('Starting via hotkey');
             startTimer();
           }
-          saveToStorage();
+          
+          // Sauvegarder après un délai
+          setTimeout(() => {
+            saveToStorage();
+          }, 200);
           break;
           
         case 'swap':
+          console.log('Swapping via hotkey');
           swapTimer();
-          saveToStorage();
+          
+          setTimeout(() => {
+            saveToStorage();
+          }, 200);
           break;
           
         default:

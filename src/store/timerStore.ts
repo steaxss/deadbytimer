@@ -35,20 +35,22 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   overlaySettings: { ...DEFAULT_OVERLAY_SETTINGS },
   isOverlayVisible: false,
   
-  updateTimerData: (data) => 
+  updateTimerData: (data) => {
     set((state) => ({
       timerData: { ...state.timerData, ...data }
-    })),
+    }));
+  },
   
-  updatePlayerName: (player, name) =>
+  updatePlayerName: (player, name) => {
     set((state) => ({
       timerData: {
         ...state.timerData,
         [player === 1 ? 'player1Name' : 'player2Name']: name
       }
-    })),
+    }));
+  },
   
-  updatePlayerScore: (player, delta) =>
+  updatePlayerScore: (player, delta) => {
     set((state) => {
       const currentScore = player === 1 ? state.timerData.player1Score : state.timerData.player2Score;
       const newScore = Math.max(0, currentScore + delta);
@@ -59,36 +61,43 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
           [player === 1 ? 'player1Score' : 'player2Score']: newScore
         }
       };
-    }),
+    });
+  },
   
-  setTimerValue: (timer, value) =>
+  setTimerValue: (timer, value) => {
     set((state) => ({
       timerData: {
         ...state.timerData,
         [timer === 1 ? 'timer1Value' : 'timer2Value']: Math.max(0, value)
       }
-    })),
+    }));
+  },
   
-  setCurrentTimer: (timer) =>
+  setCurrentTimer: (timer) => {
+    console.log('Store: Setting current timer to', timer);
     set((state) => ({
       timerData: { ...state.timerData, currentTimer: timer }
-    })),
+    }));
+  },
   
-  setTimerRunning: (running) =>
+  setTimerRunning: (running) => {
+    console.log('Store: Setting timer running to', running);
     set((state) => ({
       timerData: { ...state.timerData, isRunning: running }
-    })),
+    }));
+  },
   
-  swapTimer: () =>
+  swapTimer: () => {
     set((state) => ({
       timerData: {
         ...state.timerData,
         currentTimer: state.timerData.currentTimer === 1 ? 2 : 1,
         isRunning: false
       }
-    })),
+    }));
+  },
   
-  resetTimer: (timer) =>
+  resetTimer: (timer) => {
     set((state) => {
       if (timer) {
         return {
@@ -107,9 +116,10 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
           }
         };
       }
-    }),
+    });
+  },
   
-  resetAllTimers: () =>
+  resetAllTimers: () => {
     set((state) => ({
       timerData: {
         ...state.timerData,
@@ -120,52 +130,61 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
         currentTimer: 1,
         isRunning: false
       }
-    })),
+    }));
+  },
   
-  updateHotkeys: (hotkeys) =>
+  updateHotkeys: (hotkeys) => {
     set((state) => ({
       timerData: {
         ...state.timerData,
         ...(hotkeys.start && { startHotkey: hotkeys.start }),
         ...(hotkeys.swap && { swapHotkey: hotkeys.swap })
       }
-    })),
+    }));
+  },
   
-  updateStyle: (style) =>
+  updateStyle: (style) => {
     set((state) => ({
       timerData: { ...state.timerData, style }
-    })),
+    }));
+  },
   
-  updateOverlaySettings: (settings) =>
+  updateOverlaySettings: (settings) => {
     set((state) => ({
       overlaySettings: { ...state.overlaySettings, ...settings }
-    })),
+    }));
+  },
   
-  toggleOverlayVisibility: () =>
+  toggleOverlayVisibility: () => {
     set((state) => ({
       isOverlayVisible: !state.isOverlayVisible
-    })),
+    }));
+  },
   
-  setOverlayVisible: (visible) =>
-    set({ isOverlayVisible: visible }),
+  setOverlayVisible: (visible) => {
+    set({ isOverlayVisible: visible });
+  },
   
-  toggleOverlayLock: () =>
+  toggleOverlayLock: () => {
     set((state) => ({
       overlaySettings: {
         ...state.overlaySettings,
         locked: !state.overlaySettings.locked
       }
-    })),
+    }));
+  },
   
-  updateOverlayScale: (scale) =>
+  updateOverlayScale: (scale) => {
     set((state) => ({
       overlaySettings: { ...state.overlaySettings, scale }
-    })),
+    }));
+  },
   
-  updateOverlayPosition: (x, y) =>
+  updateOverlayPosition: (x, y) => {
     set((state) => ({
       overlaySettings: { ...state.overlaySettings, x, y }
-    })),
+    }));
+  },
   
   loadFromStorage: () => {
     if (typeof window === 'undefined') return;
@@ -199,6 +218,13 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
       const { timerData, overlaySettings } = get();
       localStorage.setItem('dbd-timer-data', JSON.stringify(timerData));
       localStorage.setItem('dbd-overlay-settings', JSON.stringify(overlaySettings));
+      
+      // Sync vers Electron après sauvegarde
+      if (window.electronAPI) {
+        window.electronAPI.timer.syncData(timerData);
+        window.electronAPI.store.set('timerData', timerData);
+        window.electronAPI.store.set('overlaySettings', overlaySettings);
+      }
     } catch (error) {
       console.warn('Failed to save data to storage:', error);
     }

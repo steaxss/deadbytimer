@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useTimerStore } from '../store/timerStore';
 
 const useElectronStore = () => {
-  const { updateTimerData, updateOverlaySettings, saveToStorage } = useTimerStore();
+  const { updateTimerData, updateOverlaySettings, setOverlayVisible } = useTimerStore();
 
   useEffect(() => {
     if (!window.electronAPI) return;
@@ -25,7 +25,17 @@ const useElectronStore = () => {
     };
 
     loadElectronData();
-  }, [updateTimerData, updateOverlaySettings]);
+
+    // Listen for overlay ready status
+    const unsubscribeOverlayReady = window.electronAPI.overlay.onReady((isReady: boolean) => {
+      console.log('Overlay ready status changed:', isReady);
+      setOverlayVisible(isReady);
+    });
+
+    return () => {
+      unsubscribeOverlayReady();
+    };
+  }, [updateTimerData, updateOverlaySettings, setOverlayVisible]);
 
   const saveToElectronStore = async () => {
     if (!window.electronAPI) return;
@@ -40,17 +50,6 @@ const useElectronStore = () => {
       console.warn('Failed to save data to electron store:', error);
     }
   };
-
-  useEffect(() => {
-    const store = useTimerStore.getState();
-    const unsubscribe = useTimerStore.subscribe((state) => {
-      if (state !== store) {
-        saveToElectronStore();
-      }
-    });
-
-    return unsubscribe;
-  }, []);
 
   return { saveToElectronStore };
 };

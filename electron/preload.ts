@@ -27,6 +27,11 @@ const api = {
       ipcRenderer.on('overlay-style-change', (_, style) => callback(style));
       return () => ipcRenderer.removeAllListeners('overlay-style-change');
     },
+    
+    onReady: (callback: (isReady: boolean) => void) => {
+      ipcRenderer.on('overlay-ready', (_, isReady) => callback(isReady));
+      return () => ipcRenderer.removeAllListeners('overlay-ready');
+    },
   },
   
   timer: {
@@ -49,12 +54,12 @@ const api = {
     ipcRenderer.removeAllListeners('timer-data-sync');
     ipcRenderer.removeAllListeners('overlay-style-change');
     ipcRenderer.removeAllListeners('hotkey-pressed');
+    ipcRenderer.removeAllListeners('overlay-ready');
   },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);
 
-// Types pour TypeScript (ne seront pas compilés dans le JS final)
 declare global {
   interface Window {
     electronAPI: typeof api;

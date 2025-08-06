@@ -27,6 +27,11 @@ class TimerOverlayApp {
       this.createMainWindow();
       this.setupIPC();
       this.setupGlobalShortcuts();
+      
+      // Auto-show overlay on startup
+      setTimeout(() => {
+        this.createOverlayWindow();
+      }, 2000);
     });
 
     app.on('window-all-closed', () => {
@@ -59,7 +64,7 @@ class TimerOverlayApp {
         nodeIntegration: false,
         contextIsolation: true,
         preload: join(__dirname, 'preload.js'),
-        webSecurity: false // Pour le développement seulement
+        webSecurity: false
       }
     });
 
@@ -119,12 +124,12 @@ class TimerOverlayApp {
       skipTaskbar: true,
       resizable: false,
       focusable: !overlaySettings.locked,
-      show: false, // Ne pas montrer immédiatement
+      show: false,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
         preload: join(__dirname, 'preload.js'),
-        webSecurity: false // Pour le développement seulement
+        webSecurity: false
       }
     });
 
@@ -146,9 +151,14 @@ class TimerOverlayApp {
 
     this.overlayWindow.webContents.on('did-finish-load', () => {
       console.log('Overlay window loaded successfully');
-      this.overlayWindow?.show(); // Montrer seulement après le chargement
+      this.overlayWindow?.show();
       
-      // Synchroniser les données initiales
+      // Notify main window that overlay is ready and visible
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('overlay-ready', true);
+      }
+      
+      // Synchronize initial data
       const timerData = this.store.get('timerData');
       if (timerData && this.overlayWindow) {
         console.log('Syncing initial timer data to overlay');
@@ -165,6 +175,11 @@ class TimerOverlayApp {
     this.overlayWindow.on('closed', () => {
       console.log('Overlay window closed');
       this.overlayWindow = null;
+      
+      // Notify main window that overlay is closed
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('overlay-ready', false);
+      }
     });
 
     this.overlayWindow.on('move', () => {
@@ -175,7 +190,6 @@ class TimerOverlayApp {
       }
     });
 
-    // Ouvrir DevTools pour l'overlay en mode dev
     if (this.isDev) {
       this.overlayWindow.webContents.openDevTools();
     }
@@ -193,6 +207,11 @@ class TimerOverlayApp {
     ipcMain.handle('store-set', (_, key: string, value: any) => {
       console.log(`Store set: ${key} =`, value);
       this.store.set(key, value);
+      
+      // Auto-sync timer data changes to overlay
+      if (key === 'timerData' && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+        this.overlayWindow.webContents.send('timer-data-sync', value);
+      }
     });
 
     ipcMain.handle('overlay-show', async () => {
@@ -259,6 +278,9 @@ class TimerOverlayApp {
       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
         this.overlayWindow.webContents.send('timer-data-sync', data);
       }
+      
+      // Also save to store for persistence
+      this.store.set('timerData', data);
     });
 
     ipcMain.handle('overlay-style-change', async (_, style: string) => {

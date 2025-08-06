@@ -15,32 +15,54 @@ const TimerControls: React.FC = () => {
   const { isRunning, startTimer, pauseTimer, swapTimer } = useTimer();
 
   const handleStartPause = () => {
+    console.log('Start/Pause clicked. Current running state:', isRunning);
+    
     if (isRunning) {
       pauseTimer();
     } else {
       startTimer();
     }
-    saveToStorage();
+    
+    // Sauvegarder après un délai pour laisser le temps aux états de se mettre à jour
+    setTimeout(() => {
+      saveToStorage();
+    }, 100);
   };
 
   const handleSwap = () => {
+    console.log('Swap clicked. Current timer:', timerData.currentTimer);
     swapTimer();
-    saveToStorage();
+    
+    setTimeout(() => {
+      saveToStorage();
+    }, 100);
   };
 
   const handleResetCurrent = () => {
+    console.log('Reset current clicked. Current timer:', timerData.currentTimer);
     resetTimer();
-    saveToStorage();
+    
+    setTimeout(() => {
+      saveToStorage();
+    }, 100);
   };
 
   const handleResetAll = () => {
+    console.log('Reset all clicked');
     resetAllTimers();
-    saveToStorage();
+    
+    setTimeout(() => {
+      saveToStorage();
+    }, 100);
   };
 
   const handleTimerSelect = (timer: 1 | 2) => {
+    console.log('Timer selected:', timer);
     setCurrentTimer(timer);
-    saveToStorage();
+    
+    setTimeout(() => {
+      saveToStorage();
+    }, 100);
   };
 
   return (
@@ -54,7 +76,7 @@ const TimerControls: React.FC = () => {
               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
           }`}
         >
-          Timer 1
+          Timer 1 {timerData.currentTimer === 1 && isRunning && '●'}
         </button>
         
         <button
@@ -65,7 +87,7 @@ const TimerControls: React.FC = () => {
               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
           }`}
         >
-          Timer 2
+          Timer 2 {timerData.currentTimer === 2 && isRunning && '●'}
         </button>
       </div>
 
@@ -107,6 +129,7 @@ const TimerControls: React.FC = () => {
 
       <div className="text-sm text-gray-400 text-center">
         Active Timer: {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
+        {isRunning && <span className="text-success-400 ml-2">● Running</span>}
       </div>
     </div>
   );

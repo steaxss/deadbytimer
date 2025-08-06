@@ -1,5 +1,5 @@
 // src/components/ControlPanel.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTimerStore } from '../store/timerStore';
 import useTimer from '../hooks/useTimer';
 import TimerControls from './TimerControls';
@@ -13,11 +13,23 @@ const ControlPanel: React.FC = () => {
     overlaySettings,
     isOverlayVisible,
     setOverlayVisible,
-    toggleOverlayVisibility,
     saveToStorage,
   } = useTimerStore();
 
   const { formattedTime1, formattedTime2, isRunning } = useTimer();
+
+  // Listen for overlay status changes
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const unsubscribeOverlayReady = window.electronAPI.overlay.onReady((isReady: boolean) => {
+      setOverlayVisible(isReady);
+    });
+
+    return () => {
+      unsubscribeOverlayReady();
+    };
+  }, [setOverlayVisible]);
 
   const handleToggleOverlay = async () => {
     if (!window.electronAPI) return;

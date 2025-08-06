@@ -9,7 +9,6 @@ const useTimer = () => {
     setTimerRunning,
     setCurrentTimer,
     resetTimer,
-    saveToStorage,
   } = useTimerStore();
 
   const timer1Ref = useRef<PreciseTimer | null>(null);
@@ -17,12 +16,15 @@ const useTimer = () => {
   const [formattedTime1, setFormattedTime1] = useState('0:00.0');
   const [formattedTime2, setFormattedTime2] = useState('0:00.0');
 
+  // Fonction de synchronisation séparée pour éviter les dépendances circulaires
   const syncToOverlay = useCallback((data: any) => {
     if (window.electronAPI) {
       window.electronAPI.timer.updateDisplay(data);
+      window.electronAPI.timer.syncData(data);
     }
   }, []);
 
+  // Initialisation des timers
   useEffect(() => {
     if (!timer1Ref.current) {
       timer1Ref.current = new PreciseTimer((value) => {
@@ -30,11 +32,13 @@ const useTimer = () => {
         const formatted = formatTime(value);
         setFormattedTime1(formatted);
         
+        // Sync immédiate avec les données complètes
+        const currentData = useTimerStore.getState().timerData;
         syncToOverlay({
+          ...currentData,
+          timer1Value: value,
           timer1: formatted,
-          timer2: formatTime(timerData.timer2Value),
-          currentTimer: timerData.currentTimer,
-          isRunning: timerData.isRunning,
+          timer2: formatTime(currentData.timer2Value),
         });
       });
     }
@@ -45,11 +49,13 @@ const useTimer = () => {
         const formatted = formatTime(value);
         setFormattedTime2(formatted);
         
+        // Sync immédiate avec les données complètes
+        const currentData = useTimerStore.getState().timerData;
         syncToOverlay({
-          timer1: formatTime(timerData.timer1Value),
+          ...currentData,
+          timer2Value: value,
           timer2: formatted,
-          currentTimer: timerData.currentTimer,
-          isRunning: timerData.isRunning,
+          timer1: formatTime(currentData.timer1Value),
         });
       });
     }
@@ -60,19 +66,46 @@ const useTimer = () => {
     };
   }, [setTimerValue, syncToOverlay]);
 
+  // Mise à jour des temps formatés quand les valeurs changent
   useEffect(() => {
-    setFormattedTime1(formatTime(timerData.timer1Value));
-    setFormattedTime2(formatTime(timerData.timer2Value));
-  }, [timerData.timer1Value, timerData.timer2Value]);
+    const newTime1 = formatTime(timerData.timer1Value);
+    const newTime2 = formatTime(timerData.timer2Value);
+    
+    setFormattedTime1(newTime1);
+    setFormattedTime2(newTime2);
+    
+    // Sync des changements de données (noms, scores, etc.)
+    syncToOverlay({
+      ...timerData,
+      timer1: newTime1,
+      timer2: newTime2,
+    });
+  }, [
+    timerData.timer1Value,
+    timerData.timer2Value,
+    timerData.player1Name,
+    timerData.player2Name,
+    timerData.player1Score,
+    timerData.player2Score,
+    timerData.currentTimer,
+    timerData.isRunning,
+    timerData.style,
+    syncToOverlay
+  ]);
 
   const startTimer = useCallback(() => {
     const currentTimer = timerData.currentTimer;
     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
     const initialValue = currentTimer === 1 ? timerData.timer1Value : timerData.timer2Value;
 
+    console.log('Starting timer:', currentTimer, 'with value:', initialValue);
+
     if (timerRef && !timerRef.running) {
       timerRef.start(initialValue);
       setTimerRunning(true);
+      console.log('Timer started successfully');
+    } else {
+      console.log('Timer already running or ref not found');
     }
   }, [timerData.currentTimer, timerData.timer1Value, timerData.timer2Value, setTimerRunning]);
 
@@ -80,31 +113,35 @@ const useTimer = () => {
     const currentTimer = timerData.currentTimer;
     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
 
+    console.log('Pausing timer:', currentTimer);
+
     if (timerRef && timerRef.running) {
       const finalValue = timerRef.pause();
       setTimerValue(currentTimer, finalValue);
       setTimerRunning(false);
+      console.log('Timer paused successfully, final value:', finalValue);
+    } else {
+      console.log('Timer not running or ref not found');
     }
   }, [timerData.currentTimer, setTimerValue, setTimerRunning]);
 
   const swapTimer = useCallback(() => {
+    console.log('Swapping timer from', timerData.currentTimer);
+    
+    // Arrêter le timer actuel s'il est en marche
     if (timerData.isRunning) {
       pauseTimer();
     }
     
     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
     setCurrentTimer(newTimer);
-
-    if (window.electronAPI) {
-      window.electronAPI.timer.syncData({
-        ...timerData,
-        currentTimer: newTimer,
-        isRunning: false,
-      });
-    }
-  }, [timerData, pauseTimer, setCurrentTimer]);
+    
+    console.log('Timer swapped to:', newTimer);
+  }, [timerData.currentTimer, timerData.isRunning, pauseTimer, setCurrentTimer]);
 
   const resetCurrentTimer = useCallback(() => {
+    console.log('Resetting current timer:', timerData.currentTimer);
+    
     if (timerData.isRunning) {
       pauseTimer();
     }
@@ -112,13 +149,21 @@ const useTimer = () => {
     resetTimer();
     
     const timerRef = timerData.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-    timerRef?.reset();
+    if (timerRef) {
+      timerRef.reset();
+    }
+    
+    console.log('Timer reset completed');
   }, [timerData.isRunning, timerData.currentTimer, pauseTimer, resetTimer]);
 
   const resetAllTimers = useCallback(() => {
+    console.log('Resetting all timers');
+    
     timer1Ref.current?.reset();
     timer2Ref.current?.reset();
     setTimerRunning(false);
+    
+    console.log('All timers reset completed');
   }, [setTimerRunning]);
 
   return {
