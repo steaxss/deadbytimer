@@ -1,67 +1,74 @@
+// src/components/OverlayApp.tsx
 import React, { useEffect, useState } from 'react';
 import { useTimerStore } from '../store/timerStore';
 import TimerOverlay from './overlay/TimerOverlay';
-import DragHandle from './overlay/DragHandle';
-import type { TimerData, TimerStyle } from '../types';
+import useTimer from '../hooks/useTimer';
 
 const OverlayApp: React.FC = () => {
-  const { timerData, overlaySettings } = useTimerStore();
-  const [localTimerData, setLocalTimerData] = useState<TimerData>(timerData);
-  const [currentStyle, setCurrentStyle] = useState<TimerStyle>(timerData.style);
+  const { loadFromStorage, timerData, overlaySettings } = useTimerStore();
+  const [isInitialized, setIsInitialized] = useState(false);
+  
+  useTimer();
 
   useEffect(() => {
-    if (!window.electronAPI) return;
-
-    const handleDataSync = (data: TimerData) => {
-      console.log('Overlay received data sync:', data);
-      setLocalTimerData(data);
+    const initializeOverlay = async () => {
+      try {
+        await loadFromStorage();
+        setIsInitialized(true);
+        console.log('Overlay initialized successfully');
+      } catch (error) {
+        console.error('Failed to initialize overlay:', error);
+        setIsInitialized(true);
+      }
     };
 
-    const handleStyleChange = (style: TimerStyle) => {
-      console.log('Overlay received style change:', style);
-      setCurrentStyle(style);
-    };
+    initializeOverlay();
+  }, [loadFromStorage]);
 
-    const unsubscribeDataSync = window.electronAPI.overlay.onDataSync(handleDataSync);
-    const unsubscribeStyleChange = window.electronAPI.overlay.onStyleChange(handleStyleChange);
+  useEffect(() => {
+    if (!window.electronAPI?.overlay) return;
 
-    return () => {
-      unsubscribeDataSync();
-      unsubscribeStyleChange();
-    };
+    const cleanupDataSync = window.electronAPI.overlay.onDataSync((data) => {
+      console.log('Received timer data sync:', data);
+    });
+
+    return cleanupDataSync;
   }, []);
 
   useEffect(() => {
-    setLocalTimerData(timerData);
-    setCurrentStyle(timerData.style);
-  }, [timerData]);
+    if (window.electronAPI?.overlay?.updateSettings) {
+      window.electronAPI.overlay.updateSettings(overlaySettings);
+    }
+  }, [overlaySettings]);
 
-  const containerStyle: React.CSSProperties = {
-    transform: `scale(${overlaySettings.scale / 100})`,
-    transformOrigin: 'top left',
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
-    pointerEvents: overlaySettings.locked ? 'none' : 'auto',
-    userSelect: 'none',
-  };
+  useEffect(() => {
+    document.body.style.background = 'transparent';
+    document.body.style.margin = '0';
+    document.body.style.padding = '0';
+    document.body.style.overflow = 'hidden';
+    
+    const htmlElement = document.documentElement;
+    htmlElement.style.background = 'transparent';
+    htmlElement.style.margin = '0';
+    htmlElement.style.padding = '0';
+    htmlElement.style.overflow = 'hidden';
+  }, []);
 
-  console.log('Overlay rendering with data:', {
-    localTimerData,
-    currentStyle,
-    overlaySettings
-  });
+  if (!isInitialized) {
+    return null;
+  }
 
   return (
-    <div style={containerStyle}>
-      {!overlaySettings.locked && <DragHandle />}
-      <TimerOverlay
-        timerData={localTimerData}
-        style={currentStyle}
-        isActive={localTimerData.isRunning}
-      />
+    <div 
+      className="w-full h-full"
+      style={{ 
+        background: 'transparent',
+        margin: 0,
+        padding: 0,
+        overflow: 'hidden'
+      }}
+    >
+      <TimerOverlay />
     </div>
   );
 };

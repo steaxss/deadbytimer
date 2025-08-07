@@ -44,6 +44,7 @@ dbdoverlaytools-free
 │   ├── store
 │   │   └── timerStore.ts
 │   ├── types
+│   │   ├── global.d.ts
 │   │   └── index.ts
 │   └── utils
 │       ├── cn.ts
@@ -815,90 +816,61 @@ dbdoverlaytools-free
    2 | import { useTimerStore } from './store/timerStore';
    3 | import ControlPanel from './components/ControlPanel';
    4 | import useGlobalHotkeys from './hooks/useGlobalHotkeys';
-   5 | import type { TimerData } from './types';
-   6 | 
-   7 | declare global {
-   8 |   interface Window {
-   9 |     electronAPI?: {
-  10 |       store: {
-  11 |         get: (key: string) => Promise<any>;
-  12 |         set: (key: string, value: any) => Promise<void>;
-  13 |       };
-  14 |       overlay: {
-  15 |         show: () => Promise<{ success: boolean; error?: string }>;
-  16 |         hide: () => Promise<{ success: boolean; error?: string }>;
-  17 |         updateSettings: (settings: any) => Promise<void>;
-  18 |         styleChange: (style: any) => Promise<void>;
-  19 |         onDataSync: (callback: (data: TimerData) => void) => () => void;
-  20 |         onStyleChange: (callback: (style: any) => void) => () => void;
-  21 |         onReady: (callback: (isReady: boolean) => void) => () => void;
-  22 |       };
-  23 |       timer: {
-  24 |         syncData: (data: TimerData) => Promise<void>;
-  25 |       };
-  26 |       hotkeys: {
-  27 |         register: (hotkeys: { start: string; swap: string }) => Promise<void>;
-  28 |         onPressed: (callback: (action: string) => void) => () => void;
-  29 |       };
-  30 |       removeAllListeners: () => void;
-  31 |     };
-  32 |   }
-  33 | }
+   5 | 
+   6 | const App: React.FC = () => {
+   7 |   const { loadFromStorage } = useTimerStore();
+   8 |   const [isInitialized, setIsInitialized] = useState(false);
+   9 | 
+  10 |   useGlobalHotkeys();
+  11 | 
+  12 |   useEffect(() => {
+  13 |     const initializeApp = async () => {
+  14 |       try {
+  15 |         await loadFromStorage();
+  16 |         setIsInitialized(true);
+  17 |         console.log('App initialized successfully');
+  18 |       } catch (error) {
+  19 |         console.error('Failed to initialize app:', error);
+  20 |         setIsInitialized(true);
+  21 |       }
+  22 |     };
+  23 | 
+  24 |     initializeApp();
+  25 |   }, [loadFromStorage]);
+  26 | 
+  27 |   if (!isInitialized) {
+  28 |     return (
+  29 |       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+  30 |         <div className="text-white text-lg">Loading...</div>
+  31 |       </div>
+  32 |     );
+  33 |   }
   34 | 
-  35 | const App: React.FC = () => {
-  36 |   const { loadFromStorage, timerData } = useTimerStore();
-  37 |   const [isInitialized, setIsInitialized] = useState(false);
-  38 | 
-  39 |   useGlobalHotkeys();
-  40 | 
-  41 |   useEffect(() => {
-  42 |     const initializeApp = async () => {
-  43 |       try {
-  44 |         await loadFromStorage();
-  45 |         setIsInitialized(true);
-  46 |         console.log('App initialized with data:', timerData);
-  47 |       } catch (error) {
-  48 |         console.error('Failed to initialize app:', error);
-  49 |         setIsInitialized(true);
-  50 |       }
-  51 |     };
-  52 | 
-  53 |     initializeApp();
-  54 |   }, [loadFromStorage]);
-  55 | 
-  56 |   if (!isInitialized) {
-  57 |     return (
-  58 |       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-  59 |         <div className="text-white text-lg">Loading...</div>
-  60 |       </div>
-  61 |     );
-  62 |   }
-  63 | 
-  64 |   return (
-  65 |     <div className="min-h-screen bg-gray-900 text-white">
-  66 |       <div className="container mx-auto p-6">
-  67 |         <header className="text-center mb-8">
-  68 |           <h1 className="text-4xl font-bold text-primary-400 mb-2">
-  69 |             DBD Timer Overlay
-  70 |           </h1>
-  71 |           <p className="text-gray-400">
-  72 |             Professional timer overlay for Dead by Daylight 1v1 matches
-  73 |           </p>
-  74 |         </header>
-  75 | 
-  76 |         <main>
-  77 |           <ControlPanel />
-  78 |         </main>
-  79 | 
-  80 |         <footer className="text-center mt-8 text-gray-500 text-sm">
-  81 |           <p>Press your configured hotkeys to control timers globally</p>
-  82 |         </footer>
-  83 |       </div>
-  84 |     </div>
-  85 |   );
-  86 | };
-  87 | 
-  88 | export default App;
+  35 |   return (
+  36 |     <div className="min-h-screen bg-gray-900 text-white">
+  37 |       <div className="container mx-auto p-6">
+  38 |         <header className="text-center mb-8">
+  39 |           <h1 className="text-4xl font-bold text-primary-400 mb-2">
+  40 |             DBD Timer Overlay
+  41 |           </h1>
+  42 |           <p className="text-gray-400">
+  43 |             Professional timer overlay for Dead by Daylight 1v1 matches
+  44 |           </p>
+  45 |         </header>
+  46 | 
+  47 |         <main>
+  48 |           <ControlPanel />
+  49 |         </main>
+  50 | 
+  51 |         <footer className="text-center mt-8 text-gray-500 text-sm">
+  52 |           <p>Press your configured hotkeys to control timers globally</p>
+  53 |         </footer>
+  54 |       </div>
+  55 |     </div>
+  56 |   );
+  57 | };
+  58 | 
+  59 | export default App;
 
 ```
 
@@ -1181,67 +1153,75 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\components\OverlayApp.tsx`:
 
 ```tsx
-   1 | // src/components/OverlayApp.tsx
-   2 | import React, { useEffect, useState } from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | import TimerOverlay from './overlay/TimerOverlay';
-   5 | import DragHandle from './overlay/DragHandle';
-   6 | import type { TimerData, TimerStyle } from '../types';
-   7 | 
-   8 | const OverlayApp: React.FC = () => {
-   9 |   const { timerData, overlaySettings } = useTimerStore();
-  10 |   const [localTimerData, setLocalTimerData] = useState<TimerData>(timerData);
-  11 |   const [currentStyle, setCurrentStyle] = useState<TimerStyle>(timerData.style);
-  12 | 
-  13 |   useEffect(() => {
-  14 |     if (!window.electronAPI) return;
-  15 | 
-  16 |     const handleTimerUpdate = (data: any) => {
-  17 |       setLocalTimerData(prev => ({ ...prev, ...data }));
+   1 | import React, { useEffect, useState } from 'react';
+   2 | import { useTimerStore } from '../store/timerStore';
+   3 | import TimerOverlay from './overlay/TimerOverlay';
+   4 | import DragHandle from './overlay/DragHandle';
+   5 | import type { TimerData, TimerStyle } from '../types';
+   6 | 
+   7 | const OverlayApp: React.FC = () => {
+   8 |   const { timerData, overlaySettings } = useTimerStore();
+   9 |   const [localTimerData, setLocalTimerData] = useState<TimerData>(timerData);
+  10 |   const [currentStyle, setCurrentStyle] = useState<TimerStyle>(timerData.style);
+  11 | 
+  12 |   useEffect(() => {
+  13 |     if (!window.electronAPI) return;
+  14 | 
+  15 |     const handleDataSync = (data: TimerData) => {
+  16 |       console.log('Overlay received data sync:', data);
+  17 |       setLocalTimerData(data);
   18 |     };
   19 | 
-  20 |     const handleDataSync = (data: TimerData) => {
-  21 |       setLocalTimerData(data);
-  22 |     };
-  23 | 
-  24 |     const handleStyleChange = (style: TimerStyle) => {
-  25 |       setCurrentStyle(style);
-  26 |     };
+  20 |     const handleStyleChange = (style: TimerStyle) => {
+  21 |       console.log('Overlay received style change:', style);
+  22 |       setCurrentStyle(style);
+  23 |     };
+  24 | 
+  25 |     const unsubscribeDataSync = window.electronAPI.overlay.onDataSync(handleDataSync);
+  26 |     const unsubscribeStyleChange = window.electronAPI.overlay.onStyleChange(handleStyleChange);
   27 | 
-  28 |     window.electronAPI.overlay.onTimerUpdate(handleTimerUpdate);
-  29 |     window.electronAPI.overlay.onDataSync(handleDataSync);
-  30 |     window.electronAPI.overlay.onStyleChange(handleStyleChange);
-  31 | 
-  32 |     return () => {
-  33 |       window.electronAPI.removeAllListeners();
-  34 |     };
-  35 |   }, []);
-  36 | 
-  37 |   const containerStyle: React.CSSProperties = {
-  38 |     transform: `scale(${overlaySettings.scale / 100})`,
-  39 |     transformOrigin: 'top left',
-  40 |     position: 'fixed',
-  41 |     top: 0,
-  42 |     left: 0,
-  43 |     width: '100%',
-  44 |     height: '100%',
-  45 |     pointerEvents: overlaySettings.locked ? 'none' : 'auto',
-  46 |     userSelect: 'none',
-  47 |   };
-  48 | 
-  49 |   return (
-  50 |     <div style={containerStyle}>
-  51 |       {!overlaySettings.locked && <DragHandle />}
-  52 |       <TimerOverlay
-  53 |         timerData={localTimerData}
-  54 |         style={currentStyle}
-  55 |         isActive={localTimerData.isRunning}
-  56 |       />
-  57 |     </div>
-  58 |   );
-  59 | };
-  60 | 
-  61 | export default OverlayApp;
+  28 |     return () => {
+  29 |       unsubscribeDataSync();
+  30 |       unsubscribeStyleChange();
+  31 |     };
+  32 |   }, []);
+  33 | 
+  34 |   useEffect(() => {
+  35 |     setLocalTimerData(timerData);
+  36 |     setCurrentStyle(timerData.style);
+  37 |   }, [timerData]);
+  38 | 
+  39 |   const containerStyle: React.CSSProperties = {
+  40 |     transform: `scale(${overlaySettings.scale / 100})`,
+  41 |     transformOrigin: 'top left',
+  42 |     position: 'fixed',
+  43 |     top: 0,
+  44 |     left: 0,
+  45 |     width: '100%',
+  46 |     height: '100%',
+  47 |     pointerEvents: overlaySettings.locked ? 'none' : 'auto',
+  48 |     userSelect: 'none',
+  49 |   };
+  50 | 
+  51 |   console.log('Overlay rendering with data:', {
+  52 |     localTimerData,
+  53 |     currentStyle,
+  54 |     overlaySettings
+  55 |   });
+  56 | 
+  57 |   return (
+  58 |     <div style={containerStyle}>
+  59 |       {!overlaySettings.locked && <DragHandle />}
+  60 |       <TimerOverlay
+  61 |         timerData={localTimerData}
+  62 |         style={currentStyle}
+  63 |         isActive={localTimerData.isRunning}
+  64 |       />
+  65 |     </div>
+  66 |   );
+  67 | };
+  68 | 
+  69 | export default OverlayApp;
 
 ```
 
@@ -2732,6 +2712,41 @@ dbdoverlaytools-free
 
 ```
 
+`dbdoverlaytools-free/src\types\global.d.ts`:
+
+```ts
+   1 | import type { TimerData } from './index';
+   2 | 
+   3 | declare global {
+   4 |   interface Window {
+   5 |     electronAPI?: {
+   6 |       store: {
+   7 |         get: (key: string) => Promise<any>;
+   8 |         set: (key: string, value: any) => Promise<void>;
+   9 |       };
+  10 |       overlay: {
+  11 |         show: () => Promise<{ success: boolean; error?: string }>;
+  12 |         hide: () => Promise<{ success: boolean; error?: string }>;
+  13 |         updateSettings: (settings: any) => Promise<void>;
+  14 |         styleChange: (style: any) => Promise<void>;
+  15 |         onDataSync: (callback: (data: TimerData) => void) => () => void;
+  16 |         onStyleChange: (callback: (style: any) => void) => () => void;
+  17 |         onReady: (callback: (isReady: boolean) => void) => () => void;
+  18 |       };
+  19 |       timer: {
+  20 |         syncData: (data: TimerData) => Promise<void>;
+  21 |       };
+  22 |       hotkeys: {
+  23 |         register: (hotkeys: { start: string; swap: string }) => Promise<void>;
+  24 |         onPressed: (callback: (action: string) => void) => () => void;
+  25 |       };
+  26 |       removeAllListeners: () => void;
+  27 |     };
+  28 |   }
+  29 | }
+
+```
+
 `dbdoverlaytools-free/src\types\index.ts`:
 
 ```ts
@@ -3153,10 +3168,11 @@ dbdoverlaytools-free
   33 |   "include": [
   34 |     "src",
   35 |     "electron",
-  36 |     "vite.config.ts"
-  37 |   ],
-  38 |   "references": [{ "path": "./tsconfig.node.json" }]
-  39 | }
+  36 |     "vite.config.ts",
+  37 |     "src/types/global.d.ts"
+  38 |   ],
+  39 |   "references": [{ "path": "./tsconfig.node.json" }]
+  40 | }
 
 ```
 

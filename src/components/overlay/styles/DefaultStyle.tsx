@@ -1,7 +1,6 @@
-import React from 'react';
-import Timer from '../Timer';
-import PlayerName from '../PlayerName';
-import ScoreDisplay from '../ScoreDisplay';
+// src/components/overlay/styles/DefaultStyle.tsx
+import React, { useEffect, useState } from 'react';
+import { cn } from '../../../utils/cn';
 
 interface DefaultStyleProps {
   player1Name: string;
@@ -22,44 +21,69 @@ const DefaultStyle: React.FC<DefaultStyleProps> = ({
   timer1,
   timer2,
   currentTimer,
-  isRunning,
+  isRunning
 }) => {
+  const [player1Scrolling, setPlayer1Scrolling] = useState(false);
+  const [player2Scrolling, setPlayer2Scrolling] = useState(false);
+
+  useEffect(() => {
+    setPlayer1Scrolling(player1Name.length > 12);
+    setPlayer2Scrolling(player2Name.length > 12);
+  }, [player1Name, player2Name]);
+
+  const formatTimerChars = (timeStr: string) => {
+    const chars = timeStr.padStart(6, '0').split('');
+    return {
+      minutes: chars[0] || '0',
+      colon: ':',
+      seconds1: chars[2] || '0',
+      seconds2: chars[3] || '0',
+      dot: '.',
+      tenths: chars[5] || '0'
+    };
+  };
+
+  const timer1Chars = formatTimerChars(timer1);
+  const timer2Chars = formatTimerChars(timer2);
+
   return (
-    <div className="w-[520px] h-[120px] bg-gray-900 bg-opacity-95 border border-gray-700 rounded-lg p-4">
-      <div className="flex items-center justify-between h-full">
-        <div className="flex-1 text-center">
-          <PlayerName 
-            name={player1Name} 
-            isActive={currentTimer === 1 && isRunning}
-            className="mb-2"
-          />
-          <Timer 
-            value={timer1}
-            isActive={currentTimer === 1 && isRunning}
-            className="text-2xl"
-          />
-        </div>
-        
-        <div className="px-6">
-          <ScoreDisplay 
-            player1Score={player1Score}
-            player2Score={player2Score}
-            className="text-xl font-bold"
-          />
-        </div>
-        
-        <div className="flex-1 text-center">
-          <PlayerName 
-            name={player2Name} 
-            isActive={currentTimer === 2 && isRunning}
-            className="mb-2"
-          />
-          <Timer 
-            value={timer2}
-            isActive={currentTimer === 2 && isRunning}
-            className="text-2xl"
-          />
-        </div>
+    <div className="timer-overlay">
+      <div className="name left">
+        <span className={cn("name-scroll", player1Scrolling && "scrolling")}>
+          {player1Name.toUpperCase()}
+        </span>
+      </div>
+      
+      <div className="score-value">
+        {player1Score} – {player2Score}
+      </div>
+      
+      <div className="name right">
+        <span className={cn("name-scroll", player2Scrolling && "scrolling")}>
+          {player2Name.toUpperCase()}
+        </span>
+      </div>
+      
+      <div className={cn("timer left", currentTimer === 1 && "active")}>
+        <span className="timer-text">
+          <span className="timer-char">{timer1Chars.minutes}</span>
+          <span className="timer-char separator">{timer1Chars.colon}</span>
+          <span className="timer-char">{timer1Chars.seconds1}</span>
+          <span className="timer-char">{timer1Chars.seconds2}</span>
+          <span className="timer-char separator">{timer1Chars.dot}</span>
+          <span className="timer-char">{timer1Chars.tenths}</span>
+        </span>
+      </div>
+      
+      <div className={cn("timer right", currentTimer === 2 && "active")}>
+        <span className="timer-text">
+          <span className="timer-char">{timer2Chars.minutes}</span>
+          <span className="timer-char separator">{timer2Chars.colon}</span>
+          <span className="timer-char">{timer2Chars.seconds1}</span>
+          <span className="timer-char">{timer2Chars.seconds2}</span>
+          <span className="timer-char separator">{timer2Chars.dot}</span>
+          <span className="timer-char">{timer2Chars.tenths}</span>
+        </span>
       </div>
     </div>
   );

@@ -1,43 +1,54 @@
+// src/components/overlay/TimerOverlay.tsx
 import React from 'react';
-import { formatTime } from '../../utils/timer';
-import type { TimerData, TimerStyle } from '../../types';
+import { useTimerStore } from '../../store/timerStore';
+import DragHandle from './DragHandle';
 import DefaultStyle from './styles/DefaultStyle';
-import MinimalStyle from './styles/MinimalStyle';
-import CircularStyle from './styles/CircularStyle';
-import NostalgiaStyle from './styles/NostalgiaStyle';
+import useTimer from '../../hooks/useTimer';
 
-interface TimerOverlayProps {
-  timerData: TimerData;
-  style: TimerStyle;
-  isActive: boolean;
-}
+const TimerOverlay: React.FC = () => {
+  const { timerData, overlaySettings } = useTimerStore();
+  const { formattedTime1, formattedTime2 } = useTimer();
 
-const TimerOverlay: React.FC<TimerOverlayProps> = ({ timerData, style, isActive }) => {
-  const timer1Display = formatTime(timerData.timer1Value);
-  const timer2Display = formatTime(timerData.timer2Value);
-  
-  const overlayData = {
-    player1Name: timerData.player1Name,
-    player2Name: timerData.player2Name,
-    player1Score: timerData.player1Score,
-    player2Score: timerData.player2Score,
-    timer1: timer1Display,
-    timer2: timer2Display,
-    currentTimer: timerData.currentTimer,
-    isRunning: isActive,
-  };
+  const scaleFactor = overlaySettings.scale / 100;
 
-  switch (style) {
-    case 'minimal':
-      return <MinimalStyle {...overlayData} />;
-    case 'circular':
-      return <CircularStyle {...overlayData} />;
-    case 'nostalgia':
-      return <NostalgiaStyle {...overlayData} />;
-    case 'default':
-    default:
-      return <DefaultStyle {...overlayData} />;
-  }
+  return (
+    <div
+      style={{
+        width: '520px',
+        height: overlaySettings.locked ? '120px' : '150px',
+        transform: `scale(${scaleFactor})`,
+        transformOrigin: 'top left',
+        background: 'transparent',
+        position: 'relative',
+        userSelect: 'none',
+        WebkitUserSelect: 'none'
+      }}
+    >
+      <DragHandle isVisible={!overlaySettings.locked} />
+      
+      <div 
+        style={{
+          width: '520px',
+          height: '120px',
+          position: overlaySettings.locked ? 'static' : 'absolute',
+          top: overlaySettings.locked ? '0px' : '30px',
+          left: '0px',
+          pointerEvents: overlaySettings.locked ? 'none' : 'auto'
+        }}
+      >
+        <DefaultStyle
+          player1Name={timerData.player1Name}
+          player2Name={timerData.player2Name}
+          player1Score={timerData.player1Score}
+          player2Score={timerData.player2Score}
+          timer1={formattedTime1}
+          timer2={formattedTime2}
+          currentTimer={timerData.currentTimer}
+          isRunning={timerData.isRunning}
+        />
+      </div>
+    </div>
+  );
 };
 
 export default TimerOverlay;
