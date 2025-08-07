@@ -1,135 +1,145 @@
-// src/components/TimerControls.tsx
 import React from 'react';
 import { useTimerStore } from '../store/timerStore';
-import useTimer from '../hooks/useTimer';
 
 const TimerControls: React.FC = () => {
   const {
     timerData,
-    setCurrentTimer,
+    startTimer,
+    pauseTimer,
+    swapTimer,
     resetTimer,
     resetAllTimers,
-    saveToStorage,
+    setCurrentTimer,
+    saveToStorage
   } = useTimerStore();
 
-  const { isRunning, startTimer, pauseTimer, swapTimer } = useTimer();
-
   const handleStartPause = () => {
-    console.log('Start/Pause clicked. Current running state:', isRunning);
-    
-    if (isRunning) {
+    if (timerData.isRunning) {
       pauseTimer();
     } else {
       startTimer();
     }
-    
-    // Sauvegarder après un délai pour laisser le temps aux états de se mettre à jour
-    setTimeout(() => {
-      saveToStorage();
-    }, 100);
+    setTimeout(() => saveToStorage(), 100);
   };
 
   const handleSwap = () => {
-    console.log('Swap clicked. Current timer:', timerData.currentTimer);
     swapTimer();
-    
-    setTimeout(() => {
-      saveToStorage();
-    }, 100);
+    setTimeout(() => saveToStorage(), 100);
   };
 
   const handleResetCurrent = () => {
-    console.log('Reset current clicked. Current timer:', timerData.currentTimer);
     resetTimer();
-    
-    setTimeout(() => {
-      saveToStorage();
-    }, 100);
+    setTimeout(() => saveToStorage(), 100);
   };
 
   const handleResetAll = () => {
-    console.log('Reset all clicked');
     resetAllTimers();
-    
-    setTimeout(() => {
-      saveToStorage();
-    }, 100);
+    setTimeout(() => saveToStorage(), 100);
   };
 
   const handleTimerSelect = (timer: 1 | 2) => {
-    console.log('Timer selected:', timer);
+    if (timerData.isRunning) {
+      pauseTimer();
+    }
     setCurrentTimer(timer);
-    
-    setTimeout(() => {
-      saveToStorage();
-    }, 100);
+    setTimeout(() => saveToStorage(), 100);
   };
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-6">
+      <div className="text-center mb-6">
+        <h3 className="text-xl font-semibold text-white mb-2">Timer Controls</h3>
+        <p className="text-gray-400">All timer actions are displayed on the overlay</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
         <button
           onClick={() => handleTimerSelect(1)}
-          className={`py-2 px-4 rounded-md font-medium transition-colors ${
+          className={`py-3 px-4 rounded-md font-medium transition-colors ${
             timerData.currentTimer === 1
-              ? 'bg-primary-600 text-white'
+              ? 'bg-primary-600 text-white ring-2 ring-primary-400'
               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
           }`}
         >
-          Timer 1 {timerData.currentTimer === 1 && isRunning && '●'}
+          Select {timerData.player1Name}
+          {timerData.currentTimer === 1 && timerData.isRunning && (
+            <div className="text-xs text-green-400 mt-1">● ACTIVE</div>
+          )}
         </button>
         
         <button
           onClick={() => handleTimerSelect(2)}
-          className={`py-2 px-4 rounded-md font-medium transition-colors ${
+          className={`py-3 px-4 rounded-md font-medium transition-colors ${
             timerData.currentTimer === 2
-              ? 'bg-primary-600 text-white'
+              ? 'bg-primary-600 text-white ring-2 ring-primary-400'
               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
           }`}
         >
-          Timer 2 {timerData.currentTimer === 2 && isRunning && '●'}
+          Select {timerData.player2Name}
+          {timerData.currentTimer === 2 && timerData.isRunning && (
+            <div className="text-xs text-green-400 mt-1">● ACTIVE</div>
+          )}
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         <button
           onClick={handleStartPause}
-          className={`py-3 px-4 rounded-md font-semibold transition-colors ${
-            isRunning
-              ? 'bg-danger-600 hover:bg-danger-700 text-white'
-              : 'bg-success-600 hover:bg-success-700 text-white'
+          className={`py-4 px-6 rounded-lg font-semibold text-lg transition-colors ${
+            timerData.isRunning
+              ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/30'
+              : 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/30'
           }`}
         >
-          {isRunning ? 'Pause' : 'Start'}
+          {timerData.isRunning ? '⏸️ PAUSE' : '▶️ START'}
         </button>
         
         <button
           onClick={handleSwap}
-          className="py-3 px-4 bg-info-600 hover:bg-info-700 text-white rounded-md font-semibold transition-colors"
+          className="py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-lg transition-colors shadow-lg shadow-blue-500/30"
         >
-          Swap
+          🔄 SWAP
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         <button
           onClick={handleResetCurrent}
-          className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
+          className="py-3 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors"
         >
           Reset Current
         </button>
         
         <button
           onClick={handleResetAll}
-          className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
+          className="py-3 px-4 bg-red-700 hover:bg-red-800 text-white rounded-lg font-medium transition-colors"
         >
           Reset All
         </button>
       </div>
 
-      <div className="text-sm text-gray-400 text-center">
-        Active Timer: {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
-        {isRunning && <span className="text-success-400 ml-2">● Running</span>}
+      <div className="bg-gray-700 rounded-lg p-4 mt-6">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-white font-medium">Current Active Timer</span>
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${
+              timerData.isRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
+            }`} />
+            <span className={`font-medium ${
+              timerData.isRunning ? 'text-green-400' : 'text-gray-400'
+            }`}>
+              {timerData.isRunning ? 'Running' : 'Stopped'}
+            </span>
+          </div>
+        </div>
+        <p className="text-center text-lg font-semibold text-primary-400">
+          {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
+        </p>
+      </div>
+
+      <div className="text-sm text-gray-400 text-center bg-gray-800 p-3 rounded-lg">
+        <p>💡 Use your configured hotkeys to control timers globally:</p>
+        <p><kbd className="bg-gray-700 px-2 py-1 rounded">{timerData.startHotkey}</kbd> Start/Pause • <kbd className="bg-gray-700 px-2 py-1 rounded">{timerData.swapHotkey}</kbd> Swap</p>
       </div>
     </div>
   );

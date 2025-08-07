@@ -9,6 +9,7 @@ class TimerOverlayApp {
     this.store = new Store();
     this.isDev = process.env.NODE_ENV === 'development';
     this.isOverlayBeingCreated = false;
+    this.overlayPosition = null;
     this.initializeApp();
   }
 
@@ -17,6 +18,12 @@ class TimerOverlayApp {
       this.createMainWindow();
       this.setupIPC();
       this.setupGlobalShortcuts();
+      
+      if (this.isDev) {
+        setTimeout(() => {
+          this.createOverlayWindow();
+        }, 2000);
+      }
     });
 
     app.on('window-all-closed', () => {
@@ -62,6 +69,7 @@ class TimerOverlayApp {
 
     if (this.isDev) {
       this.mainWindow.loadURL('http://localhost:5173');
+      this.mainWindow.webContents.openDevTools();
     } else {
       this.mainWindow.loadFile(join(__dirname, '../dist/index.html'));
     }
@@ -69,6 +77,12 @@ class TimerOverlayApp {
     this.mainWindow.once('ready-to-show', () => {
       this.mainWindow.show();
       this.mainWindow.focus();
+    });
+
+    this.mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+        this.mainWindow.webContents.openDevTools();
+      }
     });
 
     this.mainWindow.on('close', () => {
@@ -117,6 +131,11 @@ class TimerOverlayApp {
       let x = overlaySettings.x || Math.floor((width - overlayWidth) / 2);
       let y = overlaySettings.y || Math.floor(height * 0.1);
 
+      if (overlaySettings.locked && this.overlayPosition) {
+        x = this.overlayPosition.x;
+        y = this.overlayPosition.y;
+      }
+
       if (x < 0 || x > width - overlayWidth) x = Math.floor((width - overlayWidth) / 2);
       if (y < 0 || y > height - overlayHeight) y = Math.floor(height * 0.1);
 
@@ -152,12 +171,23 @@ class TimerOverlayApp {
         this.overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       }
 
+      this.overlayWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+          this.overlayWindow.webContents.openDevTools({ mode: 'detach' });
+        }
+      });
+
       const overlayUrl = this.isDev 
         ? 'http://localhost:5173/overlay.html' 
         : join(__dirname, '../dist/overlay.html');
 
       if (this.isDev) {
         this.overlayWindow.loadURL(overlayUrl);
+        setTimeout(() => {
+          if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+            this.overlayWindow.webContents.openDevTools({ mode: 'detach' });
+          }
+        }, 1000);
       } else {
         this.overlayWindow.loadFile(overlayUrl);
       }
@@ -173,7 +203,7 @@ class TimerOverlayApp {
         if (timerData && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
           setTimeout(() => {
             this.overlayWindow.webContents.send('timer-data-sync', timerData);
-          }, 100);
+          }, 500);
         }
 
         this.isOverlayBeingCreated = false;
@@ -192,8 +222,11 @@ class TimerOverlayApp {
         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
           const bounds = this.overlayWindow.getBounds();
           if (bounds) {
-            this.store.set('overlaySettings.x', bounds.x);
-            this.store.set('overlaySettings.y', bounds.y);
+            this.overlayPosition = { x: bounds.x, y: bounds.y };
+            if (!this.store.get('overlaySettings.locked', false)) {
+              this.store.set('overlaySettings.x', bounds.x);
+              this.store.set('overlaySettings.y', bounds.y);
+            }
           }
         }
       });
@@ -217,11 +250,6 @@ class TimerOverlayApp {
     ipcMain.handle('store-set', (_, key, value) => {
       try {
         this.store.set(key, value);
-        
-        if (key === 'timerData' && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-          this.overlayWindow.webContents.send('timer-data-sync', value);
-        }
-        
         return true;
       } catch (error) {
         console.error('Store set error:', error);
@@ -253,22 +281,31 @@ class TimerOverlayApp {
     });
 
     ipcMain.handle('overlay-settings-update', async (_, settings) => {
-      if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return;
+      if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return { success: true };
 
       try {
         const currentSettings = this.store.get('overlaySettings', {});
         const newSettings = { ...currentSettings, ...settings };
 
         if (settings.locked !== undefined) {
+          const wasPreviouslyLocked = currentSettings.locked;
           const newDragHandleHeight = settings.locked ? 0 : 30;
           const newOverlayHeight = Math.ceil((120 + newDragHandleHeight) * (newSettings.scale || 100) / 100);
           const newOverlayWidth = Math.ceil(520 * (newSettings.scale || 100) / 100);
+          
+          if (!wasPreviouslyLocked && settings.locked) {
+            this.overlayPosition = this.overlayWindow.getBounds();
+          }
           
           this.overlayWindow.setIgnoreMouseEvents(settings.locked, { forward: true });
           this.overlayWindow.setFocusable(!settings.locked);
           this.overlayWindow.setSkipTaskbar(settings.locked);
           this.overlayWindow.setMinimizable(!settings.locked);
           this.overlayWindow.setSize(newOverlayWidth, newOverlayHeight);
+          
+          if (!settings.locked && this.overlayPosition) {
+            this.overlayWindow.setPosition(this.overlayPosition.x, this.overlayPosition.y);
+          }
         }
 
         if (settings.scale !== undefined) {
@@ -288,10 +325,6 @@ class TimerOverlayApp {
             settings.x !== undefined ? settings.x : currentBounds.x,
             settings.y !== undefined ? settings.y : currentBounds.y
           );
-        }
-
-        if (settings.scale !== undefined) {
-          this.overlayWindow.webContents.send('overlay-scale-change', settings.scale);
         }
 
         this.store.set('overlaySettings', newSettings);

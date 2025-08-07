@@ -1,7 +1,5 @@
-// src/components/ControlPanel.tsx
 import React, { useEffect, useState } from 'react';
 import { useTimerStore } from '../store/timerStore';
-import useTimer from '../hooks/useTimer';
 import TimerControls from './TimerControls';
 import PlayerSettings from './PlayerSettings';
 import OverlaySettings from './OverlaySettings';
@@ -13,10 +11,10 @@ const ControlPanel: React.FC = () => {
     overlaySettings,
     isOverlayVisible,
     setOverlayVisible,
+    setOverlaySettings,
     saveToStorage,
   } = useTimerStore();
 
-  const { formattedTime1, formattedTime2, isRunning } = useTimer();
   const [activeTab, setActiveTab] = useState<'timer' | 'players' | 'overlay' | 'hotkeys'>('timer');
 
   useEffect(() => {
@@ -26,6 +24,10 @@ const ControlPanel: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [saveToStorage]);
+
+  const handleLockToggle = () => {
+    setOverlaySettings({ locked: !overlaySettings.locked });
+  };
 
   const tabs = [
     { id: 'timer' as const, name: 'Timer Controls', icon: '⏱️' },
@@ -92,7 +94,7 @@ const ControlPanel: React.FC = () => {
                 <span className={`font-bold ${
                   timerData.currentTimer === 1 ? 'text-green-400' : 'text-blue-400'
                 }`}>
-                  Player {timerData.currentTimer}
+                  {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
                 </span>
               </div>
 
@@ -100,12 +102,12 @@ const ControlPanel: React.FC = () => {
                 <span className="text-gray-300">Timer Status</span>
                 <div className="flex items-center space-x-2">
                   <div className={`w-2 h-2 rounded-full ${
-                    isRunning ? 'bg-green-400 animate-pulse' : 'bg-red-400'
+                    timerData.isRunning ? 'bg-green-400 animate-pulse' : 'bg-red-400'
                   }`} />
                   <span className={`font-medium ${
-                    isRunning ? 'text-green-400' : 'text-red-400'
+                    timerData.isRunning ? 'text-green-400' : 'text-red-400'
                   }`}>
-                    {isRunning ? 'Running' : 'Stopped'}
+                    {timerData.isRunning ? 'Running' : 'Stopped'}
                   </span>
                 </div>
               </div>
@@ -137,41 +139,23 @@ const ControlPanel: React.FC = () => {
 
           <div className="bg-gray-800 rounded-lg p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-              <span className="mr-2">⏰</span>
-              Live Timers
+              <span className="mr-2">🎯</span>
+              Scores
             </h3>
             
             <div className="space-y-3">
-              <div className={`p-4 rounded-lg border-2 transition-all duration-200 ${
-                timerData.currentTimer === 1 
-                  ? 'border-green-400 bg-green-400/10' 
-                  : 'border-gray-600 bg-gray-700'
-              }`}>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm text-gray-300">{timerData.player1Name}</span>
-                  <span className="text-lg font-bold text-green-400">
-                    {timerData.player1Score}
-                  </span>
-                </div>
-                <div className="text-2xl font-mono font-bold text-white">
-                  {formattedTime1}
-                </div>
+              <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+                <span className="text-gray-300">{timerData.player1Name}</span>
+                <span className="text-lg font-bold text-green-400">
+                  {timerData.player1Score}
+                </span>
               </div>
-
-              <div className={`p-4 rounded-lg border-2 transition-all duration-200 ${
-                timerData.currentTimer === 2 
-                  ? 'border-blue-400 bg-blue-400/10' 
-                  : 'border-gray-600 bg-gray-700'
-              }`}>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm text-gray-300">{timerData.player2Name}</span>
-                  <span className="text-lg font-bold text-blue-400">
-                    {timerData.player2Score}
-                  </span>
-                </div>
-                <div className="text-2xl font-mono font-bold text-white">
-                  {formattedTime2}
-                </div>
+              
+              <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+                <span className="text-gray-300">{timerData.player2Name}</span>
+                <span className="text-lg font-bold text-blue-400">
+                  {timerData.player2Score}
+                </span>
               </div>
             </div>
           </div>
@@ -195,29 +179,17 @@ const ControlPanel: React.FC = () => {
               </button>
 
               <button
-                onClick={() => {
-                  const { resetTimer } = useTimerStore.getState();
-                  resetTimer();
-                }}
-                className="w-full px-4 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-all duration-200"
-              >
-                🔄 Reset Timers
-              </button>
-
-              <button
-                onClick={() => {
-                  const { setOverlaySettings } = useTimerStore.getState();
-                  setOverlaySettings({ 
-                    locked: !overlaySettings.locked 
-                  });
-                }}
+                onClick={handleLockToggle}
+                disabled={!isOverlayVisible}
                 className={`w-full px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
-                  overlaySettings.locked
-                    ? 'bg-green-600 hover:bg-green-700 text-white'
-                    : 'bg-orange-600 hover:bg-orange-700 text-white'
+                  !isOverlayVisible
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : overlaySettings.locked
+                      ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                      : 'bg-green-600 hover:bg-green-700 text-white'
                 }`}
               >
-                {overlaySettings.locked ? '🔓 Unlock Position' : '🔒 Lock Position'}
+                {overlaySettings.locked ? '🔒 Unlock Position' : '🔓 Lock Position'}
               </button>
             </div>
           </div>

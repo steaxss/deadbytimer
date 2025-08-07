@@ -1,20 +1,43 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTimerStore } from '../../store/timerStore';
 import DragHandle from './DragHandle';
 import DefaultStyle from './styles/DefaultStyle';
-import useTimer from '../../hooks/useTimer';
+import { formatTime } from '../../utils/timer';
+import type { TimerData } from '../../types';
 
-const TimerOverlay: React.FC = () => {
-  const { timerData, overlaySettings } = useTimerStore();
-  const { formattedTime1, formattedTime2 } = useTimer();
+interface TimerOverlayProps {
+  timerData?: TimerData;
+}
+
+const TimerOverlay: React.FC<TimerOverlayProps> = ({ timerData: propTimerData }) => {
+  const { timerData: storeTimerData, overlaySettings } = useTimerStore();
+  const [formattedTime1, setFormattedTime1] = useState('0.00');
+  const [formattedTime2, setFormattedTime2] = useState('0.00');
+
+  const timerData = propTimerData || storeTimerData;
+
+  useEffect(() => {
+    setFormattedTime1(formatTime(timerData.timer1Value || 0));
+    setFormattedTime2(formatTime(timerData.timer2Value || 0));
+  }, [timerData.timer1Value, timerData.timer2Value]);
 
   const scaleFactor = overlaySettings.scale / 100;
+  const dragHandleHeight = overlaySettings.locked ? 0 : 30;
+
+  console.log('TimerOverlay render:', {
+    currentTimer: timerData.currentTimer,
+    isRunning: timerData.isRunning,
+    timer1Value: timerData.timer1Value,
+    timer2Value: timerData.timer2Value,
+    formattedTime1,
+    formattedTime2
+  });
 
   return (
     <div
       style={{
         width: '520px',
-        height: overlaySettings.locked ? '120px' : '150px',
+        height: `${120 + dragHandleHeight}px`,
         transform: `scale(${scaleFactor})`,
         transformOrigin: 'top left',
         background: 'transparent',
@@ -26,13 +49,16 @@ const TimerOverlay: React.FC = () => {
         overflow: 'hidden'
       }}
     >
-      <DragHandle isVisible={!overlaySettings.locked} />
+      <DragHandle 
+        isVisible={!overlaySettings.locked} 
+        className={overlaySettings.locked ? 'opacity-0 pointer-events-none h-0' : ''}
+      />
       
       <div 
         style={{
           width: '520px',
           height: '120px',
-          position: overlaySettings.locked ? 'static' : 'absolute',
+          position: 'absolute',
           top: overlaySettings.locked ? '0px' : '30px',
           left: '0px',
           pointerEvents: overlaySettings.locked ? 'none' : 'auto',

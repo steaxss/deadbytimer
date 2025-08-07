@@ -1,4 +1,3 @@
-// src/components/overlay/styles/DefaultStyle.tsx
 import React, { useEffect, useState } from 'react';
 import { cn } from '../../../utils/cn';
 
@@ -32,19 +31,60 @@ const DefaultStyle: React.FC<DefaultStyleProps> = ({
   }, [player1Name, player2Name]);
 
   const formatTimerChars = (timeStr: string) => {
-    const chars = timeStr.padStart(6, '0').split('');
-    return {
-      minutes: chars[0] || '0',
-      colon: ':',
-      seconds1: chars[2] || '0',
-      seconds2: chars[3] || '0',
-      dot: '.',
-      tenths: chars[5] || '0'
-    };
+    // Handle HH:MM:SS.HH format
+    if (timeStr.includes(':') && timeStr.split(':').length === 3) {
+      const [hoursPart, minutesPart, secondsCentiseconds] = timeStr.split(':');
+      const [secondsPart, centiseconds] = secondsCentiseconds.split('.');
+      
+      return {
+        hours: hoursPart || '00',
+        colon1: ':',
+        minutes: minutesPart || '00',
+        colon2: ':',
+        seconds1: secondsPart?.[0] || '0',
+        seconds2: secondsPart?.[1] || '0',
+        dot: '.',
+        centis1: centiseconds?.[0] || '0',
+        centis2: centiseconds?.[1] || '0',
+        hasHours: true,
+        hasMinutes: true
+      };
+    }
+    // Handle M:SS.HH format
+    else if (timeStr.includes(':') && timeStr.split(':').length === 2) {
+      const [minutesPart, secondsCentiseconds] = timeStr.split(':');
+      const [secondsPart, centiseconds] = secondsCentiseconds.split('.');
+      
+      return {
+        minutes: minutesPart || '0',
+        colon: ':',
+        seconds1: secondsPart?.[0] || '0',
+        seconds2: secondsPart?.[1] || '0',
+        dot: '.',
+        centis1: centiseconds?.[0] || '0',
+        centis2: centiseconds?.[1] || '0',
+        hasHours: false,
+        hasMinutes: true
+      };
+    } 
+    // Handle SS.HH format
+    else {
+      const [secondsPart, centiseconds] = timeStr.split('.');
+      
+      return {
+        seconds1: secondsPart?.[0] || '0',
+        seconds2: secondsPart?.[1] || '0',
+        dot: '.',
+        centis1: centiseconds?.[0] || '0',
+        centis2: centiseconds?.[1] || '0',
+        hasHours: false,
+        hasMinutes: false
+      };
+    }
   };
 
-  const timer1Chars = formatTimerChars(timer1);
-  const timer2Chars = formatTimerChars(timer2);
+  const timer1Chars = formatTimerChars(timer1 || '0.00');
+  const timer2Chars = formatTimerChars(timer2 || '0.00');
 
   return (
     <div className="timer-overlay">
@@ -64,25 +104,57 @@ const DefaultStyle: React.FC<DefaultStyleProps> = ({
         </span>
       </div>
       
-      <div className={cn("timer left", currentTimer === 1 && "active")}>
+      <div className={cn(
+        "timer left",
+        currentTimer === 1 && "active"
+      )}>
         <span className="timer-text">
-          <span className="timer-char">{timer1Chars.minutes}</span>
-          <span className="timer-char separator">{timer1Chars.colon}</span>
+          {timer1Chars.hasHours && (
+            <>
+              <span className="timer-char">{timer1Chars.hours}</span>
+              <span className="timer-char separator">{timer1Chars.colon1}</span>
+              <span className="timer-char">{timer1Chars.minutes}</span>
+              <span className="timer-char separator">{timer1Chars.colon2}</span>
+            </>
+          )}
+          {timer1Chars.hasMinutes && !timer1Chars.hasHours && (
+            <>
+              <span className="timer-char">{timer1Chars.minutes}</span>
+              <span className="timer-char separator">{timer1Chars.colon}</span>
+            </>
+          )}
           <span className="timer-char">{timer1Chars.seconds1}</span>
           <span className="timer-char">{timer1Chars.seconds2}</span>
           <span className="timer-char separator">{timer1Chars.dot}</span>
-          <span className="timer-char">{timer1Chars.tenths}</span>
+          <span className="timer-char centis">{timer1Chars.centis1}</span>
+          <span className="timer-char centis">{timer1Chars.centis2}</span>
         </span>
       </div>
       
-      <div className={cn("timer right", currentTimer === 2 && "active")}>
+      <div className={cn(
+        "timer right",
+        currentTimer === 2 && "active"
+      )}>
         <span className="timer-text">
-          <span className="timer-char">{timer2Chars.minutes}</span>
-          <span className="timer-char separator">{timer2Chars.colon}</span>
+          {timer2Chars.hasHours && (
+            <>
+              <span className="timer-char">{timer2Chars.hours}</span>
+              <span className="timer-char separator">{timer2Chars.colon1}</span>
+              <span className="timer-char">{timer2Chars.minutes}</span>
+              <span className="timer-char separator">{timer2Chars.colon2}</span>
+            </>
+          )}
+          {timer2Chars.hasMinutes && !timer2Chars.hasHours && (
+            <>
+              <span className="timer-char">{timer2Chars.minutes}</span>
+              <span className="timer-char separator">{timer2Chars.colon}</span>
+            </>
+          )}
           <span className="timer-char">{timer2Chars.seconds1}</span>
           <span className="timer-char">{timer2Chars.seconds2}</span>
           <span className="timer-char separator">{timer2Chars.dot}</span>
-          <span className="timer-char">{timer2Chars.tenths}</span>
+          <span className="timer-char centis">{timer2Chars.centis1}</span>
+          <span className="timer-char centis">{timer2Chars.centis2}</span>
         </span>
       </div>
     </div>

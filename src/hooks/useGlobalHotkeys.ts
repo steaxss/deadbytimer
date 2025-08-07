@@ -1,20 +1,24 @@
 import { useEffect } from 'react';
 import { useTimerStore } from '../store/timerStore';
-import useTimer from './useTimer';
 
 const useGlobalHotkeys = () => {
-  const { saveToStorage } = useTimerStore();
-  const { isRunning, startTimer, pauseTimer, swapTimer } = useTimer();
+  const { 
+    timerData,
+    startTimer,
+    pauseTimer,
+    swapTimer,
+    saveToStorage 
+  } = useTimerStore();
 
   useEffect(() => {
     if (!window.electronAPI) return;
 
     const handleHotkeyPress = (action: string) => {
-      console.log('Global hotkey pressed:', action, 'Current running state:', isRunning);
+      console.log('Global hotkey pressed:', action, 'Current running state:', timerData.isRunning);
       
       switch (action) {
         case 'start':
-          if (isRunning) {
+          if (timerData.isRunning) {
             console.log('Pausing via hotkey');
             pauseTimer();
           } else {
@@ -22,7 +26,6 @@ const useGlobalHotkeys = () => {
             startTimer();
           }
           
-          // Sauvegarder après un délai
           setTimeout(() => {
             saveToStorage();
           }, 200);
@@ -42,14 +45,14 @@ const useGlobalHotkeys = () => {
       }
     };
 
-    window.electronAPI.hotkeys.onPressed(handleHotkeyPress);
+    const cleanup = window.electronAPI.hotkeys.onPressed(handleHotkeyPress);
 
     return () => {
-      if (window.electronAPI?.removeAllListeners) {
-        window.electronAPI.removeAllListeners();
+      if (cleanup) {
+        cleanup();
       }
     };
-  }, [isRunning, startTimer, pauseTimer, swapTimer, saveToStorage]);
+  }, [timerData.isRunning, startTimer, pauseTimer, swapTimer, saveToStorage]);
 
   const registerHotkeys = async (startKey: string, swapKey: string) => {
     if (!window.electronAPI) {

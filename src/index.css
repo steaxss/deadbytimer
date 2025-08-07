@@ -90,13 +90,6 @@
   background: transparent !important;
 }
 
-@font-face {
-  font-family: 'SquareFont';
-  src: url('data:font/truetype;charset=utf-8;base64,') format('truetype');
-  font-weight: normal;
-  font-style: normal;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -127,11 +120,6 @@ body.overlay-page {
   margin: 0 !important;
   padding: 0 !important;
   overflow: hidden !important;
-}
-
-.drag-handle {
-  -webkit-app-region: drag;
-  cursor: move;
 }
 
 .no-drag {
@@ -254,13 +242,23 @@ body.overlay-page {
   align-items: center;
   justify-content: center;
   font-family: "Consolas", "Monaco", "Courier New", monospace;
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 400;
   text-shadow: 0 0 6px rgba(190,190,190,0.50);
   position: relative;
   height: 100%;
   text-align: center;
   min-width: 160px;
+}
+
+.timer.left {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+.timer.right {
+  grid-row: 2;
+  grid-column: 3;
 }
 
 .timer-text {
@@ -274,7 +272,7 @@ body.overlay-page {
 
 .timer-char {
   display: inline-block;
-  width: 22px;
+  width: 20px;
   text-align: center;
   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
   -webkit-background-clip: text;
@@ -283,21 +281,40 @@ body.overlay-page {
 }
 
 .timer-char.separator {
-  width: 11px;
+  width: 10px;
 }
 
-.timer.active::before {
+.timer-char.centis {
+  width: 18px;
+  font-size: 24px;
+  opacity: 0.9;
+}
+
+/* Active timer indicator - ALWAYS show the current timer position */
+.timer::after {
   content: '';
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
   height: 3px;
+  background: linear-gradient(90deg, #666 0%, #444 50%, #666 100%);
+  opacity: 0.5;
+}
+
+.timer.active::after {
   background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
-  animation: pulseBar 1s ease-in-out infinite;
+  opacity: 1;
+  animation: pulseBar 1.5s ease-in-out infinite;
 }
 
 @keyframes pulseBar {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+  0%, 100% { 
+    opacity: 0.8;
+    transform: scaleY(1);
+  }
+  50% { 
+    opacity: 1;
+    transform: scaleY(1.5);
+  }
 }

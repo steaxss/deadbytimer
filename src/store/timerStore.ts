@@ -1,4 +1,3 @@
-// src/store/timerStore.ts
 import { create } from 'zustand';
 import type { TimerData, OverlaySettings } from '../types';
 
@@ -14,14 +13,16 @@ interface TimerState {
   startTimer: () => void;
   pauseTimer: () => void;
   resetTimer: () => void;
+  resetAllTimers: () => void;
   swapTimer: () => void;
   
   setTimerValue: (player: 1 | 2, value: number) => void;
   setTimerRunning: (running: boolean) => void;
   setCurrentTimer: (timer: 1 | 2) => void;
   
-  updatePlayerScore: (player: 1 | 2, score: number) => void;
+  updatePlayerScore: (player: 1 | 2, delta: number) => void;
   updatePlayerName: (player: 1 | 2, name: string) => void;
+  updateHotkeys: (hotkeys: { start: string; swap: string }) => void;
   
   loadFromStorage: () => Promise<void>;
   saveToStorage: () => Promise<void>;
@@ -56,10 +57,18 @@ export const useTimerStore = create<TimerState>((set, get) => ({
   isOverlayVisible: false,
 
   setTimerData: (data) => {
-    set((state) => ({
-      timerData: { ...state.timerData, ...data }
-    }));
-    get().saveToStorage();
+    console.log('Setting timer data:', data);
+    set((state) => {
+      const newTimerData = { ...state.timerData, ...data };
+      
+      setTimeout(() => {
+        if (window.electronAPI?.timer?.syncData) {
+          window.electronAPI.timer.syncData(newTimerData);
+        }
+      }, 0);
+      
+      return { timerData: newTimerData };
+    });
   },
 
   setOverlaySettings: (settings) => {
@@ -69,20 +78,37 @@ export const useTimerStore = create<TimerState>((set, get) => ({
     
     const { overlaySettings: newSettings } = get();
     
-    if (window.electronAPI?.overlay?.updateSettings) {
-      window.electronAPI.overlay.updateSettings(newSettings);
-    }
-    
-    get().saveToStorage();
+    setTimeout(() => {
+      if (window.electronAPI?.overlay?.updateSettings) {
+        window.electronAPI.overlay.updateSettings(newSettings);
+      }
+      get().saveToStorage();
+    }, 0);
   },
 
   setOverlayVisible: async (visible) => {
+    const currentState = get();
+    
+    if (currentState.isOverlayVisible === visible) {
+      return;
+    }
+    
     set({ isOverlayVisible: visible });
     
     if (window.electronAPI?.overlay) {
       try {
         if (visible) {
-          await window.electronAPI.overlay.show();
+          const result = await window.electronAPI.overlay.show();
+          if (result.success) {
+            setTimeout(() => {
+              const currentData = get().timerData;
+              if (window.electronAPI?.timer?.syncData) {
+                window.electronAPI.timer.syncData(currentData);
+              }
+            }, 500);
+          } else {
+            set({ isOverlayVisible: false });
+          }
         } else {
           await window.electronAPI.overlay.hide();
         }
@@ -94,80 +120,115 @@ export const useTimerStore = create<TimerState>((set, get) => ({
   },
 
   startTimer: () => {
-    const { timerData } = get();
-    set({
-      timerData: { ...timerData, isRunning: !timerData.isRunning }
+    const currentData = get().timerData;
+    console.log('Starting timer. Current values:', {
+      isRunning: currentData.isRunning,
+      timer1Value: currentData.timer1Value,
+      timer2Value: currentData.timer2Value,
+      currentTimer: currentData.currentTimer
     });
-    get().saveToStorage();
+    
+    if (!currentData.isRunning) {
+      get().setTimerData({ isRunning: true });
+      get().saveToStorage();
+    }
   },
 
   pauseTimer: () => {
-    const { timerData } = get();
-    set({
-      timerData: { ...timerData, isRunning: false }
+    const currentData = get().timerData;
+    console.log('Pausing timer. Current values:', {
+      isRunning: currentData.isRunning,
+      timer1Value: currentData.timer1Value,
+      timer2Value: currentData.timer2Value,
+      currentTimer: currentData.currentTimer
     });
-    get().saveToStorage();
+    
+    if (currentData.isRunning) {
+      get().setTimerData({ isRunning: false });
+      get().saveToStorage();
+    }
   },
 
   resetTimer: () => {
     const { timerData } = get();
-    const resetData = {
-      ...timerData,
+    const currentTimer = timerData.currentTimer;
+    const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
+    
+    console.log('Resetting timer', currentTimer, 'from value:', timerData[valueKey]);
+    
+    get().setTimerData({ 
+      [valueKey]: 0,
+      isRunning: false 
+    });
+    get().saveToStorage();
+  },
+
+  resetAllTimers: () => {
+    console.log('Resetting all timers');
+    get().setTimerData({ 
       timer1Value: 0,
       timer2Value: 0,
-      isRunning: false
-    };
-    set({ timerData: resetData });
+      isRunning: false 
+    });
     get().saveToStorage();
   },
 
   swapTimer: () => {
     const { timerData } = get();
-    const newCurrentTimer = timerData.currentTimer === 1 ? 2 : 1;
-    set({
-      timerData: { ...timerData, currentTimer: newCurrentTimer }
+    const newTimer = timerData.currentTimer === 1 ? 2 : 1;
+    
+    console.log('Swapping from timer', timerData.currentTimer, 'to timer', newTimer);
+    console.log('Timer values before swap:', {
+      timer1Value: timerData.timer1Value,
+      timer2Value: timerData.timer2Value,
+      wasRunning: timerData.isRunning
+    });
+    
+    // Keep the timer running state but switch the active timer
+    get().setTimerData({ 
+      currentTimer: newTimer
+      // Don't change isRunning or timer values - preserve them!
     });
     get().saveToStorage();
   },
 
   setTimerValue: (player, value) => {
-    const { timerData } = get();
     const valueKey = player === 1 ? 'timer1Value' : 'timer2Value';
-    set({
-      timerData: { ...timerData, [valueKey]: value }
-    });
+    set((state) => ({
+      timerData: { ...state.timerData, [valueKey]: value }
+    }));
   },
 
   setTimerRunning: (running) => {
-    const { timerData } = get();
-    set({
-      timerData: { ...timerData, isRunning: running }
-    });
-    get().saveToStorage();
+    get().setTimerData({ isRunning: running });
   },
 
   setCurrentTimer: (timer) => {
-    const { timerData } = get();
-    set({
-      timerData: { ...timerData, currentTimer: timer }
-    });
-    get().saveToStorage();
+    get().setTimerData({ currentTimer: timer });
   },
 
-  updatePlayerScore: (player, score) => {
+  updatePlayerScore: (player, delta) => {
     const { timerData } = get();
     const scoreKey = player === 1 ? 'player1Score' : 'player2Score';
-    set({
-      timerData: { ...timerData, [scoreKey]: score }
+    const currentScore = timerData[scoreKey];
+    
+    get().setTimerData({ 
+      [scoreKey]: Math.max(0, currentScore + delta) 
     });
     get().saveToStorage();
   },
 
   updatePlayerName: (player, name) => {
-    const { timerData } = get();
     const nameKey = player === 1 ? 'player1Name' : 'player2Name';
-    set({
-      timerData: { ...timerData, [nameKey]: name }
+    get().setTimerData({ [nameKey]: name });
+    get().saveToStorage();
+  },
+
+  updateHotkeys: (hotkeys) => {
+    get().setTimerData({ 
+      startHotkey: hotkeys.start,
+      swapHotkey: hotkeys.swap,
+      hotkeys
     });
     get().saveToStorage();
   },
@@ -181,12 +242,15 @@ export const useTimerStore = create<TimerState>((set, get) => ({
         window.electronAPI.store.get('overlaySettings')
       ]);
 
+      const loadedTimerData = storedTimerData ? { ...defaultTimerData, ...storedTimerData } : defaultTimerData;
+      const loadedOverlaySettings = storedOverlaySettings ? { ...defaultOverlaySettings, ...storedOverlaySettings } : defaultOverlaySettings;
+
       set({
-        timerData: storedTimerData ? { ...defaultTimerData, ...storedTimerData } : defaultTimerData,
-        overlaySettings: storedOverlaySettings ? { ...defaultOverlaySettings, ...storedOverlaySettings } : defaultOverlaySettings
+        timerData: loadedTimerData,
+        overlaySettings: loadedOverlaySettings
       });
 
-      console.log('Timer store loaded from storage');
+      console.log('Timer store loaded from storage:', { loadedTimerData, loadedOverlaySettings });
     } catch (error) {
       console.error('Error loading from storage:', error);
     }
@@ -202,10 +266,6 @@ export const useTimerStore = create<TimerState>((set, get) => ({
         window.electronAPI.store.set('timerData', timerData),
         window.electronAPI.store.set('overlaySettings', overlaySettings)
       ]);
-
-      if (window.electronAPI.timer?.syncData) {
-        window.electronAPI.timer.syncData(timerData);
-      }
     } catch (error) {
       console.error('Error saving to storage:', error);
     }

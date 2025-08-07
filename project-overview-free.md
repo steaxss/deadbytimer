@@ -205,18 +205,18 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/electron\main.cjs`:
 
 ```cjs
-   1 | // electron/main.cjs
-   2 | const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
-   3 | const { join } = require('path');
-   4 | const Store = require('electron-store');
-   5 | 
-   6 | class TimerOverlayApp {
-   7 |   constructor() {
-   8 |     this.mainWindow = null;
-   9 |     this.overlayWindow = null;
-  10 |     this.store = new Store();
-  11 |     this.isDev = process.env.NODE_ENV === 'development';
-  12 |     this.isOverlayBeingCreated = false;
+   1 | const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
+   2 | const { join } = require('path');
+   3 | const Store = require('electron-store');
+   4 | 
+   5 | class TimerOverlayApp {
+   6 |   constructor() {
+   7 |     this.mainWindow = null;
+   8 |     this.overlayWindow = null;
+   9 |     this.store = new Store();
+  10 |     this.isDev = process.env.NODE_ENV === 'development';
+  11 |     this.isOverlayBeingCreated = false;
+  12 |     this.overlayPosition = null;
   13 |     this.initializeApp();
   14 |   }
   15 | 
@@ -225,366 +225,391 @@ dbdoverlaytools-free
   18 |       this.createMainWindow();
   19 |       this.setupIPC();
   20 |       this.setupGlobalShortcuts();
-  21 |     });
-  22 | 
-  23 |     app.on('window-all-closed', () => {
-  24 |       globalShortcut.unregisterAll();
-  25 |       app.quit();
-  26 |     });
-  27 | 
-  28 |     app.on('activate', () => {
-  29 |       if (BrowserWindow.getAllWindows().length === 0) {
-  30 |         this.createMainWindow();
-  31 |       }
+  21 |       
+  22 |       if (this.isDev) {
+  23 |         setTimeout(() => {
+  24 |           this.createOverlayWindow();
+  25 |         }, 2000);
+  26 |       }
+  27 |     });
+  28 | 
+  29 |     app.on('window-all-closed', () => {
+  30 |       globalShortcut.unregisterAll();
+  31 |       app.quit();
   32 |     });
   33 | 
-  34 |     app.on('before-quit', () => {
-  35 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-  36 |         const bounds = this.overlayWindow.getBounds();
-  37 |         this.store.set('overlaySettings.x', bounds.x);
-  38 |         this.store.set('overlaySettings.y', bounds.y);
-  39 |       }
-  40 |     });
-  41 |   }
-  42 | 
-  43 |   createMainWindow() {
-  44 |     const savedState = this.store.get('windowState') || {};
-  45 | 
-  46 |     this.mainWindow = new BrowserWindow({
-  47 |       width: savedState.width || 900,
-  48 |       height: savedState.height || 700,
-  49 |       x: savedState.x,
-  50 |       y: savedState.y,
-  51 |       minWidth: 600,
-  52 |       minHeight: 400,
-  53 |       show: false,
-  54 |       autoHideMenuBar: true,
-  55 |       icon: this.isDev ? null : join(__dirname, '../assets/icon.ico'),
-  56 |       webPreferences: {
-  57 |         nodeIntegration: false,
-  58 |         contextIsolation: true,
-  59 |         preload: join(__dirname, 'preload.cjs'),
-  60 |         webSecurity: false
-  61 |       }
-  62 |     });
-  63 | 
-  64 |     if (this.isDev) {
-  65 |       this.mainWindow.loadURL('http://localhost:5173');
-  66 |       this.mainWindow.webContents.openDevTools({ mode: 'detach' });
-  67 |     } else {
-  68 |       this.mainWindow.loadFile(join(__dirname, '../dist/index.html'));
-  69 |     }
-  70 | 
-  71 |     this.mainWindow.once('ready-to-show', () => {
-  72 |       this.mainWindow.show();
-  73 |       this.mainWindow.focus();
-  74 |     });
-  75 | 
-  76 |     this.mainWindow.on('close', () => {
-  77 |       const bounds = this.mainWindow.getBounds();
-  78 |       if (bounds && !this.mainWindow.isMaximized() && !this.mainWindow.isMinimized()) {
-  79 |         this.store.set('windowState', bounds);
-  80 |       }
-  81 |     });
-  82 | 
-  83 |     this.mainWindow.on('closed', () => {
-  84 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-  85 |         this.overlayWindow.close();
-  86 |       }
-  87 |       this.mainWindow = null;
-  88 |     });
-  89 |   }
-  90 | 
-  91 |   createOverlayWindow() {
-  92 |     if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-  93 |       this.overlayWindow.show();
-  94 |       this.overlayWindow.focus();
-  95 |       return;
-  96 |     }
-  97 | 
-  98 |     if (this.isOverlayBeingCreated) {
-  99 |       return;
- 100 |     }
- 101 | 
- 102 |     this.isOverlayBeingCreated = true;
- 103 | 
- 104 |     try {
- 105 |       const overlaySettings = this.store.get('overlaySettings', {
- 106 |         x: 100,
- 107 |         y: 100,
- 108 |         scale: 100,
- 109 |         locked: false,
- 110 |         alwaysOnTop: true
- 111 |       });
- 112 | 
- 113 |       const { width, height } = screen.getPrimaryDisplay().workAreaSize;
- 114 |       const dragHandleHeight = overlaySettings.locked ? 0 : 30;
- 115 |       const overlayWidth = Math.ceil(520 * (overlaySettings.scale || 100) / 100);
- 116 |       const overlayHeight = Math.ceil((120 + dragHandleHeight) * (overlaySettings.scale || 100) / 100);
- 117 | 
- 118 |       let x = overlaySettings.x || Math.floor((width - overlayWidth) / 2);
- 119 |       let y = overlaySettings.y || Math.floor(height * 0.1);
- 120 | 
- 121 |       if (x < 0 || x > width - overlayWidth) x = Math.floor((width - overlayWidth) / 2);
- 122 |       if (y < 0 || y > height - overlayHeight) y = Math.floor(height * 0.1);
- 123 | 
- 124 |       this.overlayWindow = new BrowserWindow({
- 125 |         width: overlayWidth,
- 126 |         height: overlayHeight,
- 127 |         x: x,
- 128 |         y: y,
- 129 |         frame: false,
- 130 |         transparent: true,
- 131 |         alwaysOnTop: overlaySettings.alwaysOnTop !== false,
- 132 |         skipTaskbar: overlaySettings.locked === true,
- 133 |         resizable: false,
- 134 |         minimizable: !overlaySettings.locked,
- 135 |         maximizable: false,
- 136 |         focusable: !overlaySettings.locked,
- 137 |         show: false,
- 138 |         titleBarStyle: 'hidden',
- 139 |         backgroundColor: 'transparent',
- 140 |         webPreferences: {
- 141 |           nodeIntegration: false,
- 142 |           contextIsolation: true,
- 143 |           preload: join(__dirname, 'preload.cjs'),
- 144 |           webSecurity: false,
- 145 |           backgroundThrottling: false
- 146 |         }
- 147 |       });
- 148 | 
- 149 |       if (overlaySettings.locked) {
- 150 |         this.overlayWindow.setIgnoreMouseEvents(true, { forward: true });
- 151 |       }
- 152 | 
- 153 |       const overlayUrl = this.isDev 
- 154 |         ? 'http://localhost:5173/overlay.html' 
- 155 |         : join(__dirname, '../dist/overlay.html');
- 156 | 
- 157 |       if (this.isDev) {
- 158 |         this.overlayWindow.loadURL(overlayUrl);
- 159 |       } else {
- 160 |         this.overlayWindow.loadFile(overlayUrl);
- 161 |       }
- 162 | 
- 163 |       this.overlayWindow.webContents.on('did-finish-load', () => {
- 164 |         this.overlayWindow.show();
- 165 |         
- 166 |         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 167 |           this.mainWindow.webContents.send('overlay-ready', true);
- 168 |         }
- 169 |         
- 170 |         const timerData = this.store.get('timerData');
- 171 |         if (timerData && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 172 |           setTimeout(() => {
- 173 |             this.overlayWindow.webContents.send('timer-data-sync', timerData);
- 174 |           }, 100);
- 175 |         }
- 176 | 
- 177 |         this.isOverlayBeingCreated = false;
+  34 |     app.on('activate', () => {
+  35 |       if (BrowserWindow.getAllWindows().length === 0) {
+  36 |         this.createMainWindow();
+  37 |       }
+  38 |     });
+  39 | 
+  40 |     app.on('before-quit', () => {
+  41 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+  42 |         const bounds = this.overlayWindow.getBounds();
+  43 |         this.store.set('overlaySettings.x', bounds.x);
+  44 |         this.store.set('overlaySettings.y', bounds.y);
+  45 |       }
+  46 |     });
+  47 |   }
+  48 | 
+  49 |   createMainWindow() {
+  50 |     const savedState = this.store.get('windowState') || {};
+  51 | 
+  52 |     this.mainWindow = new BrowserWindow({
+  53 |       width: savedState.width || 900,
+  54 |       height: savedState.height || 700,
+  55 |       x: savedState.x,
+  56 |       y: savedState.y,
+  57 |       minWidth: 600,
+  58 |       minHeight: 400,
+  59 |       show: false,
+  60 |       autoHideMenuBar: true,
+  61 |       icon: this.isDev ? null : join(__dirname, '../assets/icon.ico'),
+  62 |       webPreferences: {
+  63 |         nodeIntegration: false,
+  64 |         contextIsolation: true,
+  65 |         preload: join(__dirname, 'preload.cjs'),
+  66 |         webSecurity: false
+  67 |       }
+  68 |     });
+  69 | 
+  70 |     if (this.isDev) {
+  71 |       this.mainWindow.loadURL('http://localhost:5173');
+  72 |       this.mainWindow.webContents.openDevTools();
+  73 |     } else {
+  74 |       this.mainWindow.loadFile(join(__dirname, '../dist/index.html'));
+  75 |     }
+  76 | 
+  77 |     this.mainWindow.once('ready-to-show', () => {
+  78 |       this.mainWindow.show();
+  79 |       this.mainWindow.focus();
+  80 |     });
+  81 | 
+  82 |     this.mainWindow.webContents.on('before-input-event', (event, input) => {
+  83 |       if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+  84 |         this.mainWindow.webContents.openDevTools();
+  85 |       }
+  86 |     });
+  87 | 
+  88 |     this.mainWindow.on('close', () => {
+  89 |       const bounds = this.mainWindow.getBounds();
+  90 |       if (bounds && !this.mainWindow.isMaximized() && !this.mainWindow.isMinimized()) {
+  91 |         this.store.set('windowState', bounds);
+  92 |       }
+  93 |     });
+  94 | 
+  95 |     this.mainWindow.on('closed', () => {
+  96 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+  97 |         this.overlayWindow.close();
+  98 |       }
+  99 |       this.mainWindow = null;
+ 100 |     });
+ 101 |   }
+ 102 | 
+ 103 |   createOverlayWindow() {
+ 104 |     if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 105 |       this.overlayWindow.show();
+ 106 |       this.overlayWindow.focus();
+ 107 |       return;
+ 108 |     }
+ 109 | 
+ 110 |     if (this.isOverlayBeingCreated) {
+ 111 |       return;
+ 112 |     }
+ 113 | 
+ 114 |     this.isOverlayBeingCreated = true;
+ 115 | 
+ 116 |     try {
+ 117 |       const overlaySettings = this.store.get('overlaySettings', {
+ 118 |         x: 100,
+ 119 |         y: 100,
+ 120 |         scale: 100,
+ 121 |         locked: false,
+ 122 |         alwaysOnTop: true
+ 123 |       });
+ 124 | 
+ 125 |       const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+ 126 |       const dragHandleHeight = overlaySettings.locked ? 0 : 30;
+ 127 |       
+ 128 |       const overlayWidth = Math.ceil(520 * (overlaySettings.scale || 100) / 100);
+ 129 |       const overlayHeight = Math.ceil((120 + dragHandleHeight) * (overlaySettings.scale || 100) / 100);
+ 130 | 
+ 131 |       let x = overlaySettings.x || Math.floor((width - overlayWidth) / 2);
+ 132 |       let y = overlaySettings.y || Math.floor(height * 0.1);
+ 133 | 
+ 134 |       if (overlaySettings.locked && this.overlayPosition) {
+ 135 |         x = this.overlayPosition.x;
+ 136 |         y = this.overlayPosition.y;
+ 137 |       }
+ 138 | 
+ 139 |       if (x < 0 || x > width - overlayWidth) x = Math.floor((width - overlayWidth) / 2);
+ 140 |       if (y < 0 || y > height - overlayHeight) y = Math.floor(height * 0.1);
+ 141 | 
+ 142 |       this.overlayWindow = new BrowserWindow({
+ 143 |         width: overlayWidth,
+ 144 |         height: overlayHeight,
+ 145 |         x: x,
+ 146 |         y: y,
+ 147 |         frame: false,
+ 148 |         transparent: true,
+ 149 |         alwaysOnTop: overlaySettings.alwaysOnTop !== false,
+ 150 |         skipTaskbar: overlaySettings.locked === true,
+ 151 |         resizable: false,
+ 152 |         minimizable: !overlaySettings.locked,
+ 153 |         maximizable: false,
+ 154 |         focusable: !overlaySettings.locked,
+ 155 |         show: false,
+ 156 |         titleBarStyle: 'hidden',
+ 157 |         backgroundColor: '#00000000',
+ 158 |         webPreferences: {
+ 159 |           nodeIntegration: false,
+ 160 |           contextIsolation: true,
+ 161 |           preload: join(__dirname, 'preload.cjs'),
+ 162 |           webSecurity: false,
+ 163 |           backgroundThrottling: false,
+ 164 |           offscreen: false
+ 165 |         }
+ 166 |       });
+ 167 | 
+ 168 |       this.overlayWindow.setBackgroundColor('#00000000');
+ 169 | 
+ 170 |       if (overlaySettings.locked) {
+ 171 |         this.overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+ 172 |       }
+ 173 | 
+ 174 |       this.overlayWindow.webContents.on('before-input-event', (event, input) => {
+ 175 |         if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+ 176 |           this.overlayWindow.webContents.openDevTools({ mode: 'detach' });
+ 177 |         }
  178 |       });
  179 | 
- 180 |       this.overlayWindow.on('closed', () => {
- 181 |         this.overlayWindow = null;
- 182 |         this.isOverlayBeingCreated = false;
- 183 |         
- 184 |         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 185 |           this.mainWindow.webContents.send('overlay-ready', false);
- 186 |         }
- 187 |       });
- 188 | 
- 189 |       this.overlayWindow.on('move', () => {
- 190 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 191 |           const bounds = this.overlayWindow.getBounds();
- 192 |           if (bounds) {
- 193 |             this.store.set('overlaySettings.x', bounds.x);
- 194 |             this.store.set('overlaySettings.y', bounds.y);
- 195 |           }
- 196 |         }
- 197 |       });
- 198 | 
- 199 |       this.overlayWindow.on('resize', () => {
- 200 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 201 |           const bounds = this.overlayWindow.getBounds();
- 202 |           if (bounds) {
- 203 |             this.store.set('overlaySettings.width', bounds.width);
- 204 |             this.store.set('overlaySettings.height', bounds.height);
- 205 |           }
- 206 |         }
- 207 |       });
+ 180 |       const overlayUrl = this.isDev 
+ 181 |         ? 'http://localhost:5173/overlay.html' 
+ 182 |         : join(__dirname, '../dist/overlay.html');
+ 183 | 
+ 184 |       if (this.isDev) {
+ 185 |         this.overlayWindow.loadURL(overlayUrl);
+ 186 |         setTimeout(() => {
+ 187 |           if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 188 |             this.overlayWindow.webContents.openDevTools({ mode: 'detach' });
+ 189 |           }
+ 190 |         }, 1000);
+ 191 |       } else {
+ 192 |         this.overlayWindow.loadFile(overlayUrl);
+ 193 |       }
+ 194 | 
+ 195 |       this.overlayWindow.webContents.on('did-finish-load', () => {
+ 196 |         this.overlayWindow.show();
+ 197 |         
+ 198 |         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+ 199 |           this.mainWindow.webContents.send('overlay-ready', true);
+ 200 |         }
+ 201 |         
+ 202 |         const timerData = this.store.get('timerData');
+ 203 |         if (timerData && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 204 |           setTimeout(() => {
+ 205 |             this.overlayWindow.webContents.send('timer-data-sync', timerData);
+ 206 |           }, 500);
+ 207 |         }
  208 | 
- 209 |     } catch (error) {
- 210 |       console.error('Error creating overlay window:', error);
- 211 |       this.isOverlayBeingCreated = false;
- 212 |     }
- 213 |   }
- 214 | 
- 215 |   setupIPC() {
- 216 |     ipcMain.handle('store-get', (_, key) => {
- 217 |       try {
- 218 |         return this.store.get(key);
- 219 |       } catch (error) {
- 220 |         console.error('Store get error:', error);
- 221 |         return null;
- 222 |       }
- 223 |     });
- 224 |     
- 225 |     ipcMain.handle('store-set', (_, key, value) => {
- 226 |       try {
- 227 |         this.store.set(key, value);
- 228 |         
- 229 |         if (key === 'timerData' && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 230 |           this.overlayWindow.webContents.send('timer-data-sync', value);
+ 209 |         this.isOverlayBeingCreated = false;
+ 210 |       });
+ 211 | 
+ 212 |       this.overlayWindow.on('closed', () => {
+ 213 |         this.overlayWindow = null;
+ 214 |         this.isOverlayBeingCreated = false;
+ 215 |         
+ 216 |         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+ 217 |           this.mainWindow.webContents.send('overlay-ready', false);
+ 218 |         }
+ 219 |       });
+ 220 | 
+ 221 |       this.overlayWindow.on('move', () => {
+ 222 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 223 |           const bounds = this.overlayWindow.getBounds();
+ 224 |           if (bounds) {
+ 225 |             this.overlayPosition = { x: bounds.x, y: bounds.y };
+ 226 |             if (!this.store.get('overlaySettings.locked', false)) {
+ 227 |               this.store.set('overlaySettings.x', bounds.x);
+ 228 |               this.store.set('overlaySettings.y', bounds.y);
+ 229 |             }
+ 230 |           }
  231 |         }
- 232 |         
- 233 |         return true;
- 234 |       } catch (error) {
- 235 |         console.error('Store set error:', error);
- 236 |         return false;
- 237 |       }
- 238 |     });
+ 232 |       });
+ 233 | 
+ 234 |     } catch (error) {
+ 235 |       console.error('Error creating overlay window:', error);
+ 236 |       this.isOverlayBeingCreated = false;
+ 237 |     }
+ 238 |   }
  239 | 
- 240 |     ipcMain.handle('overlay-show', async () => {
- 241 |       try {
- 242 |         this.createOverlayWindow();
- 243 |         return { success: true };
+ 240 |   setupIPC() {
+ 241 |     ipcMain.handle('store-get', (_, key) => {
+ 242 |       try {
+ 243 |         return this.store.get(key);
  244 |       } catch (error) {
- 245 |         console.error('Error showing overlay:', error);
- 246 |         return { success: false, error: error.message };
+ 245 |         console.error('Store get error:', error);
+ 246 |         return null;
  247 |       }
  248 |     });
- 249 | 
- 250 |     ipcMain.handle('overlay-hide', async () => {
+ 249 |     
+ 250 |     ipcMain.handle('store-set', (_, key, value) => {
  251 |       try {
- 252 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 253 |           this.overlayWindow.close();
- 254 |           this.overlayWindow = null;
- 255 |         }
- 256 |         return { success: true };
- 257 |       } catch (error) {
- 258 |         console.error('Error hiding overlay:', error);
- 259 |         return { success: false, error: error.message };
- 260 |       }
- 261 |     });
- 262 | 
- 263 |     ipcMain.handle('overlay-settings-update', async (_, settings) => {
- 264 |       if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return;
- 265 | 
- 266 |       try {
- 267 |         if (settings.locked !== undefined) {
- 268 |           const newDragHandleHeight = settings.locked ? 0 : 30;
- 269 |           const newOverlayHeight = Math.ceil((120 + newDragHandleHeight) * (settings.scale || this.store.get('overlaySettings.scale') || 100) / 100);
- 270 |           
- 271 |           this.overlayWindow.setIgnoreMouseEvents(settings.locked, { forward: true });
- 272 |           this.overlayWindow.setFocusable(!settings.locked);
- 273 |           this.overlayWindow.setSkipTaskbar(settings.locked);
- 274 |           this.overlayWindow.setMinimizable(!settings.locked);
- 275 |           this.overlayWindow.setSize(this.overlayWindow.getBounds().width, newOverlayHeight);
- 276 |         }
- 277 | 
- 278 |         if (settings.scale !== undefined) {
- 279 |           const currentSettings = this.store.get('overlaySettings', {});
- 280 |           const dragHandleHeight = currentSettings.locked ? 0 : 30;
- 281 |           const newWidth = Math.ceil(520 * settings.scale / 100);
- 282 |           const newHeight = Math.ceil((120 + dragHandleHeight) * settings.scale / 100);
- 283 |           this.overlayWindow.setSize(newWidth, newHeight);
- 284 |         }
+ 252 |         this.store.set(key, value);
+ 253 |         return true;
+ 254 |       } catch (error) {
+ 255 |         console.error('Store set error:', error);
+ 256 |         return false;
+ 257 |       }
+ 258 |     });
+ 259 | 
+ 260 |     ipcMain.handle('overlay-show', async () => {
+ 261 |       try {
+ 262 |         this.createOverlayWindow();
+ 263 |         return { success: true };
+ 264 |       } catch (error) {
+ 265 |         console.error('Error showing overlay:', error);
+ 266 |         return { success: false, error: error.message };
+ 267 |       }
+ 268 |     });
+ 269 | 
+ 270 |     ipcMain.handle('overlay-hide', async () => {
+ 271 |       try {
+ 272 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 273 |           this.overlayWindow.close();
+ 274 |           this.overlayWindow = null;
+ 275 |         }
+ 276 |         return { success: true };
+ 277 |       } catch (error) {
+ 278 |         console.error('Error hiding overlay:', error);
+ 279 |         return { success: false, error: error.message };
+ 280 |       }
+ 281 |     });
+ 282 | 
+ 283 |     ipcMain.handle('overlay-settings-update', async (_, settings) => {
+ 284 |       if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return { success: true };
  285 | 
- 286 |         if (settings.alwaysOnTop !== undefined) {
- 287 |           this.overlayWindow.setAlwaysOnTop(settings.alwaysOnTop);
- 288 |         }
+ 286 |       try {
+ 287 |         const currentSettings = this.store.get('overlaySettings', {});
+ 288 |         const newSettings = { ...currentSettings, ...settings };
  289 | 
- 290 |         if (settings.x !== undefined || settings.y !== undefined) {
- 291 |           const currentBounds = this.overlayWindow.getBounds();
- 292 |           this.overlayWindow.setPosition(
- 293 |             settings.x !== undefined ? settings.x : currentBounds.x,
- 294 |             settings.y !== undefined ? settings.y : currentBounds.y
- 295 |           );
- 296 |         }
- 297 | 
- 298 |         if (settings.scale !== undefined) {
- 299 |           this.overlayWindow.webContents.send('overlay-scale-change', settings.scale);
- 300 |         }
- 301 | 
- 302 |         this.store.set('overlaySettings', {
- 303 |           ...this.store.get('overlaySettings', {}),
- 304 |           ...settings
- 305 |         });
- 306 | 
- 307 |         return { success: true };
- 308 |       } catch (error) {
- 309 |         console.error('Error updating overlay settings:', error);
- 310 |         return { success: false, error: error.message };
- 311 |       }
- 312 |     });
- 313 | 
- 314 |     ipcMain.handle('timer-data-sync', async (_, data) => {
- 315 |       try {
- 316 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 317 |           this.overlayWindow.webContents.send('timer-data-sync', data);
- 318 |         }
- 319 |         this.store.set('timerData', data);
- 320 |         return { success: true };
- 321 |       } catch (error) {
- 322 |         console.error('Error syncing timer data:', error);
- 323 |         return { success: false, error: error.message };
- 324 |       }
- 325 |     });
- 326 | 
- 327 |     ipcMain.handle('overlay-style-change', async (_, style) => {
- 328 |       try {
- 329 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 330 |           this.overlayWindow.webContents.send('overlay-style-change', style);
- 331 |         }
+ 290 |         if (settings.locked !== undefined) {
+ 291 |           const wasPreviouslyLocked = currentSettings.locked;
+ 292 |           const newDragHandleHeight = settings.locked ? 0 : 30;
+ 293 |           const newOverlayHeight = Math.ceil((120 + newDragHandleHeight) * (newSettings.scale || 100) / 100);
+ 294 |           const newOverlayWidth = Math.ceil(520 * (newSettings.scale || 100) / 100);
+ 295 |           
+ 296 |           if (!wasPreviouslyLocked && settings.locked) {
+ 297 |             this.overlayPosition = this.overlayWindow.getBounds();
+ 298 |           }
+ 299 |           
+ 300 |           this.overlayWindow.setIgnoreMouseEvents(settings.locked, { forward: true });
+ 301 |           this.overlayWindow.setFocusable(!settings.locked);
+ 302 |           this.overlayWindow.setSkipTaskbar(settings.locked);
+ 303 |           this.overlayWindow.setMinimizable(!settings.locked);
+ 304 |           this.overlayWindow.setSize(newOverlayWidth, newOverlayHeight);
+ 305 |           
+ 306 |           if (!settings.locked && this.overlayPosition) {
+ 307 |             this.overlayWindow.setPosition(this.overlayPosition.x, this.overlayPosition.y);
+ 308 |           }
+ 309 |         }
+ 310 | 
+ 311 |         if (settings.scale !== undefined) {
+ 312 |           const dragHandleHeight = newSettings.locked ? 0 : 30;
+ 313 |           const newWidth = Math.ceil(520 * settings.scale / 100);
+ 314 |           const newHeight = Math.ceil((120 + dragHandleHeight) * settings.scale / 100);
+ 315 |           this.overlayWindow.setSize(newWidth, newHeight);
+ 316 |         }
+ 317 | 
+ 318 |         if (settings.alwaysOnTop !== undefined) {
+ 319 |           this.overlayWindow.setAlwaysOnTop(settings.alwaysOnTop);
+ 320 |         }
+ 321 | 
+ 322 |         if (settings.x !== undefined || settings.y !== undefined) {
+ 323 |           const currentBounds = this.overlayWindow.getBounds();
+ 324 |           this.overlayWindow.setPosition(
+ 325 |             settings.x !== undefined ? settings.x : currentBounds.x,
+ 326 |             settings.y !== undefined ? settings.y : currentBounds.y
+ 327 |           );
+ 328 |         }
+ 329 | 
+ 330 |         this.store.set('overlaySettings', newSettings);
+ 331 | 
  332 |         return { success: true };
  333 |       } catch (error) {
- 334 |         console.error('Error changing overlay style:', error);
+ 334 |         console.error('Error updating overlay settings:', error);
  335 |         return { success: false, error: error.message };
  336 |       }
  337 |     });
- 338 |   }
- 339 | 
- 340 |   setupGlobalShortcuts() {
- 341 |     const registerShortcut = (key, action) => {
- 342 |       try {
- 343 |         const success = globalShortcut.register(key, () => {
- 344 |           if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 345 |             this.mainWindow.webContents.send('hotkey-pressed', action);
- 346 |           }
- 347 |         });
- 348 |         
- 349 |         if (!success) {
- 350 |           console.warn(`Failed to register shortcut: ${key}`);
- 351 |         }
- 352 |       } catch (error) {
- 353 |         console.warn(`Error registering shortcut ${key}:`, error);
- 354 |       }
- 355 |     };
- 356 | 
- 357 |     const savedHotkeys = this.store.get('timerData.hotkeys', {
- 358 |       start: 'F1',
- 359 |       swap: 'F2'
- 360 |     });
- 361 | 
- 362 |     registerShortcut(savedHotkeys.start, 'start');
- 363 |     registerShortcut(savedHotkeys.swap, 'swap');
+ 338 | 
+ 339 |     ipcMain.handle('timer-data-sync', async (_, data) => {
+ 340 |       try {
+ 341 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 342 |           this.overlayWindow.webContents.send('timer-data-sync', data);
+ 343 |         }
+ 344 |         this.store.set('timerData', data);
+ 345 |         return { success: true };
+ 346 |       } catch (error) {
+ 347 |         console.error('Error syncing timer data:', error);
+ 348 |         return { success: false, error: error.message };
+ 349 |       }
+ 350 |     });
+ 351 | 
+ 352 |     ipcMain.handle('overlay-style-change', async (_, style) => {
+ 353 |       try {
+ 354 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+ 355 |           this.overlayWindow.webContents.send('overlay-style-change', style);
+ 356 |         }
+ 357 |         return { success: true };
+ 358 |       } catch (error) {
+ 359 |         console.error('Error changing overlay style:', error);
+ 360 |         return { success: false, error: error.message };
+ 361 |       }
+ 362 |     });
+ 363 |   }
  364 | 
- 365 |     ipcMain.handle('hotkey-register', async (_, hotkeys) => {
- 366 |       try {
- 367 |         globalShortcut.unregisterAll();
- 368 |         registerShortcut(hotkeys.start, 'start');
- 369 |         registerShortcut(hotkeys.swap, 'swap');
- 370 |         this.store.set('timerData.hotkeys', hotkeys);
- 371 |         return { success: true };
- 372 |       } catch (error) {
- 373 |         console.error('Error registering hotkeys:', error);
- 374 |         return { success: false, error: error.message };
- 375 |       }
- 376 |     });
- 377 |   }
- 378 | }
- 379 | 
- 380 | new TimerOverlayApp();
+ 365 |   setupGlobalShortcuts() {
+ 366 |     const registerShortcut = (key, action) => {
+ 367 |       try {
+ 368 |         const success = globalShortcut.register(key, () => {
+ 369 |           if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+ 370 |             this.mainWindow.webContents.send('hotkey-pressed', action);
+ 371 |           }
+ 372 |         });
+ 373 |         
+ 374 |         if (!success) {
+ 375 |           console.warn(`Failed to register shortcut: ${key}`);
+ 376 |         }
+ 377 |       } catch (error) {
+ 378 |         console.warn(`Error registering shortcut ${key}:`, error);
+ 379 |       }
+ 380 |     };
+ 381 | 
+ 382 |     const savedHotkeys = this.store.get('timerData.hotkeys', {
+ 383 |       start: 'F1',
+ 384 |       swap: 'F2'
+ 385 |     });
+ 386 | 
+ 387 |     registerShortcut(savedHotkeys.start, 'start');
+ 388 |     registerShortcut(savedHotkeys.swap, 'swap');
+ 389 | 
+ 390 |     ipcMain.handle('hotkey-register', async (_, hotkeys) => {
+ 391 |       try {
+ 392 |         globalShortcut.unregisterAll();
+ 393 |         registerShortcut(hotkeys.start, 'start');
+ 394 |         registerShortcut(hotkeys.swap, 'swap');
+ 395 |         this.store.set('timerData.hotkeys', hotkeys);
+ 396 |         return { success: true };
+ 397 |       } catch (error) {
+ 398 |         console.error('Error registering hotkeys:', error);
+ 399 |         return { success: false, error: error.message };
+ 400 |       }
+ 401 |     });
+ 402 |   }
+ 403 | }
+ 404 | 
+ 405 | new TimerOverlayApp();
 
 ```
 
@@ -674,7 +699,7 @@ dbdoverlaytools-free
    2 | <html lang="en">
    3 |   <head>
    4 |     <meta charset="UTF-8" />
-   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; connect-src 'self' http://localhost:* ws://localhost:*;" />
+   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:* https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; connect-src 'self' http://localhost:* ws://localhost:*; font-src 'self' https://fonts.gstatic.com data:;" />
    6 |     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
    7 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
    8 |     <title>DBD Timer Overlay - Control Panel</title>
@@ -691,28 +716,38 @@ dbdoverlaytools-free
 
 ```html
    1 | <!doctype html>
-   2 | <html lang="en">
+   2 | <html lang="en" style="background: transparent !important;">
    3 |   <head>
    4 |     <meta charset="UTF-8" />
-   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; connect-src 'self' http://localhost:* ws://localhost:*;" />
+   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:* https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; connect-src 'self' http://localhost:* ws://localhost:*; font-src 'self' https://fonts.gstatic.com data:;" />
    6 |     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
    7 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
    8 |     <title>DBD Timer Overlay</title>
    9 |     <style>
-  10 |       body {
-  11 |         margin: 0;
-  12 |         padding: 0;
-  13 |         background: transparent;
-  14 |         overflow: hidden;
-  15 |         user-select: none;
-  16 |       }
-  17 |     </style>
-  18 |   </head>
-  19 |   <body>
-  20 |     <div id="overlay-root"></div>
-  21 |     <script type="module" src="/src/overlay.tsx"></script>
-  22 |   </body>
-  23 | </html>
+  10 |       html, body {
+  11 |         margin: 0 !important;
+  12 |         padding: 0 !important;
+  13 |         background: transparent !important;
+  14 |         overflow: hidden !important;
+  15 |         user-select: none !important;
+  16 |         width: 100% !important;
+  17 |         height: 100% !important;
+  18 |       }
+  19 |       
+  20 |       #overlay-root {
+  21 |         background: transparent !important;
+  22 |         margin: 0 !important;
+  23 |         padding: 0 !important;
+  24 |         width: 100% !important;
+  25 |         height: 100% !important;
+  26 |       }
+  27 |     </style>
+  28 |   </head>
+  29 |   <body>
+  30 |     <div id="overlay-root"></div>
+  31 |     <script type="module" src="/src/overlay.tsx"></script>
+  32 |   </body>
+  33 | </html>
 
 ```
 
@@ -992,236 +1027,208 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\components\ControlPanel.tsx`:
 
 ```tsx
-   1 | // src/components/ControlPanel.tsx
-   2 | import React, { useEffect, useState } from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | import useTimer from '../hooks/useTimer';
-   5 | import TimerControls from './TimerControls';
-   6 | import PlayerSettings from './PlayerSettings';
-   7 | import OverlaySettings from './OverlaySettings';
-   8 | import HotkeySettings from './HotkeySettings';
-   9 | 
-  10 | const ControlPanel: React.FC = () => {
-  11 |   const {
-  12 |     timerData,
-  13 |     overlaySettings,
-  14 |     isOverlayVisible,
-  15 |     setOverlayVisible,
-  16 |     saveToStorage,
-  17 |   } = useTimerStore();
-  18 | 
-  19 |   const { formattedTime1, formattedTime2, isRunning } = useTimer();
-  20 |   const [activeTab, setActiveTab] = useState<'timer' | 'players' | 'overlay' | 'hotkeys'>('timer');
-  21 | 
-  22 |   useEffect(() => {
-  23 |     const interval = setInterval(() => {
-  24 |       saveToStorage();
-  25 |     }, 5000);
-  26 | 
-  27 |     return () => clearInterval(interval);
-  28 |   }, [saveToStorage]);
-  29 | 
-  30 |   const tabs = [
-  31 |     { id: 'timer' as const, name: 'Timer Controls', icon: '⏱️' },
-  32 |     { id: 'players' as const, name: 'Players', icon: '👥' },
-  33 |     { id: 'overlay' as const, name: 'Overlay', icon: '🎨' },
-  34 |     { id: 'hotkeys' as const, name: 'Hotkeys', icon: '⌨️' },
-  35 |   ];
-  36 | 
-  37 |   const renderTabContent = () => {
-  38 |     switch (activeTab) {
-  39 |       case 'timer':
-  40 |         return <TimerControls />;
-  41 |       case 'players':
-  42 |         return <PlayerSettings />;
-  43 |       case 'overlay':
-  44 |         return <OverlaySettings />;
-  45 |       case 'hotkeys':
-  46 |         return <HotkeySettings />;
-  47 |       default:
-  48 |         return <TimerControls />;
-  49 |     }
-  50 |   };
-  51 | 
-  52 |   return (
-  53 |     <div className="max-w-6xl mx-auto">
-  54 |       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-  55 |         <div className="lg:col-span-2">
-  56 |           <div className="bg-gray-800 rounded-lg shadow-xl overflow-hidden">
-  57 |             <div className="flex border-b border-gray-700">
-  58 |               {tabs.map((tab) => (
-  59 |                 <button
-  60 |                   key={tab.id}
-  61 |                   onClick={() => setActiveTab(tab.id)}
-  62 |                   className={`flex-1 px-4 py-4 text-sm font-medium transition-all duration-200 ${
-  63 |                     activeTab === tab.id
-  64 |                       ? 'bg-primary-600 text-white border-b-2 border-primary-400'
-  65 |                       : 'text-gray-300 hover:text-white hover:bg-gray-700'
-  66 |                   }`}
-  67 |                 >
-  68 |                   <div className="flex items-center justify-center space-x-2">
-  69 |                     <span className="text-lg">{tab.icon}</span>
-  70 |                     <span className="hidden sm:inline">{tab.name}</span>
-  71 |                   </div>
-  72 |                 </button>
-  73 |               ))}
-  74 |             </div>
-  75 | 
-  76 |             <div className="p-6">
-  77 |               {renderTabContent()}
-  78 |             </div>
-  79 |           </div>
-  80 |         </div>
-  81 | 
-  82 |         <div className="space-y-6">
-  83 |           <div className="bg-gray-800 rounded-lg p-6 shadow-xl">
-  84 |             <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-  85 |               <span className="mr-2">📊</span>
-  86 |               Current Status
-  87 |             </h3>
-  88 |             
-  89 |             <div className="space-y-4">
-  90 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
-  91 |                 <span className="text-gray-300">Active Timer</span>
-  92 |                 <span className={`font-bold ${
-  93 |                   timerData.currentTimer === 1 ? 'text-green-400' : 'text-blue-400'
-  94 |                 }`}>
-  95 |                   Player {timerData.currentTimer}
-  96 |                 </span>
-  97 |               </div>
-  98 | 
-  99 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
- 100 |                 <span className="text-gray-300">Timer Status</span>
- 101 |                 <div className="flex items-center space-x-2">
- 102 |                   <div className={`w-2 h-2 rounded-full ${
- 103 |                     isRunning ? 'bg-green-400 animate-pulse' : 'bg-red-400'
- 104 |                   }`} />
- 105 |                   <span className={`font-medium ${
- 106 |                     isRunning ? 'text-green-400' : 'text-red-400'
- 107 |                   }`}>
- 108 |                     {isRunning ? 'Running' : 'Stopped'}
- 109 |                   </span>
- 110 |                 </div>
- 111 |               </div>
- 112 | 
- 113 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
- 114 |                 <span className="text-gray-300">Overlay</span>
- 115 |                 <div className="flex items-center space-x-2">
- 116 |                   <div className={`w-2 h-2 rounded-full ${
- 117 |                     isOverlayVisible ? 'bg-green-400' : 'bg-gray-400'
- 118 |                   }`} />
- 119 |                   <span className={`font-medium ${
- 120 |                     isOverlayVisible ? 'text-green-400' : 'text-gray-400'
- 121 |                   }`}>
- 122 |                     {isOverlayVisible ? 'Visible' : 'Hidden'}
- 123 |                   </span>
- 124 |                 </div>
- 125 |               </div>
- 126 | 
- 127 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
- 128 |                 <span className="text-gray-300">Position Lock</span>
- 129 |                 <span className={`font-medium ${
- 130 |                   overlaySettings.locked ? 'text-red-400' : 'text-green-400'
- 131 |                 }`}>
- 132 |                   {overlaySettings.locked ? 'Locked' : 'Unlocked'}
- 133 |                 </span>
- 134 |               </div>
- 135 |             </div>
- 136 |           </div>
- 137 | 
- 138 |           <div className="bg-gray-800 rounded-lg p-6 shadow-xl">
- 139 |             <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
- 140 |               <span className="mr-2">⏰</span>
- 141 |               Live Timers
- 142 |             </h3>
- 143 |             
- 144 |             <div className="space-y-3">
- 145 |               <div className={`p-4 rounded-lg border-2 transition-all duration-200 ${
- 146 |                 timerData.currentTimer === 1 
- 147 |                   ? 'border-green-400 bg-green-400/10' 
- 148 |                   : 'border-gray-600 bg-gray-700'
- 149 |               }`}>
- 150 |                 <div className="flex justify-between items-center mb-2">
- 151 |                   <span className="text-sm text-gray-300">{timerData.player1Name}</span>
- 152 |                   <span className="text-lg font-bold text-green-400">
- 153 |                     {timerData.player1Score}
- 154 |                   </span>
- 155 |                 </div>
- 156 |                 <div className="text-2xl font-mono font-bold text-white">
- 157 |                   {formattedTime1}
- 158 |                 </div>
+   1 | import React, { useEffect, useState } from 'react';
+   2 | import { useTimerStore } from '../store/timerStore';
+   3 | import TimerControls from './TimerControls';
+   4 | import PlayerSettings from './PlayerSettings';
+   5 | import OverlaySettings from './OverlaySettings';
+   6 | import HotkeySettings from './HotkeySettings';
+   7 | 
+   8 | const ControlPanel: React.FC = () => {
+   9 |   const {
+  10 |     timerData,
+  11 |     overlaySettings,
+  12 |     isOverlayVisible,
+  13 |     setOverlayVisible,
+  14 |     setOverlaySettings,
+  15 |     saveToStorage,
+  16 |   } = useTimerStore();
+  17 | 
+  18 |   const [activeTab, setActiveTab] = useState<'timer' | 'players' | 'overlay' | 'hotkeys'>('timer');
+  19 | 
+  20 |   useEffect(() => {
+  21 |     const interval = setInterval(() => {
+  22 |       saveToStorage();
+  23 |     }, 5000);
+  24 | 
+  25 |     return () => clearInterval(interval);
+  26 |   }, [saveToStorage]);
+  27 | 
+  28 |   const handleLockToggle = () => {
+  29 |     setOverlaySettings({ locked: !overlaySettings.locked });
+  30 |   };
+  31 | 
+  32 |   const tabs = [
+  33 |     { id: 'timer' as const, name: 'Timer Controls', icon: '⏱️' },
+  34 |     { id: 'players' as const, name: 'Players', icon: '👥' },
+  35 |     { id: 'overlay' as const, name: 'Overlay', icon: '🎨' },
+  36 |     { id: 'hotkeys' as const, name: 'Hotkeys', icon: '⌨️' },
+  37 |   ];
+  38 | 
+  39 |   const renderTabContent = () => {
+  40 |     switch (activeTab) {
+  41 |       case 'timer':
+  42 |         return <TimerControls />;
+  43 |       case 'players':
+  44 |         return <PlayerSettings />;
+  45 |       case 'overlay':
+  46 |         return <OverlaySettings />;
+  47 |       case 'hotkeys':
+  48 |         return <HotkeySettings />;
+  49 |       default:
+  50 |         return <TimerControls />;
+  51 |     }
+  52 |   };
+  53 | 
+  54 |   return (
+  55 |     <div className="max-w-6xl mx-auto">
+  56 |       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  57 |         <div className="lg:col-span-2">
+  58 |           <div className="bg-gray-800 rounded-lg shadow-xl overflow-hidden">
+  59 |             <div className="flex border-b border-gray-700">
+  60 |               {tabs.map((tab) => (
+  61 |                 <button
+  62 |                   key={tab.id}
+  63 |                   onClick={() => setActiveTab(tab.id)}
+  64 |                   className={`flex-1 px-4 py-4 text-sm font-medium transition-all duration-200 ${
+  65 |                     activeTab === tab.id
+  66 |                       ? 'bg-primary-600 text-white border-b-2 border-primary-400'
+  67 |                       : 'text-gray-300 hover:text-white hover:bg-gray-700'
+  68 |                   }`}
+  69 |                 >
+  70 |                   <div className="flex items-center justify-center space-x-2">
+  71 |                     <span className="text-lg">{tab.icon}</span>
+  72 |                     <span className="hidden sm:inline">{tab.name}</span>
+  73 |                   </div>
+  74 |                 </button>
+  75 |               ))}
+  76 |             </div>
+  77 | 
+  78 |             <div className="p-6">
+  79 |               {renderTabContent()}
+  80 |             </div>
+  81 |           </div>
+  82 |         </div>
+  83 | 
+  84 |         <div className="space-y-6">
+  85 |           <div className="bg-gray-800 rounded-lg p-6 shadow-xl">
+  86 |             <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+  87 |               <span className="mr-2">📊</span>
+  88 |               Current Status
+  89 |             </h3>
+  90 |             
+  91 |             <div className="space-y-4">
+  92 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+  93 |                 <span className="text-gray-300">Active Timer</span>
+  94 |                 <span className={`font-bold ${
+  95 |                   timerData.currentTimer === 1 ? 'text-green-400' : 'text-blue-400'
+  96 |                 }`}>
+  97 |                   {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
+  98 |                 </span>
+  99 |               </div>
+ 100 | 
+ 101 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+ 102 |                 <span className="text-gray-300">Timer Status</span>
+ 103 |                 <div className="flex items-center space-x-2">
+ 104 |                   <div className={`w-2 h-2 rounded-full ${
+ 105 |                     timerData.isRunning ? 'bg-green-400 animate-pulse' : 'bg-red-400'
+ 106 |                   }`} />
+ 107 |                   <span className={`font-medium ${
+ 108 |                     timerData.isRunning ? 'text-green-400' : 'text-red-400'
+ 109 |                   }`}>
+ 110 |                     {timerData.isRunning ? 'Running' : 'Stopped'}
+ 111 |                   </span>
+ 112 |                 </div>
+ 113 |               </div>
+ 114 | 
+ 115 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+ 116 |                 <span className="text-gray-300">Overlay</span>
+ 117 |                 <div className="flex items-center space-x-2">
+ 118 |                   <div className={`w-2 h-2 rounded-full ${
+ 119 |                     isOverlayVisible ? 'bg-green-400' : 'bg-gray-400'
+ 120 |                   }`} />
+ 121 |                   <span className={`font-medium ${
+ 122 |                     isOverlayVisible ? 'text-green-400' : 'text-gray-400'
+ 123 |                   }`}>
+ 124 |                     {isOverlayVisible ? 'Visible' : 'Hidden'}
+ 125 |                   </span>
+ 126 |                 </div>
+ 127 |               </div>
+ 128 | 
+ 129 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+ 130 |                 <span className="text-gray-300">Position Lock</span>
+ 131 |                 <span className={`font-medium ${
+ 132 |                   overlaySettings.locked ? 'text-red-400' : 'text-green-400'
+ 133 |                 }`}>
+ 134 |                   {overlaySettings.locked ? 'Locked' : 'Unlocked'}
+ 135 |                 </span>
+ 136 |               </div>
+ 137 |             </div>
+ 138 |           </div>
+ 139 | 
+ 140 |           <div className="bg-gray-800 rounded-lg p-6 shadow-xl">
+ 141 |             <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+ 142 |               <span className="mr-2">🎯</span>
+ 143 |               Scores
+ 144 |             </h3>
+ 145 |             
+ 146 |             <div className="space-y-3">
+ 147 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+ 148 |                 <span className="text-gray-300">{timerData.player1Name}</span>
+ 149 |                 <span className="text-lg font-bold text-green-400">
+ 150 |                   {timerData.player1Score}
+ 151 |                 </span>
+ 152 |               </div>
+ 153 |               
+ 154 |               <div className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+ 155 |                 <span className="text-gray-300">{timerData.player2Name}</span>
+ 156 |                 <span className="text-lg font-bold text-blue-400">
+ 157 |                   {timerData.player2Score}
+ 158 |                 </span>
  159 |               </div>
- 160 | 
- 161 |               <div className={`p-4 rounded-lg border-2 transition-all duration-200 ${
- 162 |                 timerData.currentTimer === 2 
- 163 |                   ? 'border-blue-400 bg-blue-400/10' 
- 164 |                   : 'border-gray-600 bg-gray-700'
- 165 |               }`}>
- 166 |                 <div className="flex justify-between items-center mb-2">
- 167 |                   <span className="text-sm text-gray-300">{timerData.player2Name}</span>
- 168 |                   <span className="text-lg font-bold text-blue-400">
- 169 |                     {timerData.player2Score}
- 170 |                   </span>
- 171 |                 </div>
- 172 |                 <div className="text-2xl font-mono font-bold text-white">
- 173 |                   {formattedTime2}
- 174 |                 </div>
- 175 |               </div>
- 176 |             </div>
- 177 |           </div>
- 178 | 
- 179 |           <div className="bg-gray-800 rounded-lg p-6 shadow-xl">
- 180 |             <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
- 181 |               <span className="mr-2">🔧</span>
- 182 |               Quick Actions
- 183 |             </h3>
- 184 |             
- 185 |             <div className="space-y-3">
- 186 |               <button
- 187 |                 onClick={() => setOverlayVisible(!isOverlayVisible)}
- 188 |                 className={`w-full px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
- 189 |                   isOverlayVisible
- 190 |                     ? 'bg-red-600 hover:bg-red-700 text-white'
- 191 |                     : 'bg-primary-600 hover:bg-primary-700 text-white'
- 192 |                 }`}
- 193 |               >
- 194 |                 {isOverlayVisible ? '👁️ Hide Overlay' : '👁️ Show Overlay'}
- 195 |               </button>
- 196 | 
- 197 |               <button
- 198 |                 onClick={() => {
- 199 |                   const { resetTimer } = useTimerStore.getState();
- 200 |                   resetTimer();
- 201 |                 }}
- 202 |                 className="w-full px-4 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-all duration-200"
- 203 |               >
- 204 |                 🔄 Reset Timers
- 205 |               </button>
- 206 | 
- 207 |               <button
- 208 |                 onClick={() => {
- 209 |                   const { setOverlaySettings } = useTimerStore.getState();
- 210 |                   setOverlaySettings({ 
- 211 |                     locked: !overlaySettings.locked 
- 212 |                   });
- 213 |                 }}
- 214 |                 className={`w-full px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
- 215 |                   overlaySettings.locked
- 216 |                     ? 'bg-green-600 hover:bg-green-700 text-white'
- 217 |                     : 'bg-orange-600 hover:bg-orange-700 text-white'
- 218 |                 }`}
- 219 |               >
- 220 |                 {overlaySettings.locked ? '🔓 Unlock Position' : '🔒 Lock Position'}
- 221 |               </button>
- 222 |             </div>
- 223 |           </div>
- 224 |         </div>
- 225 |       </div>
- 226 |     </div>
- 227 |   );
- 228 | };
- 229 | 
- 230 | export default ControlPanel;
+ 160 |             </div>
+ 161 |           </div>
+ 162 | 
+ 163 |           <div className="bg-gray-800 rounded-lg p-6 shadow-xl">
+ 164 |             <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+ 165 |               <span className="mr-2">🔧</span>
+ 166 |               Quick Actions
+ 167 |             </h3>
+ 168 |             
+ 169 |             <div className="space-y-3">
+ 170 |               <button
+ 171 |                 onClick={() => setOverlayVisible(!isOverlayVisible)}
+ 172 |                 className={`w-full px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+ 173 |                   isOverlayVisible
+ 174 |                     ? 'bg-red-600 hover:bg-red-700 text-white'
+ 175 |                     : 'bg-primary-600 hover:bg-primary-700 text-white'
+ 176 |                 }`}
+ 177 |               >
+ 178 |                 {isOverlayVisible ? '👁️ Hide Overlay' : '👁️ Show Overlay'}
+ 179 |               </button>
+ 180 | 
+ 181 |               <button
+ 182 |                 onClick={handleLockToggle}
+ 183 |                 disabled={!isOverlayVisible}
+ 184 |                 className={`w-full px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+ 185 |                   !isOverlayVisible
+ 186 |                     ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+ 187 |                     : overlaySettings.locked
+ 188 |                       ? 'bg-orange-600 hover:bg-orange-700 text-white'
+ 189 |                       : 'bg-green-600 hover:bg-green-700 text-white'
+ 190 |                 }`}
+ 191 |               >
+ 192 |                 {overlaySettings.locked ? '🔒 Unlock Position' : '🔓 Lock Position'}
+ 193 |               </button>
+ 194 |             </div>
+ 195 |           </div>
+ 196 |         </div>
+ 197 |       </div>
+ 198 |     </div>
+ 199 |   );
+ 200 | };
+ 201 | 
+ 202 | export default ControlPanel;
 
 ```
 
@@ -1370,82 +1377,199 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\components\OverlayApp.tsx`:
 
 ```tsx
-   1 | // src/components/OverlayApp.tsx
-   2 | import React, { useEffect, useState } from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | import TimerOverlay from './overlay/TimerOverlay';
-   5 | import useTimer from '../hooks/useTimer';
-   6 | 
-   7 | const OverlayApp: React.FC = () => {
-   8 |   const { loadFromStorage, timerData, overlaySettings } = useTimerStore();
-   9 |   const [isInitialized, setIsInitialized] = useState(false);
-  10 |   
-  11 |   useTimer();
-  12 | 
-  13 |   useEffect(() => {
-  14 |     const initializeOverlay = async () => {
-  15 |       try {
-  16 |         await loadFromStorage();
-  17 |         setIsInitialized(true);
-  18 |         console.log('Overlay initialized successfully');
-  19 |       } catch (error) {
-  20 |         console.error('Failed to initialize overlay:', error);
-  21 |         setIsInitialized(true);
-  22 |       }
-  23 |     };
+   1 | import React, { useEffect, useState, useRef } from 'react';
+   2 | import { useTimerStore } from '../store/timerStore';
+   3 | import TimerOverlay from './overlay/TimerOverlay';
+   4 | import { PreciseTimer } from '../utils/timer';
+   5 | 
+   6 | const OverlayApp: React.FC = () => {
+   7 |   const { 
+   8 |     loadFromStorage, 
+   9 |     timerData, 
+  10 |     setTimerValue
+  11 |   } = useTimerStore();
+  12 |   const [isInitialized, setIsInitialized] = useState(false);
+  13 |   const [localTimerData, setLocalTimerData] = useState(timerData);
+  14 |   
+  15 |   const timer1Ref = useRef<PreciseTimer | null>(null);
+  16 |   const timer2Ref = useRef<PreciseTimer | null>(null);
+  17 |   const lastStateRef = useRef({ 
+  18 |     isRunning: false, 
+  19 |     currentTimer: 1,
+  20 |     timer1Value: 0,
+  21 |     timer2Value: 0
+  22 |   });
+  23 |   const syncingRef = useRef(false);
   24 | 
-  25 |     initializeOverlay();
-  26 |   }, [loadFromStorage]);
-  27 | 
-  28 |   useEffect(() => {
-  29 |     if (!window.electronAPI?.overlay) return;
-  30 | 
-  31 |     const cleanupDataSync = window.electronAPI.overlay.onDataSync((data) => {
-  32 |       console.log('Received timer data sync:', data);
-  33 |     });
-  34 | 
-  35 |     return cleanupDataSync;
-  36 |   }, []);
-  37 | 
-  38 |   useEffect(() => {
-  39 |     if (window.electronAPI?.overlay?.updateSettings) {
-  40 |       window.electronAPI.overlay.updateSettings(overlaySettings);
-  41 |     }
-  42 |   }, [overlaySettings]);
-  43 | 
-  44 |   useEffect(() => {
-  45 |     document.body.style.background = 'transparent';
-  46 |     document.body.style.margin = '0';
-  47 |     document.body.style.padding = '0';
-  48 |     document.body.style.overflow = 'hidden';
-  49 |     
-  50 |     const htmlElement = document.documentElement;
-  51 |     htmlElement.style.background = 'transparent';
-  52 |     htmlElement.style.margin = '0';
-  53 |     htmlElement.style.padding = '0';
-  54 |     htmlElement.style.overflow = 'hidden';
-  55 |   }, []);
+  25 |   useEffect(() => {
+  26 |     const initializeOverlay = async () => {
+  27 |       try {
+  28 |         await loadFromStorage();
+  29 |         setIsInitialized(true);
+  30 |         console.log('Overlay initialized successfully');
+  31 |       } catch (error) {
+  32 |         console.error('Failed to initialize overlay:', error);
+  33 |         setIsInitialized(true);
+  34 |       }
+  35 |     };
+  36 | 
+  37 |     initializeOverlay();
+  38 |   }, [loadFromStorage]);
+  39 | 
+  40 |   useEffect(() => {
+  41 |     if (!timer1Ref.current) {
+  42 |       timer1Ref.current = new PreciseTimer((value) => {
+  43 |         if (!syncingRef.current) {
+  44 |           setLocalTimerData(prev => ({ ...prev, timer1Value: value }));
+  45 |         }
+  46 |       });
+  47 |     }
+  48 | 
+  49 |     if (!timer2Ref.current) {
+  50 |       timer2Ref.current = new PreciseTimer((value) => {
+  51 |         if (!syncingRef.current) {
+  52 |           setLocalTimerData(prev => ({ ...prev, timer2Value: value }));
+  53 |         }
+  54 |       });
+  55 |     }
   56 | 
-  57 |   if (!isInitialized) {
-  58 |     return null;
-  59 |   }
-  60 | 
-  61 |   return (
-  62 |     <div 
-  63 |       className="w-full h-full"
-  64 |       style={{ 
-  65 |         background: 'transparent',
-  66 |         margin: 0,
-  67 |         padding: 0,
-  68 |         overflow: 'hidden'
-  69 |       }}
-  70 |     >
-  71 |       <TimerOverlay />
-  72 |     </div>
-  73 |   );
-  74 | };
-  75 | 
-  76 | export default OverlayApp;
+  57 |     return () => {
+  58 |       timer1Ref.current?.stop();
+  59 |       timer2Ref.current?.stop();
+  60 |     };
+  61 |   }, []);
+  62 | 
+  63 |   useEffect(() => {
+  64 |     if (!isInitialized) return;
+  65 | 
+  66 |     const lastState = lastStateRef.current;
+  67 |     const currentState = {
+  68 |       isRunning: localTimerData.isRunning,
+  69 |       currentTimer: localTimerData.currentTimer,
+  70 |       timer1Value: localTimerData.timer1Value,
+  71 |       timer2Value: localTimerData.timer2Value
+  72 |     };
+  73 | 
+  74 |     if (lastState.isRunning !== currentState.isRunning) {
+  75 |       if (currentState.isRunning) {
+  76 |         console.log('Starting timer in overlay, current:', currentState.currentTimer);
+  77 |         const timerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+  78 |         const initialValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
+  79 |         
+  80 |         timer1Ref.current?.stop();
+  81 |         timer2Ref.current?.stop();
+  82 |         
+  83 |         if (timerRef) {
+  84 |           timerRef.start(initialValue);
+  85 |         }
+  86 |       } else {
+  87 |         console.log('Pausing timer in overlay');
+  88 |         const currentTimer = currentState.currentTimer;
+  89 |         const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+  90 |         
+  91 |         if (timerRef && timerRef.running) {
+  92 |           const finalValue = timerRef.pause();
+  93 |           const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
+  94 |           setLocalTimerData(prev => ({ ...prev, [valueKey]: finalValue }));
+  95 |         }
+  96 |       }
+  97 |     }
+  98 | 
+  99 |     if (lastState.currentTimer !== currentState.currentTimer && !currentState.isRunning) {
+ 100 |       console.log('Timer swapped in overlay to:', currentState.currentTimer);
+ 101 |       timer1Ref.current?.stop();
+ 102 |       timer2Ref.current?.stop();
+ 103 |     }
+ 104 | 
+ 105 |     if (lastState.timer1Value !== currentState.timer1Value && !currentState.isRunning && currentState.timer1Value === 0) {
+ 106 |       if (timer1Ref.current) {
+ 107 |         timer1Ref.current.reset();
+ 108 |       }
+ 109 |     }
+ 110 | 
+ 111 |     if (lastState.timer2Value !== currentState.timer2Value && !currentState.isRunning && currentState.timer2Value === 0) {
+ 112 |       if (timer2Ref.current) {
+ 113 |         timer2Ref.current.reset();
+ 114 |       }
+ 115 |     }
+ 116 | 
+ 117 |     lastStateRef.current = currentState;
+ 118 |   }, [localTimerData, isInitialized]);
+ 119 | 
+ 120 |   useEffect(() => {
+ 121 |     if (!window.electronAPI?.overlay) return;
+ 122 | 
+ 123 |     const cleanupDataSync = window.electronAPI.overlay.onDataSync((data) => {
+ 124 |       console.log('Received timer data sync in overlay:', data);
+ 125 |       syncingRef.current = true;
+ 126 |       setLocalTimerData(data);
+ 127 |       setTimeout(() => {
+ 128 |         syncingRef.current = false;
+ 129 |       }, 100);
+ 130 |     });
+ 131 | 
+ 132 |     return cleanupDataSync;
+ 133 |   }, []);
+ 134 | 
+ 135 |   useEffect(() => {
+ 136 |     const forceTransparency = () => {
+ 137 |       const elements = [
+ 138 |         document.body,
+ 139 |         document.documentElement,
+ 140 |         document.getElementById('overlay-root')
+ 141 |       ].filter(Boolean);
+ 142 | 
+ 143 |       elements.forEach(el => {
+ 144 |         if (el) {
+ 145 |           el.style.background = 'transparent';
+ 146 |           el.style.backgroundColor = 'transparent';
+ 147 |           el.style.margin = '0';
+ 148 |           el.style.padding = '0';
+ 149 |           el.style.overflow = 'hidden';
+ 150 |           el.style.border = 'none';
+ 151 |           el.style.outline = 'none';
+ 152 |         }
+ 153 |       });
+ 154 |     };
+ 155 | 
+ 156 |     forceTransparency();
+ 157 |     const interval = setInterval(forceTransparency, 500);
+ 158 | 
+ 159 |     return () => clearInterval(interval);
+ 160 |   }, []);
+ 161 | 
+ 162 |   if (!isInitialized) {
+ 163 |     return (
+ 164 |       <div style={{ 
+ 165 |         background: 'transparent', 
+ 166 |         color: 'white', 
+ 167 |         padding: '20px',
+ 168 |         fontFamily: 'monospace'
+ 169 |       }}>
+ 170 |         Loading overlay...
+ 171 |       </div>
+ 172 |     );
+ 173 |   }
+ 174 | 
+ 175 |   return (
+ 176 |     <div 
+ 177 |       className="w-full h-full"
+ 178 |       style={{ 
+ 179 |         background: 'transparent',
+ 180 |         backgroundColor: 'transparent',
+ 181 |         margin: 0,
+ 182 |         padding: 0,
+ 183 |         overflow: 'hidden',
+ 184 |         border: 'none',
+ 185 |         outline: 'none'
+ 186 |       }}
+ 187 |     >
+ 188 |       <TimerOverlay timerData={localTimerData} />
+ 189 |     </div>
+ 190 |   );
+ 191 | };
+ 192 | 
+ 193 | export default OverlayApp;
 
 ```
 
@@ -1720,144 +1844,154 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\components\TimerControls.tsx`:
 
 ```tsx
-   1 | // src/components/TimerControls.tsx
-   2 | import React from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | import useTimer from '../hooks/useTimer';
-   5 | 
-   6 | const TimerControls: React.FC = () => {
-   7 |   const {
-   8 |     timerData,
-   9 |     setCurrentTimer,
+   1 | import React from 'react';
+   2 | import { useTimerStore } from '../store/timerStore';
+   3 | 
+   4 | const TimerControls: React.FC = () => {
+   5 |   const {
+   6 |     timerData,
+   7 |     startTimer,
+   8 |     pauseTimer,
+   9 |     swapTimer,
   10 |     resetTimer,
   11 |     resetAllTimers,
-  12 |     saveToStorage,
-  13 |   } = useTimerStore();
-  14 | 
-  15 |   const { isRunning, startTimer, pauseTimer, swapTimer } = useTimer();
-  16 | 
-  17 |   const handleStartPause = () => {
-  18 |     console.log('Start/Pause clicked. Current running state:', isRunning);
-  19 |     
-  20 |     if (isRunning) {
-  21 |       pauseTimer();
-  22 |     } else {
-  23 |       startTimer();
-  24 |     }
-  25 |     
-  26 |     // Sauvegarder après un délai pour laisser le temps aux états de se mettre à jour
-  27 |     setTimeout(() => {
-  28 |       saveToStorage();
-  29 |     }, 100);
-  30 |   };
-  31 | 
-  32 |   const handleSwap = () => {
-  33 |     console.log('Swap clicked. Current timer:', timerData.currentTimer);
-  34 |     swapTimer();
-  35 |     
-  36 |     setTimeout(() => {
-  37 |       saveToStorage();
-  38 |     }, 100);
-  39 |   };
-  40 | 
-  41 |   const handleResetCurrent = () => {
-  42 |     console.log('Reset current clicked. Current timer:', timerData.currentTimer);
-  43 |     resetTimer();
-  44 |     
-  45 |     setTimeout(() => {
-  46 |       saveToStorage();
-  47 |     }, 100);
-  48 |   };
-  49 | 
-  50 |   const handleResetAll = () => {
-  51 |     console.log('Reset all clicked');
-  52 |     resetAllTimers();
-  53 |     
-  54 |     setTimeout(() => {
-  55 |       saveToStorage();
-  56 |     }, 100);
-  57 |   };
-  58 | 
-  59 |   const handleTimerSelect = (timer: 1 | 2) => {
-  60 |     console.log('Timer selected:', timer);
-  61 |     setCurrentTimer(timer);
-  62 |     
-  63 |     setTimeout(() => {
-  64 |       saveToStorage();
-  65 |     }, 100);
-  66 |   };
-  67 | 
-  68 |   return (
-  69 |     <div className="space-y-4">
-  70 |       <div className="grid grid-cols-2 gap-3">
-  71 |         <button
-  72 |           onClick={() => handleTimerSelect(1)}
-  73 |           className={`py-2 px-4 rounded-md font-medium transition-colors ${
-  74 |             timerData.currentTimer === 1
-  75 |               ? 'bg-primary-600 text-white'
-  76 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-  77 |           }`}
-  78 |         >
-  79 |           Timer 1 {timerData.currentTimer === 1 && isRunning && '●'}
-  80 |         </button>
-  81 |         
-  82 |         <button
-  83 |           onClick={() => handleTimerSelect(2)}
-  84 |           className={`py-2 px-4 rounded-md font-medium transition-colors ${
-  85 |             timerData.currentTimer === 2
-  86 |               ? 'bg-primary-600 text-white'
-  87 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-  88 |           }`}
-  89 |         >
-  90 |           Timer 2 {timerData.currentTimer === 2 && isRunning && '●'}
-  91 |         </button>
-  92 |       </div>
-  93 | 
-  94 |       <div className="grid grid-cols-2 gap-3">
-  95 |         <button
-  96 |           onClick={handleStartPause}
-  97 |           className={`py-3 px-4 rounded-md font-semibold transition-colors ${
-  98 |             isRunning
-  99 |               ? 'bg-danger-600 hover:bg-danger-700 text-white'
- 100 |               : 'bg-success-600 hover:bg-success-700 text-white'
- 101 |           }`}
- 102 |         >
- 103 |           {isRunning ? 'Pause' : 'Start'}
- 104 |         </button>
- 105 |         
+  12 |     setCurrentTimer,
+  13 |     saveToStorage
+  14 |   } = useTimerStore();
+  15 | 
+  16 |   const handleStartPause = () => {
+  17 |     if (timerData.isRunning) {
+  18 |       pauseTimer();
+  19 |     } else {
+  20 |       startTimer();
+  21 |     }
+  22 |     setTimeout(() => saveToStorage(), 100);
+  23 |   };
+  24 | 
+  25 |   const handleSwap = () => {
+  26 |     swapTimer();
+  27 |     setTimeout(() => saveToStorage(), 100);
+  28 |   };
+  29 | 
+  30 |   const handleResetCurrent = () => {
+  31 |     resetTimer();
+  32 |     setTimeout(() => saveToStorage(), 100);
+  33 |   };
+  34 | 
+  35 |   const handleResetAll = () => {
+  36 |     resetAllTimers();
+  37 |     setTimeout(() => saveToStorage(), 100);
+  38 |   };
+  39 | 
+  40 |   const handleTimerSelect = (timer: 1 | 2) => {
+  41 |     if (timerData.isRunning) {
+  42 |       pauseTimer();
+  43 |     }
+  44 |     setCurrentTimer(timer);
+  45 |     setTimeout(() => saveToStorage(), 100);
+  46 |   };
+  47 | 
+  48 |   return (
+  49 |     <div className="space-y-6">
+  50 |       <div className="text-center mb-6">
+  51 |         <h3 className="text-xl font-semibold text-white mb-2">Timer Controls</h3>
+  52 |         <p className="text-gray-400">All timer actions are displayed on the overlay</p>
+  53 |       </div>
+  54 | 
+  55 |       <div className="grid grid-cols-2 gap-4">
+  56 |         <button
+  57 |           onClick={() => handleTimerSelect(1)}
+  58 |           className={`py-3 px-4 rounded-md font-medium transition-colors ${
+  59 |             timerData.currentTimer === 1
+  60 |               ? 'bg-primary-600 text-white ring-2 ring-primary-400'
+  61 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+  62 |           }`}
+  63 |         >
+  64 |           Select {timerData.player1Name}
+  65 |           {timerData.currentTimer === 1 && timerData.isRunning && (
+  66 |             <div className="text-xs text-green-400 mt-1">● ACTIVE</div>
+  67 |           )}
+  68 |         </button>
+  69 |         
+  70 |         <button
+  71 |           onClick={() => handleTimerSelect(2)}
+  72 |           className={`py-3 px-4 rounded-md font-medium transition-colors ${
+  73 |             timerData.currentTimer === 2
+  74 |               ? 'bg-primary-600 text-white ring-2 ring-primary-400'
+  75 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+  76 |           }`}
+  77 |         >
+  78 |           Select {timerData.player2Name}
+  79 |           {timerData.currentTimer === 2 && timerData.isRunning && (
+  80 |             <div className="text-xs text-green-400 mt-1">● ACTIVE</div>
+  81 |           )}
+  82 |         </button>
+  83 |       </div>
+  84 | 
+  85 |       <div className="grid grid-cols-2 gap-4">
+  86 |         <button
+  87 |           onClick={handleStartPause}
+  88 |           className={`py-4 px-6 rounded-lg font-semibold text-lg transition-colors ${
+  89 |             timerData.isRunning
+  90 |               ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/30'
+  91 |               : 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/30'
+  92 |           }`}
+  93 |         >
+  94 |           {timerData.isRunning ? '⏸️ PAUSE' : '▶️ START'}
+  95 |         </button>
+  96 |         
+  97 |         <button
+  98 |           onClick={handleSwap}
+  99 |           className="py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-lg transition-colors shadow-lg shadow-blue-500/30"
+ 100 |         >
+ 101 |           🔄 SWAP
+ 102 |         </button>
+ 103 |       </div>
+ 104 | 
+ 105 |       <div className="grid grid-cols-2 gap-4">
  106 |         <button
- 107 |           onClick={handleSwap}
- 108 |           className="py-3 px-4 bg-info-600 hover:bg-info-700 text-white rounded-md font-semibold transition-colors"
+ 107 |           onClick={handleResetCurrent}
+ 108 |           className="py-3 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors"
  109 |         >
- 110 |           Swap
+ 110 |           Reset Current
  111 |         </button>
- 112 |       </div>
- 113 | 
- 114 |       <div className="grid grid-cols-2 gap-3">
- 115 |         <button
- 116 |           onClick={handleResetCurrent}
- 117 |           className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
- 118 |         >
- 119 |           Reset Current
- 120 |         </button>
- 121 |         
- 122 |         <button
- 123 |           onClick={handleResetAll}
- 124 |           className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
- 125 |         >
- 126 |           Reset All
- 127 |         </button>
- 128 |       </div>
- 129 | 
- 130 |       <div className="text-sm text-gray-400 text-center">
- 131 |         Active Timer: {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
- 132 |         {isRunning && <span className="text-success-400 ml-2">● Running</span>}
- 133 |       </div>
- 134 |     </div>
- 135 |   );
- 136 | };
- 137 | 
- 138 | export default TimerControls;
+ 112 |         
+ 113 |         <button
+ 114 |           onClick={handleResetAll}
+ 115 |           className="py-3 px-4 bg-red-700 hover:bg-red-800 text-white rounded-lg font-medium transition-colors"
+ 116 |         >
+ 117 |           Reset All
+ 118 |         </button>
+ 119 |       </div>
+ 120 | 
+ 121 |       <div className="bg-gray-700 rounded-lg p-4 mt-6">
+ 122 |         <div className="flex items-center justify-between mb-2">
+ 123 |           <span className="text-white font-medium">Current Active Timer</span>
+ 124 |           <div className="flex items-center space-x-2">
+ 125 |             <div className={`w-3 h-3 rounded-full ${
+ 126 |               timerData.isRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
+ 127 |             }`} />
+ 128 |             <span className={`font-medium ${
+ 129 |               timerData.isRunning ? 'text-green-400' : 'text-gray-400'
+ 130 |             }`}>
+ 131 |               {timerData.isRunning ? 'Running' : 'Stopped'}
+ 132 |             </span>
+ 133 |           </div>
+ 134 |         </div>
+ 135 |         <p className="text-center text-lg font-semibold text-primary-400">
+ 136 |           {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
+ 137 |         </p>
+ 138 |       </div>
+ 139 | 
+ 140 |       <div className="text-sm text-gray-400 text-center bg-gray-800 p-3 rounded-lg">
+ 141 |         <p>💡 Use your configured hotkeys to control timers globally:</p>
+ 142 |         <p><kbd className="bg-gray-700 px-2 py-1 rounded">{timerData.startHotkey}</kbd> Start/Pause • <kbd className="bg-gray-700 px-2 py-1 rounded">{timerData.swapHotkey}</kbd> Swap</p>
+ 143 |       </div>
+ 144 |     </div>
+ 145 |   );
+ 146 | };
+ 147 | 
+ 148 | export default TimerControls;
 
 ```
 
@@ -1915,158 +2049,215 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\components\overlay\TimerOverlay.tsx`:
 
 ```tsx
-   1 | // src/components/overlay/TimerOverlay.tsx
-   2 | import React from 'react';
-   3 | import { useTimerStore } from '../../store/timerStore';
-   4 | import DragHandle from './DragHandle';
-   5 | import DefaultStyle from './styles/DefaultStyle';
-   6 | import useTimer from '../../hooks/useTimer';
+   1 | import React, { useEffect, useState } from 'react';
+   2 | import { useTimerStore } from '../../store/timerStore';
+   3 | import DragHandle from './DragHandle';
+   4 | import DefaultStyle from './styles/DefaultStyle';
+   5 | import { formatTime } from '../../utils/timer';
+   6 | import type { TimerData } from '../../types';
    7 | 
-   8 | const TimerOverlay: React.FC = () => {
-   9 |   const { timerData, overlaySettings } = useTimerStore();
-  10 |   const { formattedTime1, formattedTime2 } = useTimer();
+   8 | interface TimerOverlayProps {
+   9 |   timerData?: TimerData;
+  10 | }
   11 | 
-  12 |   const scaleFactor = overlaySettings.scale / 100;
-  13 | 
-  14 |   return (
-  15 |     <div
-  16 |       style={{
-  17 |         width: '520px',
-  18 |         height: overlaySettings.locked ? '120px' : '150px',
-  19 |         transform: `scale(${scaleFactor})`,
-  20 |         transformOrigin: 'top left',
-  21 |         background: 'transparent',
-  22 |         position: 'relative',
-  23 |         userSelect: 'none',
-  24 |         WebkitUserSelect: 'none'
-  25 |       }}
-  26 |     >
-  27 |       <DragHandle isVisible={!overlaySettings.locked} />
-  28 |       
-  29 |       <div 
-  30 |         style={{
-  31 |           width: '520px',
-  32 |           height: '120px',
-  33 |           position: overlaySettings.locked ? 'static' : 'absolute',
-  34 |           top: overlaySettings.locked ? '0px' : '30px',
-  35 |           left: '0px',
-  36 |           pointerEvents: overlaySettings.locked ? 'none' : 'auto'
-  37 |         }}
-  38 |       >
-  39 |         <DefaultStyle
-  40 |           player1Name={timerData.player1Name}
-  41 |           player2Name={timerData.player2Name}
-  42 |           player1Score={timerData.player1Score}
-  43 |           player2Score={timerData.player2Score}
-  44 |           timer1={formattedTime1}
-  45 |           timer2={formattedTime2}
-  46 |           currentTimer={timerData.currentTimer}
-  47 |           isRunning={timerData.isRunning}
-  48 |         />
-  49 |       </div>
-  50 |     </div>
-  51 |   );
-  52 | };
-  53 | 
-  54 | export default TimerOverlay;
+  12 | const TimerOverlay: React.FC<TimerOverlayProps> = ({ timerData: propTimerData }) => {
+  13 |   const { timerData: storeTimerData, overlaySettings } = useTimerStore();
+  14 |   const [formattedTime1, setFormattedTime1] = useState('0.00');
+  15 |   const [formattedTime2, setFormattedTime2] = useState('0.00');
+  16 | 
+  17 |   const timerData = propTimerData || storeTimerData;
+  18 | 
+  19 |   useEffect(() => {
+  20 |     setFormattedTime1(formatTime(timerData.timer1Value || 0));
+  21 |     setFormattedTime2(formatTime(timerData.timer2Value || 0));
+  22 |   }, [timerData.timer1Value, timerData.timer2Value]);
+  23 | 
+  24 |   const scaleFactor = overlaySettings.scale / 100;
+  25 |   const dragHandleHeight = overlaySettings.locked ? 0 : 30;
+  26 | 
+  27 |   console.log('TimerOverlay render:', {
+  28 |     currentTimer: timerData.currentTimer,
+  29 |     isRunning: timerData.isRunning,
+  30 |     timer1Value: timerData.timer1Value,
+  31 |     timer2Value: timerData.timer2Value,
+  32 |     formattedTime1,
+  33 |     formattedTime2
+  34 |   });
+  35 | 
+  36 |   return (
+  37 |     <div
+  38 |       style={{
+  39 |         width: '520px',
+  40 |         height: `${120 + dragHandleHeight}px`,
+  41 |         transform: `scale(${scaleFactor})`,
+  42 |         transformOrigin: 'top left',
+  43 |         background: 'transparent',
+  44 |         position: 'relative',
+  45 |         userSelect: 'none',
+  46 |         WebkitUserSelect: 'none',
+  47 |         margin: 0,
+  48 |         padding: 0,
+  49 |         overflow: 'hidden'
+  50 |       }}
+  51 |     >
+  52 |       <DragHandle 
+  53 |         isVisible={!overlaySettings.locked} 
+  54 |         className={overlaySettings.locked ? 'opacity-0 pointer-events-none h-0' : ''}
+  55 |       />
+  56 |       
+  57 |       <div 
+  58 |         style={{
+  59 |           width: '520px',
+  60 |           height: '120px',
+  61 |           position: 'absolute',
+  62 |           top: overlaySettings.locked ? '0px' : '30px',
+  63 |           left: '0px',
+  64 |           pointerEvents: overlaySettings.locked ? 'none' : 'auto',
+  65 |           background: 'transparent',
+  66 |           margin: 0,
+  67 |           padding: 0
+  68 |         }}
+  69 |       >
+  70 |         <DefaultStyle
+  71 |           player1Name={timerData.player1Name}
+  72 |           player2Name={timerData.player2Name}
+  73 |           player1Score={timerData.player1Score}
+  74 |           player2Score={timerData.player2Score}
+  75 |           timer1={formattedTime1}
+  76 |           timer2={formattedTime2}
+  77 |           currentTimer={timerData.currentTimer}
+  78 |           isRunning={timerData.isRunning}
+  79 |         />
+  80 |       </div>
+  81 |     </div>
+  82 |   );
+  83 | };
+  84 | 
+  85 | export default TimerOverlay;
 
 ```
 
 `dbdoverlaytools-free/src\components\overlay\styles\DefaultStyle.tsx`:
 
 ```tsx
-   1 | // src/components/overlay/styles/DefaultStyle.tsx
-   2 | import React, { useEffect, useState } from 'react';
-   3 | import { cn } from '../../../utils/cn';
-   4 | 
-   5 | interface DefaultStyleProps {
-   6 |   player1Name: string;
-   7 |   player2Name: string;
-   8 |   player1Score: number;
-   9 |   player2Score: number;
-  10 |   timer1: string;
-  11 |   timer2: string;
-  12 |   currentTimer: 1 | 2;
-  13 |   isRunning: boolean;
-  14 | }
-  15 | 
-  16 | const DefaultStyle: React.FC<DefaultStyleProps> = ({
-  17 |   player1Name,
-  18 |   player2Name,
-  19 |   player1Score,
-  20 |   player2Score,
-  21 |   timer1,
-  22 |   timer2,
-  23 |   currentTimer,
-  24 |   isRunning
-  25 | }) => {
-  26 |   const [player1Scrolling, setPlayer1Scrolling] = useState(false);
-  27 |   const [player2Scrolling, setPlayer2Scrolling] = useState(false);
-  28 | 
-  29 |   useEffect(() => {
-  30 |     setPlayer1Scrolling(player1Name.length > 12);
-  31 |     setPlayer2Scrolling(player2Name.length > 12);
-  32 |   }, [player1Name, player2Name]);
-  33 | 
-  34 |   const formatTimerChars = (timeStr: string) => {
-  35 |     const chars = timeStr.padStart(6, '0').split('');
-  36 |     return {
-  37 |       minutes: chars[0] || '0',
-  38 |       colon: ':',
-  39 |       seconds1: chars[2] || '0',
-  40 |       seconds2: chars[3] || '0',
-  41 |       dot: '.',
-  42 |       tenths: chars[5] || '0'
-  43 |     };
-  44 |   };
-  45 | 
-  46 |   const timer1Chars = formatTimerChars(timer1);
-  47 |   const timer2Chars = formatTimerChars(timer2);
-  48 | 
-  49 |   return (
-  50 |     <div className="timer-overlay">
-  51 |       <div className="name left">
-  52 |         <span className={cn("name-scroll", player1Scrolling && "scrolling")}>
-  53 |           {player1Name.toUpperCase()}
-  54 |         </span>
-  55 |       </div>
-  56 |       
-  57 |       <div className="score-value">
-  58 |         {player1Score} – {player2Score}
-  59 |       </div>
-  60 |       
-  61 |       <div className="name right">
-  62 |         <span className={cn("name-scroll", player2Scrolling && "scrolling")}>
-  63 |           {player2Name.toUpperCase()}
-  64 |         </span>
-  65 |       </div>
-  66 |       
-  67 |       <div className={cn("timer left", currentTimer === 1 && "active")}>
-  68 |         <span className="timer-text">
-  69 |           <span className="timer-char">{timer1Chars.minutes}</span>
-  70 |           <span className="timer-char separator">{timer1Chars.colon}</span>
-  71 |           <span className="timer-char">{timer1Chars.seconds1}</span>
-  72 |           <span className="timer-char">{timer1Chars.seconds2}</span>
-  73 |           <span className="timer-char separator">{timer1Chars.dot}</span>
-  74 |           <span className="timer-char">{timer1Chars.tenths}</span>
-  75 |         </span>
-  76 |       </div>
-  77 |       
-  78 |       <div className={cn("timer right", currentTimer === 2 && "active")}>
-  79 |         <span className="timer-text">
-  80 |           <span className="timer-char">{timer2Chars.minutes}</span>
-  81 |           <span className="timer-char separator">{timer2Chars.colon}</span>
-  82 |           <span className="timer-char">{timer2Chars.seconds1}</span>
-  83 |           <span className="timer-char">{timer2Chars.seconds2}</span>
-  84 |           <span className="timer-char separator">{timer2Chars.dot}</span>
-  85 |           <span className="timer-char">{timer2Chars.tenths}</span>
-  86 |         </span>
-  87 |       </div>
-  88 |     </div>
-  89 |   );
-  90 | };
-  91 | 
-  92 | export default DefaultStyle;
+   1 | import React, { useEffect, useState } from 'react';
+   2 | import { cn } from '../../../utils/cn';
+   3 | 
+   4 | interface DefaultStyleProps {
+   5 |   player1Name: string;
+   6 |   player2Name: string;
+   7 |   player1Score: number;
+   8 |   player2Score: number;
+   9 |   timer1: string;
+  10 |   timer2: string;
+  11 |   currentTimer: 1 | 2;
+  12 |   isRunning: boolean;
+  13 | }
+  14 | 
+  15 | const DefaultStyle: React.FC<DefaultStyleProps> = ({
+  16 |   player1Name,
+  17 |   player2Name,
+  18 |   player1Score,
+  19 |   player2Score,
+  20 |   timer1,
+  21 |   timer2,
+  22 |   currentTimer,
+  23 |   isRunning
+  24 | }) => {
+  25 |   const [player1Scrolling, setPlayer1Scrolling] = useState(false);
+  26 |   const [player2Scrolling, setPlayer2Scrolling] = useState(false);
+  27 | 
+  28 |   useEffect(() => {
+  29 |     setPlayer1Scrolling(player1Name.length > 12);
+  30 |     setPlayer2Scrolling(player2Name.length > 12);
+  31 |   }, [player1Name, player2Name]);
+  32 | 
+  33 |   const formatTimerChars = (timeStr: string) => {
+  34 |     if (timeStr.includes(':')) {
+  35 |       const [minutesPart, secondsCentiseconds] = timeStr.split(':');
+  36 |       const [secondsPart, centiseconds] = secondsCentiseconds.split('.');
+  37 |       
+  38 |       return {
+  39 |         minutes: minutesPart || '0',
+  40 |         colon: ':',
+  41 |         seconds1: secondsPart?.[0] || '0',
+  42 |         seconds2: secondsPart?.[1] || '0',
+  43 |         dot: '.',
+  44 |         centis1: centiseconds?.[0] || '0',
+  45 |         centis2: centiseconds?.[1] || '0',
+  46 |         hasMinutes: true
+  47 |       };
+  48 |     } else {
+  49 |       const [secondsPart, centiseconds] = timeStr.split('.');
+  50 |       
+  51 |       return {
+  52 |         seconds1: secondsPart?.[0] || '0',
+  53 |         seconds2: secondsPart?.[1] || '0',
+  54 |         dot: '.',
+  55 |         centis1: centiseconds?.[0] || '0',
+  56 |         centis2: centiseconds?.[1] || '0',
+  57 |         hasMinutes: false
+  58 |       };
+  59 |     }
+  60 |   };
+  61 | 
+  62 |   const timer1Chars = formatTimerChars(timer1 || '0.00');
+  63 |   const timer2Chars = formatTimerChars(timer2 || '0.00');
+  64 | 
+  65 |   return (
+  66 |     <div className="timer-overlay">
+  67 |       <div className="name left">
+  68 |         <span className={cn("name-scroll", player1Scrolling && "scrolling")}>
+  69 |           {player1Name.toUpperCase()}
+  70 |         </span>
+  71 |       </div>
+  72 |       
+  73 |       <div className="score-value">
+  74 |         {player1Score} – {player2Score}
+  75 |       </div>
+  76 |       
+  77 |       <div className="name right">
+  78 |         <span className={cn("name-scroll", player2Scrolling && "scrolling")}>
+  79 |           {player2Name.toUpperCase()}
+  80 |         </span>
+  81 |       </div>
+  82 |       
+  83 |       <div className={cn("timer left", currentTimer === 1 && isRunning && "active")}>
+  84 |         <span className="timer-text">
+  85 |           {timer1Chars.hasMinutes && (
+  86 |             <>
+  87 |               <span className="timer-char">{timer1Chars.minutes}</span>
+  88 |               <span className="timer-char separator">{timer1Chars.colon}</span>
+  89 |             </>
+  90 |           )}
+  91 |           <span className="timer-char">{timer1Chars.seconds1}</span>
+  92 |           <span className="timer-char">{timer1Chars.seconds2}</span>
+  93 |           <span className="timer-char separator">{timer1Chars.dot}</span>
+  94 |           <span className="timer-char">{timer1Chars.centis1}</span>
+  95 |           <span className="timer-char">{timer1Chars.centis2}</span>
+  96 |         </span>
+  97 |       </div>
+  98 |       
+  99 |       <div className={cn("timer right", currentTimer === 2 && isRunning && "active")}>
+ 100 |         <span className="timer-text">
+ 101 |           {timer2Chars.hasMinutes && (
+ 102 |             <>
+ 103 |               <span className="timer-char">{timer2Chars.minutes}</span>
+ 104 |               <span className="timer-char separator">{timer2Chars.colon}</span>
+ 105 |             </>
+ 106 |           )}
+ 107 |           <span className="timer-char">{timer2Chars.seconds1}</span>
+ 108 |           <span className="timer-char">{timer2Chars.seconds2}</span>
+ 109 |           <span className="timer-char separator">{timer2Chars.dot}</span>
+ 110 |           <span className="timer-char">{timer2Chars.centis1}</span>
+ 111 |           <span className="timer-char">{timer2Chars.centis2}</span>
+ 112 |         </span>
+ 113 |       </div>
+ 114 |     </div>
+ 115 |   );
+ 116 | };
+ 117 | 
+ 118 | export default DefaultStyle;
 
 ```
 
@@ -2075,547 +2266,444 @@ dbdoverlaytools-free
 ```ts
    1 | import { useEffect } from 'react';
    2 | import { useTimerStore } from '../store/timerStore';
-   3 | import useTimer from './useTimer';
-   4 | 
-   5 | const useGlobalHotkeys = () => {
-   6 |   const { saveToStorage } = useTimerStore();
-   7 |   const { isRunning, startTimer, pauseTimer, swapTimer } = useTimer();
-   8 | 
-   9 |   useEffect(() => {
-  10 |     if (!window.electronAPI) return;
-  11 | 
-  12 |     const handleHotkeyPress = (action: string) => {
-  13 |       console.log('Global hotkey pressed:', action, 'Current running state:', isRunning);
-  14 |       
-  15 |       switch (action) {
-  16 |         case 'start':
-  17 |           if (isRunning) {
-  18 |             console.log('Pausing via hotkey');
-  19 |             pauseTimer();
-  20 |           } else {
-  21 |             console.log('Starting via hotkey');
-  22 |             startTimer();
-  23 |           }
-  24 |           
-  25 |           // Sauvegarder après un délai
-  26 |           setTimeout(() => {
-  27 |             saveToStorage();
-  28 |           }, 200);
-  29 |           break;
-  30 |           
-  31 |         case 'swap':
-  32 |           console.log('Swapping via hotkey');
-  33 |           swapTimer();
-  34 |           
-  35 |           setTimeout(() => {
-  36 |             saveToStorage();
-  37 |           }, 200);
-  38 |           break;
-  39 |           
-  40 |         default:
-  41 |           console.warn('Unknown hotkey action:', action);
-  42 |       }
-  43 |     };
-  44 | 
-  45 |     window.electronAPI.hotkeys.onPressed(handleHotkeyPress);
-  46 | 
-  47 |     return () => {
-  48 |       if (window.electronAPI?.removeAllListeners) {
-  49 |         window.electronAPI.removeAllListeners();
-  50 |       }
-  51 |     };
-  52 |   }, [isRunning, startTimer, pauseTimer, swapTimer, saveToStorage]);
-  53 | 
-  54 |   const registerHotkeys = async (startKey: string, swapKey: string) => {
-  55 |     if (!window.electronAPI) {
-  56 |       console.warn('Electron API not available');
-  57 |       return;
-  58 |     }
-  59 | 
-  60 |     try {
-  61 |       await window.electronAPI.hotkeys.register({
-  62 |         start: startKey,
-  63 |         swap: swapKey,
-  64 |       });
-  65 |       console.log('Hotkeys registered:', { start: startKey, swap: swapKey });
-  66 |     } catch (error) {
-  67 |       console.error('Failed to register hotkeys:', error);
-  68 |     }
-  69 |   };
-  70 | 
-  71 |   return { registerHotkeys };
-  72 | };
+   3 | 
+   4 | const useGlobalHotkeys = () => {
+   5 |   const { 
+   6 |     timerData,
+   7 |     startTimer,
+   8 |     pauseTimer,
+   9 |     swapTimer,
+  10 |     saveToStorage 
+  11 |   } = useTimerStore();
+  12 | 
+  13 |   useEffect(() => {
+  14 |     if (!window.electronAPI) return;
+  15 | 
+  16 |     const handleHotkeyPress = (action: string) => {
+  17 |       console.log('Global hotkey pressed:', action, 'Current running state:', timerData.isRunning);
+  18 |       
+  19 |       switch (action) {
+  20 |         case 'start':
+  21 |           if (timerData.isRunning) {
+  22 |             console.log('Pausing via hotkey');
+  23 |             pauseTimer();
+  24 |           } else {
+  25 |             console.log('Starting via hotkey');
+  26 |             startTimer();
+  27 |           }
+  28 |           
+  29 |           setTimeout(() => {
+  30 |             saveToStorage();
+  31 |           }, 200);
+  32 |           break;
+  33 |           
+  34 |         case 'swap':
+  35 |           console.log('Swapping via hotkey');
+  36 |           swapTimer();
+  37 |           
+  38 |           setTimeout(() => {
+  39 |             saveToStorage();
+  40 |           }, 200);
+  41 |           break;
+  42 |           
+  43 |         default:
+  44 |           console.warn('Unknown hotkey action:', action);
+  45 |       }
+  46 |     };
+  47 | 
+  48 |     const cleanup = window.electronAPI.hotkeys.onPressed(handleHotkeyPress);
+  49 | 
+  50 |     return () => {
+  51 |       if (cleanup) {
+  52 |         cleanup();
+  53 |       }
+  54 |     };
+  55 |   }, [timerData.isRunning, startTimer, pauseTimer, swapTimer, saveToStorage]);
+  56 | 
+  57 |   const registerHotkeys = async (startKey: string, swapKey: string) => {
+  58 |     if (!window.electronAPI) {
+  59 |       console.warn('Electron API not available');
+  60 |       return;
+  61 |     }
+  62 | 
+  63 |     try {
+  64 |       await window.electronAPI.hotkeys.register({
+  65 |         start: startKey,
+  66 |         swap: swapKey,
+  67 |       });
+  68 |       console.log('Hotkeys registered:', { start: startKey, swap: swapKey });
+  69 |     } catch (error) {
+  70 |       console.error('Failed to register hotkeys:', error);
+  71 |     }
+  72 |   };
   73 | 
-  74 | export default useGlobalHotkeys;
+  74 |   return { registerHotkeys };
+  75 | };
+  76 | 
+  77 | export default useGlobalHotkeys;
 
 ```
 
 `dbdoverlaytools-free/src\hooks\useTimer.ts`:
 
 ```ts
-   1 | import { useEffect, useRef, useState, useCallback } from 'react';
+   1 | import { useEffect, useCallback } from 'react';
    2 | import { useTimerStore } from '../store/timerStore';
-   3 | import { formatTime, PreciseTimer } from '../utils/timer';
-   4 | 
-   5 | const useTimer = () => {
-   6 |   const {
-   7 |     timerData,
-   8 |     setTimerValue,
-   9 |     setTimerRunning,
-  10 |     setCurrentTimer,
-  11 |     resetTimer,
-  12 |   } = useTimerStore();
-  13 | 
-  14 |   const timer1Ref = useRef<PreciseTimer | null>(null);
-  15 |   const timer2Ref = useRef<PreciseTimer | null>(null);
-  16 |   const [formattedTime1, setFormattedTime1] = useState('0:00.0');
-  17 |   const [formattedTime2, setFormattedTime2] = useState('0:00.0');
-  18 | 
-  19 |   const syncToOverlay = useCallback((data: any) => {
-  20 |     if (window.electronAPI) {
-  21 |       window.electronAPI.timer.syncData(data);
-  22 |     }
-  23 |   }, []);
-  24 | 
-  25 |   useEffect(() => {
-  26 |     if (!timer1Ref.current) {
-  27 |       timer1Ref.current = new PreciseTimer((value) => {
-  28 |         setTimerValue(1, value);
-  29 |         const formatted = formatTime(value);
-  30 |         setFormattedTime1(formatted);
-  31 |         
-  32 |         const currentData = useTimerStore.getState().timerData;
-  33 |         syncToOverlay({
-  34 |           ...currentData,
-  35 |           timer1Value: value,
-  36 |           timer1: formatted,
-  37 |           timer2: formatTime(currentData.timer2Value),
-  38 |         });
-  39 |       });
-  40 |     }
-  41 | 
-  42 |     if (!timer2Ref.current) {
-  43 |       timer2Ref.current = new PreciseTimer((value) => {
-  44 |         setTimerValue(2, value);
-  45 |         const formatted = formatTime(value);
-  46 |         setFormattedTime2(formatted);
-  47 |         
-  48 |         const currentData = useTimerStore.getState().timerData;
-  49 |         syncToOverlay({
-  50 |           ...currentData,
-  51 |           timer2Value: value,
-  52 |           timer2: formatted,
-  53 |           timer1: formatTime(currentData.timer1Value),
-  54 |         });
-  55 |       });
-  56 |     }
-  57 | 
-  58 |     return () => {
-  59 |       timer1Ref.current?.stop();
-  60 |       timer2Ref.current?.stop();
-  61 |     };
-  62 |   }, [setTimerValue, syncToOverlay]);
-  63 | 
-  64 |   useEffect(() => {
-  65 |     const newTime1 = formatTime(timerData.timer1Value);
-  66 |     const newTime2 = formatTime(timerData.timer2Value);
-  67 |     
-  68 |     setFormattedTime1(newTime1);
-  69 |     setFormattedTime2(newTime2);
-  70 |     
-  71 |     syncToOverlay({
-  72 |       ...timerData,
-  73 |       timer1: newTime1,
-  74 |       timer2: newTime2,
-  75 |     });
-  76 |   }, [
-  77 |     timerData.timer1Value,
-  78 |     timerData.timer2Value,
-  79 |     timerData.player1Name,
-  80 |     timerData.player2Name,
-  81 |     timerData.player1Score,
-  82 |     timerData.player2Score,
-  83 |     timerData.currentTimer,
-  84 |     timerData.isRunning,
-  85 |     timerData.style,
-  86 |     syncToOverlay
-  87 |   ]);
-  88 | 
-  89 |   const startTimer = useCallback(() => {
-  90 |     const currentTimer = timerData.currentTimer;
-  91 |     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-  92 |     const initialValue = currentTimer === 1 ? timerData.timer1Value : timerData.timer2Value;
-  93 | 
-  94 |     if (timerRef && !timerRef.running) {
-  95 |       timerRef.start(initialValue);
-  96 |       setTimerRunning(true);
-  97 |     }
-  98 |   }, [timerData.currentTimer, timerData.timer1Value, timerData.timer2Value, setTimerRunning]);
-  99 | 
- 100 |   const pauseTimer = useCallback(() => {
- 101 |     const currentTimer = timerData.currentTimer;
- 102 |     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
- 103 | 
- 104 |     if (timerRef && timerRef.running) {
- 105 |       const finalValue = timerRef.pause();
- 106 |       setTimerValue(currentTimer, finalValue);
- 107 |       setTimerRunning(false);
- 108 |     }
- 109 |   }, [timerData.currentTimer, setTimerValue, setTimerRunning]);
- 110 | 
- 111 |   const swapTimer = useCallback(() => {
- 112 |     if (timerData.isRunning) {
- 113 |       pauseTimer();
- 114 |     }
- 115 |     
- 116 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
- 117 |     setCurrentTimer(newTimer);
- 118 |   }, [timerData.currentTimer, timerData.isRunning, pauseTimer, setCurrentTimer]);
- 119 | 
- 120 |   const resetCurrentTimer = useCallback(() => {
- 121 |     if (timerData.isRunning) {
- 122 |       pauseTimer();
- 123 |     }
- 124 |     
- 125 |     resetTimer();
- 126 |     
- 127 |     const timerRef = timerData.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
- 128 |     if (timerRef) {
- 129 |       timerRef.reset();
- 130 |     }
- 131 |   }, [timerData.isRunning, timerData.currentTimer, pauseTimer, resetTimer]);
- 132 | 
- 133 |   const resetAllTimers = useCallback(() => {
- 134 |     timer1Ref.current?.reset();
- 135 |     timer2Ref.current?.reset();
- 136 |     setTimerRunning(false);
- 137 |   }, [setTimerRunning]);
- 138 | 
- 139 |   return {
- 140 |     formattedTime1,
- 141 |     formattedTime2,
- 142 |     isRunning: timerData.isRunning,
- 143 |     currentTimer: timerData.currentTimer,
- 144 |     startTimer,
- 145 |     pauseTimer,
- 146 |     swapTimer,
- 147 |     resetCurrentTimer,
- 148 |     resetAllTimers,
- 149 |   };
- 150 | };
- 151 | 
- 152 | export default useTimer;
+   3 | 
+   4 | const useTimer = () => {
+   5 |   const {
+   6 |     timerData,
+   7 |     setTimerRunning,
+   8 |     setCurrentTimer,
+   9 |     saveToStorage
+  10 |   } = useTimerStore();
+  11 | 
+  12 |   const startTimer = useCallback(() => {
+  13 |     if (!timerData.isRunning) {
+  14 |       console.log('Starting timer, current:', timerData.currentTimer);
+  15 |       setTimerRunning(true);
+  16 |       setTimeout(() => saveToStorage(), 100);
+  17 |     }
+  18 |   }, [timerData.isRunning, timerData.currentTimer, setTimerRunning, saveToStorage]);
+  19 | 
+  20 |   const pauseTimer = useCallback(() => {
+  21 |     if (timerData.isRunning) {
+  22 |       console.log('Pausing timer, current:', timerData.currentTimer);
+  23 |       setTimerRunning(false);
+  24 |       setTimeout(() => saveToStorage(), 100);
+  25 |     }
+  26 |   }, [timerData.isRunning, timerData.currentTimer, setTimerRunning, saveToStorage]);
+  27 | 
+  28 |   const swapTimer = useCallback(() => {
+  29 |     console.log('Swapping timer from', timerData.currentTimer);
+  30 |     
+  31 |     if (timerData.isRunning) {
+  32 |       pauseTimer();
+  33 |     }
+  34 |     
+  35 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
+  36 |     console.log('Swapping to timer:', newTimer);
+  37 |     setCurrentTimer(newTimer);
+  38 |     setTimeout(() => saveToStorage(), 100);
+  39 |   }, [timerData.currentTimer, timerData.isRunning, pauseTimer, setCurrentTimer, saveToStorage]);
+  40 | 
+  41 |   return {
+  42 |     isRunning: timerData.isRunning,
+  43 |     currentTimer: timerData.currentTimer,
+  44 |     startTimer,
+  45 |     pauseTimer,
+  46 |     swapTimer,
+  47 |   };
+  48 | };
+  49 | 
+  50 | export default useTimer;
 
 ```
 
 `dbdoverlaytools-free/src\index.css`:
 
 ```css
-   1 | /* src/index.css */
-   2 | @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Russo+One&display=swap');
-   3 | @tailwind base;
-   4 | @tailwind components;
-   5 | @tailwind utilities;
-   6 | 
-   7 | @font-face {
-   8 |   font-family: 'SquareFont';
-   9 |   src: url('./assets/fonts/SquareFont.ttf') format('truetype');
-  10 |   font-weight: normal;
-  11 |   font-style: normal;
-  12 | }
-  13 | 
-  14 | * {
-  15 |   box-sizing: border-box;
+   1 | @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Russo+One&display=swap');
+   2 | @tailwind base;
+   3 | @tailwind components;
+   4 | @tailwind utilities;
+   5 | 
+   6 | @font-face {
+   7 |   font-family: 'SquareFont';
+   8 |   src: url('data:font/truetype;charset=utf-8;base64,') format('truetype');
+   9 |   font-weight: normal;
+  10 |   font-style: normal;
+  11 | }
+  12 | 
+  13 | .timer.right {
+  14 |   grid-row: 2;
+  15 |   grid-column: 3;
   16 | }
   17 | 
-  18 | body {
-  19 |   margin: 0;
-  20 |   font-family: 'Poppins', sans-serif;
-  21 |   -webkit-font-smoothing: antialiased;
-  22 |   -moz-osx-font-smoothing: grayscale;
-  23 |   color: #ffffff;
-  24 |   background: #1a1a1a;
-  25 | }
-  26 | 
-  27 | #root, #overlay-root {
-  28 |   width: 100%;
-  29 |   height: 100%;
-  30 | }
-  31 | 
-  32 | .drag-handle {
-  33 |   -webkit-app-region: drag;
-  34 |   cursor: move;
-  35 | }
-  36 | 
-  37 | .no-drag {
-  38 |   -webkit-app-region: no-drag;
-  39 | }
-  40 | 
-  41 | .timer-glow {
-  42 |   text-shadow: 0 0 10px currentColor;
-  43 | }
-  44 | 
-  45 | .scrolling-text {
-  46 |   white-space: nowrap;
-  47 |   overflow: hidden;
-  48 | }
-  49 | 
-  50 | .scrolling-text.active {
-  51 |   animation: scroll-text 6s linear infinite;
+  18 | .drag-handle {
+  19 |   -webkit-app-region: drag;
+  20 |   cursor: move;
+  21 | }
+  22 | 
+  23 | .slider {
+  24 |   -webkit-appearance: none;
+  25 |   appearance: none;
+  26 |   background: transparent;
+  27 |   cursor: pointer;
+  28 | }
+  29 | 
+  30 | .slider::-webkit-slider-track {
+  31 |   background: #374151;
+  32 |   height: 8px;
+  33 |   border-radius: 4px;
+  34 | }
+  35 | 
+  36 | .slider::-webkit-slider-thumb {
+  37 |   -webkit-appearance: none;
+  38 |   appearance: none;
+  39 |   background: #8b5cf6;
+  40 |   height: 20px;
+  41 |   width: 20px;
+  42 |   border-radius: 50%;
+  43 |   cursor: pointer;
+  44 |   box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
+  45 |   transition: all 0.2s ease;
+  46 | }
+  47 | 
+  48 | .slider::-webkit-slider-thumb:hover {
+  49 |   background: #7c3aed;
+  50 |   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.5);
+  51 |   transform: scale(1.1);
   52 | }
   53 | 
-  54 | @keyframes pulse-active {
-  55 |   0%, 100% { 
-  56 |     background: rgba(181, 121, 255, 0.2);
-  57 |     border-color: rgba(181, 121, 255, 0.5);
-  58 |   }
-  59 |   50% { 
-  60 |     background: rgba(181, 121, 255, 0.3);
-  61 |     border-color: rgba(181, 121, 255, 0.7);
-  62 |   }
-  63 | }
-  64 | 
-  65 | .timer-active {
-  66 |   animation: pulse-active 2s ease-in-out infinite;
-  67 | }
-  68 | 
-  69 | @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;900&display=swap');
+  54 | .slider::-moz-range-track {
+  55 |   background: #374151;
+  56 |   height: 8px;
+  57 |   border-radius: 4px;
+  58 |   border: none;
+  59 | }
+  60 | 
+  61 | .slider::-moz-range-thumb {
+  62 |   background: #8b5cf6;
+  63 |   height: 20px;
+  64 |   width: 20px;
+  65 |   border-radius: 50%;
+  66 |   cursor: pointer;
+  67 |   border: none;
+  68 |   box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
+  69 | }
   70 | 
-  71 | @font-face {
-  72 |   font-family: 'SquareFont';
-  73 |   src: url('../assets/fonts/square-font.ttf') format('truetype');
-  74 |   font-weight: normal;
-  75 |   font-style: normal;
-  76 | }
-  77 | 
-  78 | /* Default overlay container */
-  79 | .timer-overlay {
-  80 |   display: grid;
-  81 |   grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr);
-  82 |   grid-template-rows: 50px 1fr;
-  83 |   width: 520px;
-  84 |   height: 120px;
-  85 |   position: relative;
-  86 |   font-family: 'Poppins', sans-serif;
-  87 | }
-  88 | 
-  89 | /* Names and score styling */
-  90 | .name,
-  91 | .score-value {
-  92 |   border-bottom: 1px solid rgba(255,255,255,0.32);
-  93 |   background: linear-gradient(
-  94 |     90deg,
-  95 |     #4B4B4B 0%,
-  96 |     #3A3A3A 50%,
-  97 |     #3A3A3A 100%
-  98 |   );
-  99 |   display: flex;
- 100 |   align-items: center;
- 101 |   justify-content: center;
- 102 |   font-family: "Poppins", sans-serif;
- 103 |   font-size: 22px;
- 104 |   font-weight: 500;
- 105 |   color: #FFF;
- 106 |   position: relative;
- 107 |   overflow: hidden;
- 108 | }
- 109 | 
- 110 | /* Scrolling text animation */
- 111 | .name-scroll {
- 112 |   display: inline-block;
- 113 |   white-space: nowrap;
- 114 |   padding: 0 15px;
+  71 | @keyframes pulse-glow {
+  72 |   0%, 100% {
+  73 |     opacity: 0.6;
+  74 |     box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+  75 |   }
+  76 |   50% {
+  77 |     opacity: 1;
+  78 |     box-shadow: 0 0 30px rgba(168, 85, 247, 0.6);
+  79 |   }
+  80 | }
+  81 | 
+  82 | .animate-pulse-glow {
+  83 |   animation: pulse-glow 2s ease-in-out infinite;
+  84 | }
+  85 | 
+  86 | .overlay-container {
+  87 |   -webkit-user-select: none;
+  88 |   user-select: none;
+  89 |   -webkit-app-region: no-drag;
+  90 |   background: transparent !important;
+  91 | }
+  92 | 
+  93 | * {
+  94 |   box-sizing: border-box;
+  95 | }
+  96 | 
+  97 | body {
+  98 |   margin: 0;
+  99 |   font-family: 'Poppins', sans-serif;
+ 100 |   -webkit-font-smoothing: antialiased;
+ 101 |   -moz-osx-font-smoothing: grayscale;
+ 102 |   color: #ffffff;
+ 103 |   background: #1a1a1a;
+ 104 | }
+ 105 | 
+ 106 | #root, #overlay-root {
+ 107 |   width: 100%;
+ 108 |   height: 100%;
+ 109 | }
+ 110 | 
+ 111 | #overlay-root {
+ 112 |   background: transparent !important;
+ 113 |   margin: 0 !important;
+ 114 |   padding: 0 !important;
  115 | }
  116 | 
- 117 | .name-scroll.scrolling {
- 118 |   animation: scroll-text 6s linear infinite;
- 119 |   padding: 0 50px;
- 120 | }
- 121 | 
- 122 | @keyframes scroll-text {
- 123 |   0% {
- 124 |     transform: translateX(80%);
- 125 |   }
- 126 |   100% {
- 127 |     transform: translateX(-80%);
- 128 |   }
- 129 | }
- 130 | 
- 131 | /* Grid positioning */
- 132 | .name.left {
- 133 |   grid-row: 1;
- 134 |   grid-column: 1;
- 135 |   font-size: 24px;
- 136 |   text-transform: uppercase;
- 137 |   text-shadow: 0 0 6px rgba(255,255,255,0.50);
- 138 | }
- 139 | 
- 140 | .score-value {
- 141 |   grid-row: 1;
- 142 |   grid-column: 2;
- 143 |   font-size: 24px;
- 144 |   background: linear-gradient(
- 145 |     90deg,
- 146 |     #274B90 0.06%,
- 147 |     #09327E 40.01%,
- 148 |     #04296F 79.97%
- 149 |   );
- 150 |   padding: 0 15px;
- 151 |   text-transform: uppercase;
- 152 |   min-width: 90px;
- 153 |   max-width: 120px;
- 154 | }
- 155 | 
- 156 | .name.right {
- 157 |   font-size: 24px;
- 158 |   grid-row: 1;
- 159 |   grid-column: 3;
- 160 |   text-transform: uppercase;
- 161 |   text-shadow: 0 0 6px rgba(255,255,255,0.50);
- 162 | }
- 163 | 
- 164 | /* Timer styling */
- 165 | .timer {
- 166 |   display: flex;
- 167 |   align-items: center;
- 168 |   justify-content: center;
- 169 |   font-family: "SquareFont", "Consolas", "Monaco", "Courier New", monospace;
- 170 |   font-size: 32px;
- 171 |   font-weight: 400;
- 172 |   text-shadow: 0 0 6px rgba(190,190,190,0.50);
- 173 |   position: relative;
- 174 |   height: 100%;
- 175 |   text-align: center;
- 176 |   min-width: 160px;
- 177 | }
- 178 | 
- 179 | .timer-text {
- 180 |   display: inline-flex;
- 181 |   align-items: center;
- 182 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
- 183 |   -webkit-background-clip: text;
- 184 |   background-clip: text;
- 185 |   -webkit-text-fill-color: transparent;
+ 117 | html.overlay-page,
+ 118 | body.overlay-page {
+ 119 |   background: transparent !important;
+ 120 |   margin: 0 !important;
+ 121 |   padding: 0 !important;
+ 122 |   overflow: hidden !important;
+ 123 | }
+ 124 | 
+ 125 | .no-drag {
+ 126 |   -webkit-app-region: no-drag;
+ 127 | }
+ 128 | 
+ 129 | .timer-glow {
+ 130 |   text-shadow: 0 0 10px currentColor;
+ 131 | }
+ 132 | 
+ 133 | .scrolling-text {
+ 134 |   white-space: nowrap;
+ 135 |   overflow: hidden;
+ 136 | }
+ 137 | 
+ 138 | .scrolling-text.active {
+ 139 |   animation: scroll-text 6s linear infinite;
+ 140 | }
+ 141 | 
+ 142 | @keyframes pulse-active {
+ 143 |   0%, 100% { 
+ 144 |     background: rgba(181, 121, 255, 0.2);
+ 145 |     border-color: rgba(181, 121, 255, 0.5);
+ 146 |   }
+ 147 |   50% { 
+ 148 |     background: rgba(181, 121, 255, 0.3);
+ 149 |     border-color: rgba(181, 121, 255, 0.7);
+ 150 |   }
+ 151 | }
+ 152 | 
+ 153 | .timer-active {
+ 154 |   animation: pulse-active 2s ease-in-out infinite;
+ 155 | }
+ 156 | 
+ 157 | .timer-overlay {
+ 158 |   display: grid;
+ 159 |   grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr);
+ 160 |   grid-template-rows: 50px 1fr;
+ 161 |   width: 520px;
+ 162 |   height: 120px;
+ 163 |   position: relative;
+ 164 |   font-family: 'Poppins', sans-serif;
+ 165 |   background: transparent;
+ 166 | }
+ 167 | 
+ 168 | .name,
+ 169 | .score-value {
+ 170 |   border-bottom: 1px solid rgba(255,255,255,0.32);
+ 171 |   background: linear-gradient(
+ 172 |     90deg,
+ 173 |     #4B4B4B 0%,
+ 174 |     #3A3A3A 50%,
+ 175 |     #3A3A3A 100%
+ 176 |   );
+ 177 |   display: flex;
+ 178 |   align-items: center;
+ 179 |   justify-content: center;
+ 180 |   font-family: "Poppins", sans-serif;
+ 181 |   font-size: 22px;
+ 182 |   font-weight: 500;
+ 183 |   color: #FFF;
+ 184 |   position: relative;
+ 185 |   overflow: hidden;
  186 | }
  187 | 
- 188 | .timer-char {
+ 188 | .name-scroll {
  189 |   display: inline-block;
- 190 |   width: 22px;
- 191 |   text-align: center;
- 192 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
- 193 |   -webkit-background-clip: text;
- 194 |   background-clip: text;
- 195 |   -webkit-text-fill-color: transparent;
- 196 | }
- 197 | 
- 198 | .timer-char.separator {
- 199 |   width: 11px;
- 200 | }
- 201 | 
- 202 | /* Active timer indicator */
- 203 | .timer.active::before {
- 204 |   content: '';
- 205 |   position: absolute;
- 206 |   bottom: 0;
- 207 |   left: 0;
- 208 |   right: 0;
- 209 |   height: 3px;
- 210 |   background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
- 211 |   animation: pulseBar 1s ease-in-out infinite;
- 212 | }
- 213 | 
- 214 | @keyframes pulseBar {
- 215 |   0%, 100% { opacity: 0.5; }
- 216 |   50% { opacity: 1; }
- 217 | }
- 218 | 
- 219 | .timer.left {
- 220 |   grid-row: 2;
- 221 |   grid-column: 1;
- 222 | }
- 223 | 
- 224 | .timer.right {
- 225 |   grid-row: 2;
- 226 |   grid-column: 3;
- 227 | }
- 228 | 
- 229 | /* Drag handle styles */
- 230 | .drag-handle {
- 231 |   -webkit-app-region: drag;
- 232 |   cursor: move;
- 233 | }
- 234 | 
- 235 | /* Custom slider styles */
- 236 | .slider {
- 237 |   -webkit-appearance: none;
- 238 |   appearance: none;
- 239 |   background: transparent;
- 240 |   cursor: pointer;
- 241 | }
- 242 | 
- 243 | .slider::-webkit-slider-track {
- 244 |   background: #374151;
- 245 |   height: 8px;
- 246 |   border-radius: 4px;
- 247 | }
- 248 | 
- 249 | .slider::-webkit-slider-thumb {
- 250 |   -webkit-appearance: none;
- 251 |   appearance: none;
- 252 |   background: #8b5cf6;
- 253 |   height: 20px;
- 254 |   width: 20px;
- 255 |   border-radius: 50%;
- 256 |   cursor: pointer;
- 257 |   box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
- 258 |   transition: all 0.2s ease;
- 259 | }
- 260 | 
- 261 | .slider::-webkit-slider-thumb:hover {
- 262 |   background: #7c3aed;
- 263 |   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.5);
- 264 |   transform: scale(1.1);
- 265 | }
- 266 | 
- 267 | .slider::-moz-range-track {
- 268 |   background: #374151;
- 269 |   height: 8px;
- 270 |   border-radius: 4px;
- 271 |   border: none;
- 272 | }
- 273 | 
- 274 | .slider::-moz-range-thumb {
- 275 |   background: #8b5cf6;
- 276 |   height: 20px;
- 277 |   width: 20px;
- 278 |   border-radius: 50%;
- 279 |   cursor: pointer;
- 280 |   border: none;
- 281 |   box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
- 282 | }
- 283 | 
- 284 | /* Pulse glow animation */
- 285 | @keyframes pulse-glow {
- 286 |   0%, 100% {
- 287 |     opacity: 0.6;
- 288 |     box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
- 289 |   }
- 290 |   50% {
- 291 |     opacity: 1;
- 292 |     box-shadow: 0 0 30px rgba(168, 85, 247, 0.6);
- 293 |   }
- 294 | }
- 295 | 
- 296 | .animate-pulse-glow {
- 297 |   animation: pulse-glow 2s ease-in-out infinite;
- 298 | }
- 299 | 
- 300 | /* Global overlay styles */
- 301 | .overlay-container {
- 302 |   -webkit-user-select: none;
- 303 |   user-select: none;
- 304 |   -webkit-app-region: no-drag;
- 305 | }
+ 190 |   white-space: nowrap;
+ 191 |   padding: 0 15px;
+ 192 | }
+ 193 | 
+ 194 | .name-scroll.scrolling {
+ 195 |   animation: scroll-text 6s linear infinite;
+ 196 |   padding: 0 50px;
+ 197 | }
+ 198 | 
+ 199 | @keyframes scroll-text {
+ 200 |   0% {
+ 201 |     transform: translateX(80%);
+ 202 |   }
+ 203 |   100% {
+ 204 |     transform: translateX(-80%);
+ 205 |   }
+ 206 | }
+ 207 | 
+ 208 | .name.left {
+ 209 |   grid-row: 1;
+ 210 |   grid-column: 1;
+ 211 |   font-size: 24px;
+ 212 |   text-transform: uppercase;
+ 213 |   text-shadow: 0 0 6px rgba(255,255,255,0.50);
+ 214 | }
+ 215 | 
+ 216 | .score-value {
+ 217 |   grid-row: 1;
+ 218 |   grid-column: 2;
+ 219 |   font-size: 24px;
+ 220 |   background: linear-gradient(
+ 221 |     90deg,
+ 222 |     #274B90 0.06%,
+ 223 |     #09327E 40.01%,
+ 224 |     #04296F 79.97%
+ 225 |   );
+ 226 |   padding: 0 15px;
+ 227 |   text-transform: uppercase;
+ 228 |   min-width: 90px;
+ 229 |   max-width: 120px;
+ 230 | }
+ 231 | 
+ 232 | .name.right {
+ 233 |   font-size: 24px;
+ 234 |   grid-row: 1;
+ 235 |   grid-column: 3;
+ 236 |   text-transform: uppercase;
+ 237 |   text-shadow: 0 0 6px rgba(255,255,255,0.50);
+ 238 | }
+ 239 | 
+ 240 | .timer {
+ 241 |   display: flex;
+ 242 |   align-items: center;
+ 243 |   justify-content: center;
+ 244 |   font-family: "Consolas", "Monaco", "Courier New", monospace;
+ 245 |   font-size: 32px;
+ 246 |   font-weight: 400;
+ 247 |   text-shadow: 0 0 6px rgba(190,190,190,0.50);
+ 248 |   position: relative;
+ 249 |   height: 100%;
+ 250 |   text-align: center;
+ 251 |   min-width: 160px;
+ 252 | }
+ 253 | 
+ 254 | .timer.left {
+ 255 |   grid-row: 2;
+ 256 |   grid-column: 1;
+ 257 | }
+ 258 | 
+ 259 | .timer.right {
+ 260 |   grid-row: 2;
+ 261 |   grid-column: 3;
+ 262 | }
+ 263 | 
+ 264 | .timer-text {
+ 265 |   display: inline-flex;
+ 266 |   align-items: center;
+ 267 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
+ 268 |   -webkit-background-clip: text;
+ 269 |   background-clip: text;
+ 270 |   -webkit-text-fill-color: transparent;
+ 271 | }
+ 272 | 
+ 273 | .timer-char {
+ 274 |   display: inline-block;
+ 275 |   width: 22px;
+ 276 |   text-align: center;
+ 277 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
+ 278 |   -webkit-background-clip: text;
+ 279 |   background-clip: text;
+ 280 |   -webkit-text-fill-color: transparent;
+ 281 | }
+ 282 | 
+ 283 | .timer-char.separator {
+ 284 |   width: 11px;
+ 285 | }
+ 286 | 
+ 287 | .timer.active::before {
+ 288 |   content: '';
+ 289 |   position: absolute;
+ 290 |   bottom: 0;
+ 291 |   left: 0;
+ 292 |   right: 0;
+ 293 |   height: 3px;
+ 294 |   background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
+ 295 |   animation: pulseBar 1s ease-in-out infinite;
+ 296 | }
+ 297 | 
+ 298 | @keyframes pulseBar {
+ 299 |   0%, 100% { opacity: 0.5; }
+ 300 |   50% { opacity: 1; }
+ 301 | }
 
 ```
 
@@ -2667,219 +2755,254 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\store\timerStore.ts`:
 
 ```ts
-   1 | // src/store/timerStore.ts
-   2 | import { create } from 'zustand';
-   3 | import type { TimerData, OverlaySettings } from '../types';
-   4 | 
-   5 | interface TimerState {
-   6 |   timerData: TimerData;
-   7 |   overlaySettings: OverlaySettings;
-   8 |   isOverlayVisible: boolean;
-   9 |   
-  10 |   setTimerData: (data: Partial<TimerData>) => void;
-  11 |   setOverlaySettings: (settings: Partial<OverlaySettings>) => void;
-  12 |   setOverlayVisible: (visible: boolean) => void;
-  13 |   
-  14 |   startTimer: () => void;
-  15 |   pauseTimer: () => void;
-  16 |   resetTimer: () => void;
+   1 | import { create } from 'zustand';
+   2 | import type { TimerData, OverlaySettings } from '../types';
+   3 | 
+   4 | interface TimerState {
+   5 |   timerData: TimerData;
+   6 |   overlaySettings: OverlaySettings;
+   7 |   isOverlayVisible: boolean;
+   8 |   
+   9 |   setTimerData: (data: Partial<TimerData>) => void;
+  10 |   setOverlaySettings: (settings: Partial<OverlaySettings>) => void;
+  11 |   setOverlayVisible: (visible: boolean) => void;
+  12 |   
+  13 |   startTimer: () => void;
+  14 |   pauseTimer: () => void;
+  15 |   resetTimer: () => void;
+  16 |   resetAllTimers: () => void;
   17 |   swapTimer: () => void;
   18 |   
   19 |   setTimerValue: (player: 1 | 2, value: number) => void;
   20 |   setTimerRunning: (running: boolean) => void;
   21 |   setCurrentTimer: (timer: 1 | 2) => void;
   22 |   
-  23 |   updatePlayerScore: (player: 1 | 2, score: number) => void;
+  23 |   updatePlayerScore: (player: 1 | 2, delta: number) => void;
   24 |   updatePlayerName: (player: 1 | 2, name: string) => void;
-  25 |   
-  26 |   loadFromStorage: () => Promise<void>;
-  27 |   saveToStorage: () => Promise<void>;
-  28 | }
-  29 | 
-  30 | const defaultTimerData: TimerData = {
-  31 |   player1Name: 'Player 1',
-  32 |   player2Name: 'Player 2',
-  33 |   player1Score: 0,
-  34 |   player2Score: 0,
-  35 |   timer1Value: 0,
-  36 |   timer2Value: 0,
-  37 |   currentTimer: 1,
-  38 |   isRunning: false,
-  39 |   startHotkey: 'F1',
-  40 |   swapHotkey: 'F2'
-  41 | };
-  42 | 
-  43 | const defaultOverlaySettings: OverlaySettings = {
-  44 |   baseWidth: 520,
-  45 |   baseHeight: 120,
-  46 |   scale: 100,
-  47 |   x: 100,
-  48 |   y: 100,
-  49 |   locked: false,
-  50 |   alwaysOnTop: true
-  51 | };
-  52 | 
-  53 | export const useTimerStore = create<TimerState>((set, get) => ({
-  54 |   timerData: defaultTimerData,
-  55 |   overlaySettings: defaultOverlaySettings,
-  56 |   isOverlayVisible: false,
-  57 | 
-  58 |   setTimerData: (data) => {
-  59 |     set((state) => ({
-  60 |       timerData: { ...state.timerData, ...data }
-  61 |     }));
-  62 |     get().saveToStorage();
-  63 |   },
-  64 | 
-  65 |   setOverlaySettings: (settings) => {
-  66 |     set((state) => ({
-  67 |       overlaySettings: { ...state.overlaySettings, ...settings }
-  68 |     }));
-  69 |     
-  70 |     const { overlaySettings: newSettings } = get();
-  71 |     
-  72 |     if (window.electronAPI?.overlay?.updateSettings) {
-  73 |       window.electronAPI.overlay.updateSettings(newSettings);
-  74 |     }
-  75 |     
-  76 |     get().saveToStorage();
-  77 |   },
-  78 | 
-  79 |   setOverlayVisible: async (visible) => {
-  80 |     set({ isOverlayVisible: visible });
-  81 |     
-  82 |     if (window.electronAPI?.overlay) {
-  83 |       try {
-  84 |         if (visible) {
-  85 |           await window.electronAPI.overlay.show();
-  86 |         } else {
-  87 |           await window.electronAPI.overlay.hide();
-  88 |         }
-  89 |       } catch (error) {
-  90 |         console.error('Error toggling overlay:', error);
-  91 |         set({ isOverlayVisible: !visible });
-  92 |       }
-  93 |     }
-  94 |   },
-  95 | 
-  96 |   startTimer: () => {
-  97 |     const { timerData } = get();
-  98 |     set({
-  99 |       timerData: { ...timerData, isRunning: !timerData.isRunning }
- 100 |     });
- 101 |     get().saveToStorage();
- 102 |   },
- 103 | 
- 104 |   pauseTimer: () => {
- 105 |     const { timerData } = get();
- 106 |     set({
- 107 |       timerData: { ...timerData, isRunning: false }
- 108 |     });
- 109 |     get().saveToStorage();
- 110 |   },
- 111 | 
- 112 |   resetTimer: () => {
- 113 |     const { timerData } = get();
- 114 |     const resetData = {
- 115 |       ...timerData,
- 116 |       timer1Value: 0,
- 117 |       timer2Value: 0,
- 118 |       isRunning: false
- 119 |     };
- 120 |     set({ timerData: resetData });
- 121 |     get().saveToStorage();
- 122 |   },
- 123 | 
- 124 |   swapTimer: () => {
- 125 |     const { timerData } = get();
- 126 |     const newCurrentTimer = timerData.currentTimer === 1 ? 2 : 1;
- 127 |     set({
- 128 |       timerData: { ...timerData, currentTimer: newCurrentTimer }
- 129 |     });
- 130 |     get().saveToStorage();
- 131 |   },
- 132 | 
- 133 |   setTimerValue: (player, value) => {
- 134 |     const { timerData } = get();
- 135 |     const valueKey = player === 1 ? 'timer1Value' : 'timer2Value';
- 136 |     set({
- 137 |       timerData: { ...timerData, [valueKey]: value }
- 138 |     });
- 139 |   },
- 140 | 
- 141 |   setTimerRunning: (running) => {
- 142 |     const { timerData } = get();
- 143 |     set({
- 144 |       timerData: { ...timerData, isRunning: running }
- 145 |     });
- 146 |     get().saveToStorage();
- 147 |   },
- 148 | 
- 149 |   setCurrentTimer: (timer) => {
- 150 |     const { timerData } = get();
- 151 |     set({
- 152 |       timerData: { ...timerData, currentTimer: timer }
- 153 |     });
- 154 |     get().saveToStorage();
- 155 |   },
- 156 | 
- 157 |   updatePlayerScore: (player, score) => {
- 158 |     const { timerData } = get();
- 159 |     const scoreKey = player === 1 ? 'player1Score' : 'player2Score';
- 160 |     set({
- 161 |       timerData: { ...timerData, [scoreKey]: score }
- 162 |     });
- 163 |     get().saveToStorage();
- 164 |   },
- 165 | 
- 166 |   updatePlayerName: (player, name) => {
- 167 |     const { timerData } = get();
- 168 |     const nameKey = player === 1 ? 'player1Name' : 'player2Name';
- 169 |     set({
- 170 |       timerData: { ...timerData, [nameKey]: name }
- 171 |     });
- 172 |     get().saveToStorage();
- 173 |   },
- 174 | 
- 175 |   loadFromStorage: async () => {
- 176 |     try {
- 177 |       if (!window.electronAPI?.store) return;
- 178 | 
- 179 |       const [storedTimerData, storedOverlaySettings] = await Promise.all([
- 180 |         window.electronAPI.store.get('timerData'),
- 181 |         window.electronAPI.store.get('overlaySettings')
- 182 |       ]);
- 183 | 
- 184 |       set({
- 185 |         timerData: storedTimerData ? { ...defaultTimerData, ...storedTimerData } : defaultTimerData,
- 186 |         overlaySettings: storedOverlaySettings ? { ...defaultOverlaySettings, ...storedOverlaySettings } : defaultOverlaySettings
- 187 |       });
- 188 | 
- 189 |       console.log('Timer store loaded from storage');
- 190 |     } catch (error) {
- 191 |       console.error('Error loading from storage:', error);
- 192 |     }
- 193 |   },
- 194 | 
- 195 |   saveToStorage: async () => {
- 196 |     try {
- 197 |       if (!window.electronAPI?.store) return;
- 198 | 
- 199 |       const { timerData, overlaySettings } = get();
- 200 |       
- 201 |       await Promise.all([
- 202 |         window.electronAPI.store.set('timerData', timerData),
- 203 |         window.electronAPI.store.set('overlaySettings', overlaySettings)
- 204 |       ]);
- 205 | 
- 206 |       if (window.electronAPI.timer?.syncData) {
- 207 |         window.electronAPI.timer.syncData(timerData);
- 208 |       }
- 209 |     } catch (error) {
- 210 |       console.error('Error saving to storage:', error);
- 211 |     }
- 212 |   }
- 213 | }));
+  25 |   updateHotkeys: (hotkeys: { start: string; swap: string }) => void;
+  26 |   
+  27 |   loadFromStorage: () => Promise<void>;
+  28 |   saveToStorage: () => Promise<void>;
+  29 | }
+  30 | 
+  31 | const defaultTimerData: TimerData = {
+  32 |   player1Name: 'Player 1',
+  33 |   player2Name: 'Player 2',
+  34 |   player1Score: 0,
+  35 |   player2Score: 0,
+  36 |   timer1Value: 0,
+  37 |   timer2Value: 0,
+  38 |   currentTimer: 1,
+  39 |   isRunning: false,
+  40 |   startHotkey: 'F1',
+  41 |   swapHotkey: 'F2'
+  42 | };
+  43 | 
+  44 | const defaultOverlaySettings: OverlaySettings = {
+  45 |   baseWidth: 520,
+  46 |   baseHeight: 120,
+  47 |   scale: 100,
+  48 |   x: 100,
+  49 |   y: 100,
+  50 |   locked: false,
+  51 |   alwaysOnTop: true
+  52 | };
+  53 | 
+  54 | export const useTimerStore = create<TimerState>((set, get) => ({
+  55 |   timerData: defaultTimerData,
+  56 |   overlaySettings: defaultOverlaySettings,
+  57 |   isOverlayVisible: false,
+  58 | 
+  59 |   setTimerData: (data) => {
+  60 |     console.log('Setting timer data:', data);
+  61 |     set((state) => {
+  62 |       const newTimerData = { ...state.timerData, ...data };
+  63 |       
+  64 |       setTimeout(() => {
+  65 |         if (window.electronAPI?.timer?.syncData) {
+  66 |           window.electronAPI.timer.syncData(newTimerData);
+  67 |         }
+  68 |       }, 0);
+  69 |       
+  70 |       return { timerData: newTimerData };
+  71 |     });
+  72 |   },
+  73 | 
+  74 |   setOverlaySettings: (settings) => {
+  75 |     set((state) => ({
+  76 |       overlaySettings: { ...state.overlaySettings, ...settings }
+  77 |     }));
+  78 |     
+  79 |     const { overlaySettings: newSettings } = get();
+  80 |     
+  81 |     setTimeout(() => {
+  82 |       if (window.electronAPI?.overlay?.updateSettings) {
+  83 |         window.electronAPI.overlay.updateSettings(newSettings);
+  84 |       }
+  85 |       get().saveToStorage();
+  86 |     }, 0);
+  87 |   },
+  88 | 
+  89 |   setOverlayVisible: async (visible) => {
+  90 |     const currentState = get();
+  91 |     
+  92 |     if (currentState.isOverlayVisible === visible) {
+  93 |       return;
+  94 |     }
+  95 |     
+  96 |     set({ isOverlayVisible: visible });
+  97 |     
+  98 |     if (window.electronAPI?.overlay) {
+  99 |       try {
+ 100 |         if (visible) {
+ 101 |           const result = await window.electronAPI.overlay.show();
+ 102 |           if (result.success) {
+ 103 |             setTimeout(() => {
+ 104 |               const currentData = get().timerData;
+ 105 |               if (window.electronAPI?.timer?.syncData) {
+ 106 |                 window.electronAPI.timer.syncData(currentData);
+ 107 |               }
+ 108 |             }, 500);
+ 109 |           } else {
+ 110 |             set({ isOverlayVisible: false });
+ 111 |           }
+ 112 |         } else {
+ 113 |           await window.electronAPI.overlay.hide();
+ 114 |         }
+ 115 |       } catch (error) {
+ 116 |         console.error('Error toggling overlay:', error);
+ 117 |         set({ isOverlayVisible: !visible });
+ 118 |       }
+ 119 |     }
+ 120 |   },
+ 121 | 
+ 122 |   startTimer: () => {
+ 123 |     const currentData = get().timerData;
+ 124 |     if (!currentData.isRunning) {
+ 125 |       get().setTimerData({ isRunning: true });
+ 126 |       get().saveToStorage();
+ 127 |     }
+ 128 |   },
+ 129 | 
+ 130 |   pauseTimer: () => {
+ 131 |     const currentData = get().timerData;
+ 132 |     if (currentData.isRunning) {
+ 133 |       get().setTimerData({ isRunning: false });
+ 134 |       get().saveToStorage();
+ 135 |     }
+ 136 |   },
+ 137 | 
+ 138 |   resetTimer: () => {
+ 139 |     const { timerData } = get();
+ 140 |     const currentTimer = timerData.currentTimer;
+ 141 |     const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
+ 142 |     
+ 143 |     get().setTimerData({ 
+ 144 |       [valueKey]: 0,
+ 145 |       isRunning: false 
+ 146 |     });
+ 147 |     get().saveToStorage();
+ 148 |   },
+ 149 | 
+ 150 |   resetAllTimers: () => {
+ 151 |     get().setTimerData({ 
+ 152 |       timer1Value: 0,
+ 153 |       timer2Value: 0,
+ 154 |       isRunning: false 
+ 155 |     });
+ 156 |     get().saveToStorage();
+ 157 |   },
+ 158 | 
+ 159 |   swapTimer: () => {
+ 160 |     const { timerData } = get();
+ 161 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
+ 162 |     
+ 163 |     get().setTimerData({ 
+ 164 |       currentTimer: newTimer,
+ 165 |       isRunning: false 
+ 166 |     });
+ 167 |     get().saveToStorage();
+ 168 |   },
+ 169 | 
+ 170 |   setTimerValue: (player, value) => {
+ 171 |     const valueKey = player === 1 ? 'timer1Value' : 'timer2Value';
+ 172 |     set((state) => ({
+ 173 |       timerData: { ...state.timerData, [valueKey]: value }
+ 174 |     }));
+ 175 |   },
+ 176 | 
+ 177 |   setTimerRunning: (running) => {
+ 178 |     get().setTimerData({ isRunning: running });
+ 179 |   },
+ 180 | 
+ 181 |   setCurrentTimer: (timer) => {
+ 182 |     get().setTimerData({ currentTimer: timer });
+ 183 |   },
+ 184 | 
+ 185 |   updatePlayerScore: (player, delta) => {
+ 186 |     const { timerData } = get();
+ 187 |     const scoreKey = player === 1 ? 'player1Score' : 'player2Score';
+ 188 |     const currentScore = timerData[scoreKey];
+ 189 |     
+ 190 |     get().setTimerData({ 
+ 191 |       [scoreKey]: Math.max(0, currentScore + delta) 
+ 192 |     });
+ 193 |     get().saveToStorage();
+ 194 |   },
+ 195 | 
+ 196 |   updatePlayerName: (player, name) => {
+ 197 |     const nameKey = player === 1 ? 'player1Name' : 'player2Name';
+ 198 |     get().setTimerData({ [nameKey]: name });
+ 199 |     get().saveToStorage();
+ 200 |   },
+ 201 | 
+ 202 |   updateHotkeys: (hotkeys) => {
+ 203 |     get().setTimerData({ 
+ 204 |       startHotkey: hotkeys.start,
+ 205 |       swapHotkey: hotkeys.swap,
+ 206 |       hotkeys
+ 207 |     });
+ 208 |     get().saveToStorage();
+ 209 |   },
+ 210 | 
+ 211 |   loadFromStorage: async () => {
+ 212 |     try {
+ 213 |       if (!window.electronAPI?.store) return;
+ 214 | 
+ 215 |       const [storedTimerData, storedOverlaySettings] = await Promise.all([
+ 216 |         window.electronAPI.store.get('timerData'),
+ 217 |         window.electronAPI.store.get('overlaySettings')
+ 218 |       ]);
+ 219 | 
+ 220 |       const loadedTimerData = storedTimerData ? { ...defaultTimerData, ...storedTimerData } : defaultTimerData;
+ 221 |       const loadedOverlaySettings = storedOverlaySettings ? { ...defaultOverlaySettings, ...storedOverlaySettings } : defaultOverlaySettings;
+ 222 | 
+ 223 |       set({
+ 224 |         timerData: loadedTimerData,
+ 225 |         overlaySettings: loadedOverlaySettings
+ 226 |       });
+ 227 | 
+ 228 |       console.log('Timer store loaded from storage:', { loadedTimerData, loadedOverlaySettings });
+ 229 |     } catch (error) {
+ 230 |       console.error('Error loading from storage:', error);
+ 231 |     }
+ 232 |   },
+ 233 | 
+ 234 |   saveToStorage: async () => {
+ 235 |     try {
+ 236 |       if (!window.electronAPI?.store) return;
+ 237 | 
+ 238 |       const { timerData, overlaySettings } = get();
+ 239 |       
+ 240 |       await Promise.all([
+ 241 |         window.electronAPI.store.set('timerData', timerData),
+ 242 |         window.electronAPI.store.set('overlaySettings', overlaySettings)
+ 243 |       ]);
+ 244 |     } catch (error) {
+ 245 |       console.error('Error saving to storage:', error);
+ 246 |     }
+ 247 |   }
+ 248 | }));
 
 ```
 
@@ -3018,166 +3141,174 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\utils\timer.ts`:
 
 ```ts
-   1 | // src/utils/timer.ts - Utilitaires Timer
-   2 | 
-   3 | /**
-   4 |  * Formats milliseconds to MM:SS.T format
-   5 |  * @param milliseconds - Time in milliseconds
-   6 |  * @returns Formatted time string (e.g., "1:23.4")
-   7 |  */
-   8 | export function formatTime(milliseconds: number): string {
-   9 |   const totalSeconds = Math.floor(milliseconds / 1000);
-  10 |   const minutes = Math.floor(totalSeconds / 60);
-  11 |   const seconds = totalSeconds % 60;
-  12 |   const tenths = Math.floor((milliseconds % 1000) / 100);
-  13 |   
-  14 |   return `${minutes}:${seconds.toString().padStart(2, '0')}.${tenths}`;
-  15 | }
-  16 | 
-  17 | /**
-  18 |  * Parses a formatted time string to milliseconds
-  19 |  * @param timeString - Time string in MM:SS.T format
-  20 |  * @returns Time in milliseconds
-  21 |  */
-  22 | export function parseTimeToMs(timeString: string): number {
-  23 |   const parts = timeString.match(/(\d+):(\d{2})\.(\d)/);
-  24 |   if (!parts) return 0;
-  25 |   
-  26 |   const minutes = parseInt(parts[1]);
-  27 |   const seconds = parseInt(parts[2]);
-  28 |   const tenths = parseInt(parts[3]);
-  29 |   
-  30 |   return (minutes * 60 * 1000) + (seconds * 1000) + (tenths * 100);
-  31 | }
-  32 | 
-  33 | /**
-  34 |  * Timer hook for managing precise timing with requestAnimationFrame
-  35 |  */
-  36 | export class PreciseTimer {
-  37 |   private startTime: number = 0;
-  38 |   private initialValue: number = 0;
-  39 |   private animationId: number | null = null;
-  40 |   private intervalId: number | null = null;
-  41 |   private isRunning: boolean = false;
-  42 |   private onUpdate: (value: number) => void;
-  43 |   private lastUpdateTime: number = 0;
-  44 | 
-  45 |   constructor(onUpdate: (value: number) => void) {
-  46 |     this.onUpdate = onUpdate;
-  47 |   }
-  48 | 
-  49 |   start(initialValue: number = 0) {
-  50 |     if (this.isRunning) return;
-  51 |     
-  52 |     this.startTime = Date.now();
-  53 |     this.initialValue = initialValue;
-  54 |     this.isRunning = true;
-  55 |     this.lastUpdateTime = 0;
-  56 | 
-  57 |     // Use requestAnimationFrame for smooth updates
-  58 |     const updateTimer = () => {
-  59 |       if (!this.isRunning) return;
-  60 | 
-  61 |       const now = Date.now();
-  62 |       const elapsed = now - this.startTime;
-  63 |       const currentValue = this.initialValue + elapsed;
-  64 | 
-  65 |       // Only update display every 100ms to avoid excessive updates
-  66 |       if (now - this.lastUpdateTime >= 100) {
-  67 |         this.onUpdate(currentValue);
-  68 |         this.lastUpdateTime = now;
-  69 |       }
-  70 | 
-  71 |       this.animationId = requestAnimationFrame(updateTimer);
-  72 |     };
-  73 | 
-  74 |     updateTimer();
-  75 | 
-  76 |     // Backup interval for when window is minimized
-  77 |     this.intervalId = window.setInterval(() => {
-  78 |       if (this.isRunning) {
-  79 |         const now = Date.now();
-  80 |         const elapsed = now - this.startTime;
-  81 |         const currentValue = this.initialValue + elapsed;
-  82 |         this.onUpdate(currentValue);
-  83 |       }
-  84 |     }, 100);
-  85 |   }
+   1 | /**
+   2 |  * Formats milliseconds to M:SS.HH format or SS.HH format for times under 1 minute
+   3 |  * @param milliseconds - Time in milliseconds
+   4 |  * @returns Formatted time string (e.g., "2:24.39" or "35.21")
+   5 |  */
+   6 | export function formatTime(milliseconds: number): string {
+   7 |   if (milliseconds < 0) return "0.00";
+   8 |   
+   9 |   const totalMs = Math.floor(milliseconds);
+  10 |   const totalSeconds = Math.floor(totalMs / 1000);
+  11 |   const minutes = Math.floor(totalSeconds / 60);
+  12 |   const seconds = totalSeconds % 60;
+  13 |   const centiseconds = Math.floor((totalMs % 1000) / 10);
+  14 |   
+  15 |   if (minutes === 0) {
+  16 |     return `${seconds}.${centiseconds.toString().padStart(2, '0')}`;
+  17 |   }
+  18 |   
+  19 |   return `${minutes}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
+  20 | }
+  21 | 
+  22 | /**
+  23 |  * Parses a formatted time string to milliseconds
+  24 |  * @param timeString - Time string in M:SS.HH or SS.HH format
+  25 |  * @returns Time in milliseconds
+  26 |  */
+  27 | export function parseTimeToMs(timeString: string): number {
+  28 |   // Handle M:SS.HH format
+  29 |   const minutesMatch = timeString.match(/(\d+):(\d{2})\.(\d{2})/);
+  30 |   if (minutesMatch) {
+  31 |     const minutes = parseInt(minutesMatch[1]);
+  32 |     const seconds = parseInt(minutesMatch[2]);
+  33 |     const centiseconds = parseInt(minutesMatch[3]);
+  34 |     return (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
+  35 |   }
+  36 |   
+  37 |   // Handle SS.HH format
+  38 |   const secondsMatch = timeString.match(/(\d+)\.(\d{2})/);
+  39 |   if (secondsMatch) {
+  40 |     const seconds = parseInt(secondsMatch[1]);
+  41 |     const centiseconds = parseInt(secondsMatch[2]);
+  42 |     return (seconds * 1000) + (centiseconds * 10);
+  43 |   }
+  44 |   
+  45 |   return 0;
+  46 | }
+  47 | 
+  48 | /**
+  49 |  * Timer hook for managing precise timing with requestAnimationFrame
+  50 |  */
+  51 | export class PreciseTimer {
+  52 |   private startTime: number = 0;
+  53 |   private initialValue: number = 0;
+  54 |   private animationId: number | null = null;
+  55 |   private intervalId: number | null = null;
+  56 |   private isRunning: boolean = false;
+  57 |   private onUpdate: (value: number) => void;
+  58 |   private lastUpdateTime: number = 0;
+  59 | 
+  60 |   constructor(onUpdate: (value: number) => void) {
+  61 |     this.onUpdate = onUpdate;
+  62 |   }
+  63 | 
+  64 |   start(initialValue: number = 0) {
+  65 |     if (this.isRunning) return;
+  66 |     
+  67 |     this.startTime = Date.now();
+  68 |     this.initialValue = initialValue;
+  69 |     this.isRunning = true;
+  70 |     this.lastUpdateTime = 0;
+  71 | 
+  72 |     const updateTimer = () => {
+  73 |       if (!this.isRunning) return;
+  74 | 
+  75 |       const now = Date.now();
+  76 |       const elapsed = now - this.startTime;
+  77 |       const currentValue = this.initialValue + elapsed;
+  78 | 
+  79 |       if (now - this.lastUpdateTime >= 10) {
+  80 |         this.onUpdate(currentValue);
+  81 |         this.lastUpdateTime = now;
+  82 |       }
+  83 | 
+  84 |       this.animationId = requestAnimationFrame(updateTimer);
+  85 |     };
   86 | 
-  87 |   pause(): number {
-  88 |     if (!this.isRunning) return this.initialValue;
-  89 | 
-  90 |     const now = Date.now();
-  91 |     const elapsed = now - this.startTime;
-  92 |     const finalValue = this.initialValue + elapsed;
-  93 | 
-  94 |     this.stop();
-  95 |     return finalValue;
-  96 |   }
-  97 | 
-  98 |   stop() {
-  99 |     this.isRunning = false;
- 100 | 
- 101 |     if (this.animationId) {
- 102 |       cancelAnimationFrame(this.animationId);
- 103 |       this.animationId = null;
- 104 |     }
+  87 |     updateTimer();
+  88 | 
+  89 |     this.intervalId = window.setInterval(() => {
+  90 |       if (this.isRunning) {
+  91 |         const now = Date.now();
+  92 |         const elapsed = now - this.startTime;
+  93 |         const currentValue = this.initialValue + elapsed;
+  94 |         this.onUpdate(currentValue);
+  95 |       }
+  96 |     }, 10);
+  97 |   }
+  98 | 
+  99 |   pause(): number {
+ 100 |     if (!this.isRunning) return this.initialValue;
+ 101 | 
+ 102 |     const now = Date.now();
+ 103 |     const elapsed = now - this.startTime;
+ 104 |     const finalValue = this.initialValue + elapsed;
  105 | 
- 106 |     if (this.intervalId) {
- 107 |       clearInterval(this.intervalId);
- 108 |       this.intervalId = null;
- 109 |     }
- 110 |   }
- 111 | 
- 112 |   reset() {
- 113 |     this.stop();
- 114 |     this.initialValue = 0;
- 115 |     this.onUpdate(0);
- 116 |   }
+ 106 |     this.stop();
+ 107 |     return finalValue;
+ 108 |   }
+ 109 | 
+ 110 |   stop() {
+ 111 |     this.isRunning = false;
+ 112 | 
+ 113 |     if (this.animationId) {
+ 114 |       cancelAnimationFrame(this.animationId);
+ 115 |       this.animationId = null;
+ 116 |     }
  117 | 
- 118 |   get running(): boolean {
- 119 |     return this.isRunning;
- 120 |   }
- 121 | 
- 122 |   get currentValue(): number {
- 123 |     if (!this.isRunning) return this.initialValue;
- 124 |     
- 125 |     const now = Date.now();
- 126 |     const elapsed = now - this.startTime;
- 127 |     return this.initialValue + elapsed;
+ 118 |     if (this.intervalId) {
+ 119 |       clearInterval(this.intervalId);
+ 120 |       this.intervalId = null;
+ 121 |     }
+ 122 |   }
+ 123 | 
+ 124 |   reset() {
+ 125 |     this.stop();
+ 126 |     this.initialValue = 0;
+ 127 |     this.onUpdate(0);
  128 |   }
- 129 | }
- 130 | 
- 131 | /**
- 132 |  * Validates and normalizes hotkey string
- 133 |  * @param hotkey - Raw hotkey string
- 134 |  * @returns Normalized hotkey string
- 135 |  */
- 136 | export function normalizeHotkey(hotkey: string): string {
- 137 |   const key = hotkey.trim().toLowerCase();
- 138 |   
- 139 |   // Handle function keys
- 140 |   if (key.startsWith('f') && key.length <= 3) {
- 141 |     const num = key.slice(1);
- 142 |     if (/^\d{1,2}$/.test(num)) {
- 143 |       return key.toUpperCase();
- 144 |     }
- 145 |   }
- 146 |   
- 147 |   // Handle single character keys
- 148 |   if (key.length === 1 && /[a-z0-9]/.test(key)) {
- 149 |     return key.toUpperCase();
- 150 |   }
- 151 |   
- 152 |   // Handle special keys
- 153 |   const specialKeys = ['space', 'enter', 'tab', 'escape', 'backspace'];
- 154 |   if (specialKeys.includes(key)) {
- 155 |     return key.charAt(0).toUpperCase() + key.slice(1);
+ 129 | 
+ 130 |   get running(): boolean {
+ 131 |     return this.isRunning;
+ 132 |   }
+ 133 | 
+ 134 |   get currentValue(): number {
+ 135 |     if (!this.isRunning) return this.initialValue;
+ 136 |     
+ 137 |     const now = Date.now();
+ 138 |     const elapsed = now - this.startTime;
+ 139 |     return this.initialValue + elapsed;
+ 140 |   }
+ 141 | }
+ 142 | 
+ 143 | /**
+ 144 |  * Validates and normalizes hotkey string
+ 145 |  * @param hotkey - Raw hotkey string
+ 146 |  * @returns Normalized hotkey string
+ 147 |  */
+ 148 | export function normalizeHotkey(hotkey: string): string {
+ 149 |   const key = hotkey.trim().toLowerCase();
+ 150 |   
+ 151 |   if (key.startsWith('f') && key.length <= 3) {
+ 152 |     const num = key.slice(1);
+ 153 |     if (/^\d{1,2}$/.test(num)) {
+ 154 |       return key.toUpperCase();
+ 155 |     }
  156 |   }
  157 |   
- 158 |   // Default return
- 159 |   return hotkey.toUpperCase();
- 160 | }
+ 158 |   if (key.length === 1 && /[a-z0-9]/.test(key)) {
+ 159 |     return key.toUpperCase();
+ 160 |   }
+ 161 |   
+ 162 |   const specialKeys = ['space', 'enter', 'tab', 'escape', 'backspace'];
+ 163 |   if (specialKeys.includes(key)) {
+ 164 |     return key.charAt(0).toUpperCase() + key.slice(1);
+ 165 |   }
+ 166 |   
+ 167 |   return hotkey.toUpperCase();
+ 168 | }
 
 ```
 
