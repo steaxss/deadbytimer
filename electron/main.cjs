@@ -1,4 +1,3 @@
-// electron/main.cjs
 const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
 const { join } = require('path');
 const Store = require('electron-store');
@@ -63,7 +62,6 @@ class TimerOverlayApp {
 
     if (this.isDev) {
       this.mainWindow.loadURL('http://localhost:5173');
-      this.mainWindow.webContents.openDevTools({ mode: 'detach' });
     } else {
       this.mainWindow.loadFile(join(__dirname, '../dist/index.html'));
     }
@@ -112,6 +110,7 @@ class TimerOverlayApp {
 
       const { width, height } = screen.getPrimaryDisplay().workAreaSize;
       const dragHandleHeight = overlaySettings.locked ? 0 : 30;
+      
       const overlayWidth = Math.ceil(520 * (overlaySettings.scale || 100) / 100);
       const overlayHeight = Math.ceil((120 + dragHandleHeight) * (overlaySettings.scale || 100) / 100);
 
@@ -136,15 +135,18 @@ class TimerOverlayApp {
         focusable: !overlaySettings.locked,
         show: false,
         titleBarStyle: 'hidden',
-        backgroundColor: 'transparent',
+        backgroundColor: '#00000000',
         webPreferences: {
           nodeIntegration: false,
           contextIsolation: true,
           preload: join(__dirname, 'preload.cjs'),
           webSecurity: false,
-          backgroundThrottling: false
+          backgroundThrottling: false,
+          offscreen: false
         }
       });
+
+      this.overlayWindow.setBackgroundColor('#00000000');
 
       if (overlaySettings.locked) {
         this.overlayWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -192,16 +194,6 @@ class TimerOverlayApp {
           if (bounds) {
             this.store.set('overlaySettings.x', bounds.x);
             this.store.set('overlaySettings.y', bounds.y);
-          }
-        }
-      });
-
-      this.overlayWindow.on('resize', () => {
-        if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-          const bounds = this.overlayWindow.getBounds();
-          if (bounds) {
-            this.store.set('overlaySettings.width', bounds.width);
-            this.store.set('overlaySettings.height', bounds.height);
           }
         }
       });
@@ -264,20 +256,23 @@ class TimerOverlayApp {
       if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return;
 
       try {
+        const currentSettings = this.store.get('overlaySettings', {});
+        const newSettings = { ...currentSettings, ...settings };
+
         if (settings.locked !== undefined) {
           const newDragHandleHeight = settings.locked ? 0 : 30;
-          const newOverlayHeight = Math.ceil((120 + newDragHandleHeight) * (settings.scale || this.store.get('overlaySettings.scale') || 100) / 100);
+          const newOverlayHeight = Math.ceil((120 + newDragHandleHeight) * (newSettings.scale || 100) / 100);
+          const newOverlayWidth = Math.ceil(520 * (newSettings.scale || 100) / 100);
           
           this.overlayWindow.setIgnoreMouseEvents(settings.locked, { forward: true });
           this.overlayWindow.setFocusable(!settings.locked);
           this.overlayWindow.setSkipTaskbar(settings.locked);
           this.overlayWindow.setMinimizable(!settings.locked);
-          this.overlayWindow.setSize(this.overlayWindow.getBounds().width, newOverlayHeight);
+          this.overlayWindow.setSize(newOverlayWidth, newOverlayHeight);
         }
 
         if (settings.scale !== undefined) {
-          const currentSettings = this.store.get('overlaySettings', {});
-          const dragHandleHeight = currentSettings.locked ? 0 : 30;
+          const dragHandleHeight = newSettings.locked ? 0 : 30;
           const newWidth = Math.ceil(520 * settings.scale / 100);
           const newHeight = Math.ceil((120 + dragHandleHeight) * settings.scale / 100);
           this.overlayWindow.setSize(newWidth, newHeight);
@@ -299,10 +294,7 @@ class TimerOverlayApp {
           this.overlayWindow.webContents.send('overlay-scale-change', settings.scale);
         }
 
-        this.store.set('overlaySettings', {
-          ...this.store.get('overlaySettings', {}),
-          ...settings
-        });
+        this.store.set('overlaySettings', newSettings);
 
         return { success: true };
       } catch (error) {

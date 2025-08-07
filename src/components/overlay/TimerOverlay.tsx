@@ -1,4 +1,3 @@
-// src/components/overlay/TimerOverlay.tsx
 import React from 'react';
 import { useTimerStore } from '../../store/timerStore';
 import DragHandle from './DragHandle';
@@ -21,7 +20,10 @@ const TimerOverlay: React.FC = () => {
         background: 'transparent',
         position: 'relative',
         userSelect: 'none',
-        WebkitUserSelect: 'none'
+        WebkitUserSelect: 'none',
+        margin: 0,
+        padding: 0,
+        overflow: 'hidden'
       }}
     >
       <DragHandle isVisible={!overlaySettings.locked} />
@@ -33,7 +35,10 @@ const TimerOverlay: React.FC = () => {
           position: overlaySettings.locked ? 'static' : 'absolute',
           top: overlaySettings.locked ? '0px' : '30px',
           left: '0px',
-          pointerEvents: overlaySettings.locked ? 'none' : 'auto'
+          pointerEvents: overlaySettings.locked ? 'none' : 'auto',
+          background: 'transparent',
+          margin: 0,
+          padding: 0
         }}
       >
         <DefaultStyle

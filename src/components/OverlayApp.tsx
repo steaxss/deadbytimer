@@ -1,4 +1,3 @@
-// src/components/OverlayApp.tsx
 import React, { useEffect, useState } from 'react';
 import { useTimerStore } from '../store/timerStore';
 import TimerOverlay from './overlay/TimerOverlay';
@@ -42,16 +41,39 @@ const OverlayApp: React.FC = () => {
   }, [overlaySettings]);
 
   useEffect(() => {
-    document.body.style.background = 'transparent';
-    document.body.style.margin = '0';
-    document.body.style.padding = '0';
-    document.body.style.overflow = 'hidden';
-    
-    const htmlElement = document.documentElement;
-    htmlElement.style.background = 'transparent';
-    htmlElement.style.margin = '0';
-    htmlElement.style.padding = '0';
-    htmlElement.style.overflow = 'hidden';
+    const forceTransparency = () => {
+      document.body.style.background = 'transparent';
+      document.body.style.backgroundColor = 'transparent';
+      document.body.style.margin = '0';
+      document.body.style.padding = '0';
+      document.body.style.overflow = 'hidden';
+      document.body.style.border = 'none';
+      document.body.style.outline = 'none';
+      
+      const htmlElement = document.documentElement;
+      htmlElement.style.background = 'transparent';
+      htmlElement.style.backgroundColor = 'transparent';
+      htmlElement.style.margin = '0';
+      htmlElement.style.padding = '0';
+      htmlElement.style.overflow = 'hidden';
+      htmlElement.style.border = 'none';
+      htmlElement.style.outline = 'none';
+
+      const overlayRoot = document.getElementById('overlay-root');
+      if (overlayRoot) {
+        overlayRoot.style.background = 'transparent';
+        overlayRoot.style.backgroundColor = 'transparent';
+        overlayRoot.style.margin = '0';
+        overlayRoot.style.padding = '0';
+        overlayRoot.style.border = 'none';
+        overlayRoot.style.outline = 'none';
+      }
+    };
+
+    forceTransparency();
+    const interval = setInterval(forceTransparency, 100);
+
+    return () => clearInterval(interval);
   }, []);
 
   if (!isInitialized) {
@@ -63,9 +85,12 @@ const OverlayApp: React.FC = () => {
       className="w-full h-full"
       style={{ 
         background: 'transparent',
+        backgroundColor: 'transparent',
         margin: 0,
         padding: 0,
-        overflow: 'hidden'
+        overflow: 'hidden',
+        border: 'none',
+        outline: 'none'
       }}
     >
       <TimerOverlay />
