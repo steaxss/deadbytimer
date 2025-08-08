@@ -22,9 +22,13 @@ let baseDims = { width: 520, height: 120 }
 let hotkeys = store.get('hotkeys') || { start: null, swap: null }
 let hotkeysLabel = store.get('hotkeysLabel') || { start: 'F1', swap: 'F2' }
 
-// état de capture (côté main, pour bloquer la dispatch)
-let capturingType = null        // 'start' | 'swap' | null
-let captureWaitUntil = 0        // time (ms) jusqu’auquel on ne dispatch pas aux timers (évite side-effects pendant capture)
+// état de capture transactionnelle
+let captureState = null // { type:'start'|'swap', label:string|null, code:number|null, timer:any }
+let captureWaitUntil = 0 // time (ms) jusqu’auquel on ne dispatch pas aux timers (évite side-effects pendant capture)
+
+// ===== debug =====
+const DEBUG_HK = true
+const logHK = (...args) => { if (DEBUG_HK) console.log('[HK]', ...args) }
 
 /* -------------------- utils -------------------- */
 function applyAlwaysOnTop(win, on) {
@@ -55,7 +59,7 @@ function sendHotkeysMode() {
     mainWindow.webContents.send('hotkeys-mode', usingUiohook ? 'pass-through' : 'fallback')
   }
 }
-function labelFromBeforeInput(input) {
+function makeLabelFromBeforeInput(input) {
   let k = input.key || ''
   if (/^F\d{1,2}$/.test(k)) return k
   if (/^[a-z]$/.test(k)) return k.toUpperCase()
@@ -71,6 +75,38 @@ function labelFromBeforeInput(input) {
   if (/^Key[A-Z]$/.test(code)) return code.slice(3,4)
   if (/^Digit\d$/.test(code)) return code.slice(5)
   return (k && k.length <= 6) ? k.toUpperCase() : (code || 'KEY')
+}
+function finalizeCapture(reason='done') {
+  if (!captureState) return
+  const { type, label, code, timer } = captureState
+  if (timer) clearTimeout(timer)
+
+  logHK('CAPTURE FINALIZE', { reason, type, label, code })
+
+  // Persistance
+  if (label) {
+    hotkeysLabel = { ...hotkeysLabel, [type]: label }
+    store.set('hotkeysLabel', hotkeysLabel)
+  }
+  if (typeof code === 'number') {
+    hotkeys = { ...hotkeys, [type]: code }
+    store.set('hotkeys', hotkeys)
+  }
+
+  // Dernier envoi au panel (si besoin)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const payload = { type }
+    if (label) payload.label = label
+    if (typeof code === 'number') payload.keycode = code
+    mainWindow.webContents.send('hotkeys-captured', payload)
+  }
+
+  // Reset capture
+  captureState = null
+  captureWaitUntil = 0
+
+  // Réarmer fallback si nécessaire
+  if (!usingUiohook) refreshHotkeyEngine()
 }
 
 /* -------------------- windows -------------------- */
@@ -219,47 +255,54 @@ function setupIPC() {
     return true
   })
 
-  // 🚀 capture 100% main-process, instant pour le panel
+  // 🚀 capture 100% main-process, transactionnelle
   ipcMain.handle('hotkeys-capture', (_evt, type) => {
-    if (!(type === 'start' || type === 'swap')) { capturingType = null; return true }
+    if (!(type === 'start' || type === 'swap')) { captureState = null; return true }
 
-    // 1) Bloquer le dispatch vers les timers
-    capturingType = type
-    captureWaitUntil = Date.now() + 500
+    logHK('CAPTURE BEGIN', { type, mode: usingUiohook ? 'pass-through' : 'fallback' })
 
-    // 2) assurer le focus au panneau (sinon pas de frappe)
-    try { mainWindow?.focus() } catch {}
+    // Bloquer le dispatch vers les timers
+    captureWaitUntil = Date.now() + 800
 
-    // 3) en fallback, libérer les shortcuts pour laisser passer la frappe
-    if (!usingUiohook) {
-      try { globalShortcut.unregisterAll() } catch {}
+    // État de capture (on attend les DEUX, ou timeout)
+    if (captureState?.timer) clearTimeout(captureState.timer)
+    captureState = {
+      type, label: null, code: null,
+      timer: setTimeout(() => finalizeCapture('timeout'), 300)
     }
 
-    // 4) écouter UNE SEULE fois la prochaine touche (immédiat)
+    // focus le panneau
+    try { mainWindow?.focus(); logHK('focused mainWindow?', mainWindow?.isFocused()) } catch (e) { logHK('focus error', e?.message || e) }
+
+    // en fallback, libérer les shortcuts pour laisser passer la frappe
+    if (!usingUiohook) {
+      try { globalShortcut.unregisterAll(); logHK('fallback: unregistered to let key through') } catch {}
+    }
+
+    // écouter UNE SEULE fois la prochaine touche (pour le label layout-aware)
     const once = (event, input) => {
       if (input.type !== 'keyDown' || input.isAutoRepeat) return
-      const label = labelFromBeforeInput(input)
+      logHK('before-input-event keyDown', { key: input.key, code: input.code })
+      const label = makeLabelFromBeforeInput(input)
 
-      // Persiste le label + notifie instantanément le panel
-      hotkeysLabel = { ...hotkeysLabel, [capturingType]: label }
-      store.set('hotkeysLabel', hotkeysLabel)
-      mainWindow?.webContents.send('hotkeys-captured', { type: capturingType, label })
+      // stocke & notifie instantanément le panel
+      if (captureState && captureState.type === type) {
+        captureState.label = label
+        hotkeysLabel = { ...hotkeysLabel, [type]: label }
+        store.set('hotkeysLabel', hotkeysLabel)
+        mainWindow?.webContents.send('hotkeys-captured', { type, label })
+        logHK('label captured (instant)', { type, label })
 
-      if (!usingUiohook) {
-        // En fallback on réarme tout de suite
-        refreshHotkeyEngine()
-        capturingType = null
-        captureWaitUntil = 0
-      } else {
-        // En pass-through on laisse uiohook fournir le code; sécurité timeout au cas où
-        setTimeout(() => {
-          if (capturingType) { capturingType = null; captureWaitUntil = 0 }
-        }, 250)
+        // si on a déjà le code, on peut finaliser tout de suite
+        if (typeof captureState.code === 'number') {
+          finalizeCapture('have both')
+        }
       }
 
       mainWindow?.webContents.removeListener('before-input-event', once)
     }
     mainWindow?.webContents.on('before-input-event', once)
+    logHK('before-input-event listener ARMED')
 
     return true
   })
@@ -267,36 +310,43 @@ function setupIPC() {
 
 /* -------------------- Hotkeys engines -------------------- */
 function refreshHotkeyEngine() {
-  if (usingUiohook) return // pass-through: rien à enregistrer
-  try { globalShortcut.unregisterAll() } catch {}
+  if (usingUiohook) { logHK('refreshHotkeyEngine: pass-through (no globalShortcut)'); return }
+  try { globalShortcut.unregisterAll(); logHK('globalShortcut: unregistered all') } catch {}
   const RATE = 180
   let lastT = 0, lastS = 0
 
   const sKey = hotkeysLabel.start || 'F1'
   const wKey = hotkeysLabel.swap  || 'F2'
+  logHK('globalShortcut: registering', { start: sKey, swap: wKey })
 
   try {
     globalShortcut.register(sKey, () => {
-      if (Date.now() < captureWaitUntil) return // ne rien faire si on est en capture
+      if (Date.now() < captureWaitUntil) { logHK('fallback toggle skipped (capturing)'); return }
       const now = Date.now(); if (now - lastT < RATE) return; lastT = now
+      logHK('DISPATCH toggle via globalShortcut')
       overlayWindow?.webContents.send('global-hotkey', { type: 'toggle' })
     })
-  } catch {}
+  } catch (e) { logHK('register start failed', e?.message || e) }
+
   try {
     globalShortcut.register(wKey, () => {
-      if (Date.now() < captureWaitUntil) return
+      if (Date.now() < captureWaitUntil) { logHK('fallback swap skipped (capturing)'); return }
       const now = Date.now(); if (now - lastS < RATE) return; lastS = now
+      logHK('DISPATCH swap via globalShortcut')
       overlayWindow?.webContents.send('global-hotkey', { type: 'swap' })
     })
-  } catch {}
+  } catch (e) { logHK('register swap failed', e?.message || e) }
 }
 
 // uiohook global (pass-through)
 function setupUiohook() {
   try {
+    logHK('Trying to load uiohook-napi…')
     const lib = require('uiohook-napi')
     uIOhook = lib.uIOhook
-  } catch {
+    logHK('uiohook loaded OK')
+  } catch (e) {
+    logHK('uiohook FAILED to load -> fallback', e?.message || e)
     usingUiohook = false
     sendHotkeysMode()
     refreshHotkeyEngine()
@@ -311,33 +361,36 @@ function setupUiohook() {
   const RATE = 180
 
   uIOhook.on('keydown', (e) => {
-    // pendant une capture : associer le code à la touche capturée
-    if (capturingType) {
-      hotkeys = { ...hotkeys, [capturingType]: e.keycode }
-      store.set('hotkeys', hotkeys)
-      mainWindow?.webContents.send('hotkeys-captured', {
-        type: capturingType, keycode: e.keycode, label: hotkeysLabel[capturingType]
-      })
-      capturingType = null
-      captureWaitUntil = 0
+    logHK('uiohook keydown', { keycode: e.keycode, captureState: !!captureState, now: Date.now(), blockUntil: captureWaitUntil })
+
+    // si on est en capture : stocker le code; finaliser si label déjà là
+    if (captureState) {
+      captureState.code = e.keycode
+      logHK('code captured (uiohook)', { type: captureState.type, code: e.keycode })
+      if (captureState.label) {
+        finalizeCapture('have both')
+      }
       return
     }
 
-    // Normal: déclenchement des timers (pass-through)
+    // normal: déclenchement (pass-through)
     if (!overlayWindow || overlayWindow.isDestroyed()) return
-    if (Date.now() < captureWaitUntil) return // ne pas déclencher pendant capture
+    if (Date.now() < captureWaitUntil) { logHK('DISPATCH BLOCKED (capturing)'); return }
 
     const now = Date.now()
     if (hotkeys.start && e.keycode === hotkeys.start) {
       if (now - lastToggle < RATE) return; lastToggle = now
+      logHK('DISPATCH toggle via uiohook')
       overlayWindow.webContents.send('global-hotkey', { type: 'toggle' })
     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
       if (now - lastSwap < RATE) return; lastSwap = now
+      logHK('DISPATCH swap via uiohook')
       overlayWindow.webContents.send('global-hotkey', { type: 'swap' })
     }
   })
 
-  try { uIOhook.start() } catch {
+  try { uIOhook.start(); logHK('uiohook started') } catch (e) {
+    logHK('uiohook START failed -> fallback', e?.message || e)
     usingUiohook = false
     sendHotkeysMode()
     refreshHotkeyEngine()
