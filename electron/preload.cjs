@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld('api', {
     onSync: (cb) => ipcRenderer.on('timer-data-sync', (_, d) => cb(d))
   },
   hotkeys: {
+    get: () => ipcRenderer.invoke('hotkeys-get'),
+    set: (hk) => ipcRenderer.invoke('hotkeys-set', hk),
+    capture: (type) => ipcRenderer.invoke('hotkeys-capture', type),
+    onCaptured: (cb) => ipcRenderer.on('hotkeys-captured', (_, p) => cb(p)),
     on: (cb) => ipcRenderer.on('global-hotkey', (_, payload) => cb(payload))
   }
 });

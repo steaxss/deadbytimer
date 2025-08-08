@@ -1,24 +1,16 @@
 import React from 'react'
 import { useTimerStore } from '@/store/timerStore'
-import { formatMillis } from '@/utils/timer'
+import { formatMillisDynamic } from '@/utils/timer'
 
 type TD = { player1:{name:string,score:number}, player2:{name:string,score:number} }
 
 function splitForTheme(fmt: string) {
-  // convertit "MM:SS:CC" -> chars avec ':' et '.' séparateurs plus fins
-  // On veut "MM:SS.CC"
+  // support "SS.CC" ou "M:SS.CC"
   const arr: { ch: string; sep?: boolean }[] = []
-  for (let i=0; i<fmt.length; i++) {
+  for (let i=0;i<fmt.length;i++){
     const ch = fmt[i]
-    if (ch === ':') arr.push({ ch, sep: true })
-    else if (ch === '-') arr.push({ ch }) // au cas où
+    if (ch === ':' || ch === '.') arr.push({ ch, sep: true })
     else arr.push({ ch })
-  }
-  // insérer '.' entre SS et CC
-  if (arr.length >= 8 && arr[2]?.ch === ':' ) {
-    // "MM:SS:CC" => remplace le 5e char ':' par '.'
-    const idx = 5
-    if (arr[idx]?.ch === ':') arr[idx].ch = '.'
   }
   return arr
 }
@@ -30,6 +22,7 @@ export default function TimerOverlay() {
   const elapsed = useTimerStore(s=>s.elapsed)
 
   const [locked, setLocked] = React.useState(false)
+  const [scale, setScale] = React.useState(100)
 
   // IPC: names/scores only
   React.useEffect(() => {
@@ -37,15 +30,15 @@ export default function TimerOverlay() {
     window.api.timer.onSync((d:any)=>setPlayers(d))
   }, [])
 
-  // Receive overlay settings (for lock/drag bar visibility)
+  // Receive overlay settings (lock + scale)
   React.useEffect(() => {
     window.api.overlay.onSettings((s:any) => {
       setLocked(!!s.locked)
-      // always-on-top est géré côté main
+      setScale(s.scale || 100)
     })
   }, [])
 
-  // Hotkeys: F1/F2 from main — register ONCE; imperative store getters
+  // Hotkeys globales (venant du main via uiohook)
   React.useEffect(() => {
     const handler = (p:any) => {
       const api = useTimerStore.getState()
@@ -55,7 +48,7 @@ export default function TimerOverlay() {
     window.api.hotkeys.on(handler)
   }, [])
 
-  // rAF tick for display refresh
+  // rAF tick
   const [, setTick] = React.useState(0)
   React.useEffect(() => {
     let raf = 0
@@ -64,17 +57,18 @@ export default function TimerOverlay() {
     return () => cancelAnimationFrame(raf)
   }, [])
 
-  // Mesure DOM → taille exacte côté main
+  // Mesure DOM non-scalée (offsetWidth/Height ignorent transform)
   React.useLayoutEffect(() => {
     const el = document.getElementById('timerContainer')
     if (!el) return
     const measure = () => {
-      const r = el.getBoundingClientRect()
-      window.api.overlay.measure(Math.round(r.width), Math.round(r.height))
+      const w = el.offsetWidth
+      const h = el.offsetHeight
+      window.api.overlay.measure(w, h)
     }
-    // fonts peuvent modifier la métrique : attendre si dispo
+    // fonts prêtes → mesurer
     // @ts-ignore
-    if (document.fonts?.ready) { /* modern browsers in Electron */
+    if (document.fonts?.ready) {
       // @ts-ignore
       document.fonts.ready.then(() => { measure(); setTimeout(measure, 50) })
     }
@@ -83,20 +77,28 @@ export default function TimerOverlay() {
     return () => window.removeEventListener('resize', measure)
   }, [players.player1.name, players.player2.name])
 
-  const t1 = splitForTheme(formatMillis(elapsed(1)))
-  const t2 = splitForTheme(formatMillis(elapsed(2)))
+  const t1 = splitForTheme(formatMillisDynamic(elapsed(1)))
+  const t2 = splitForTheme(formatMillisDynamic(elapsed(2)))
 
   const p1Scroll = players.player1.name.length > 16
   const p2Scroll = players.player2.name.length > 16
 
+  const s = (scale || 100)/100
+
   return (
-    <div className="pointer-events-none select-none" style={{ width: 520 }}>
+    // wrapper extérieur = dimension exacte *après* zoom → pas de scroll
+    <div
+      className="pointer-events-none select-none"
+      style={{ width: Math.round(520*s), height: Math.round((120 + (locked?0:30))*s), overflow:'hidden' }}
+    >
       {/* Drag handle (visible quand unlock) */}
       <div className={`drag-handle ${locked ? '' : 'visible'}`}>
         Drag to move
       </div>
 
-      <div className="rounded-2xl bg-black/45 backdrop-blur-md border border-white/10 overflow-hidden">
+      {/* Coins carrés: pas de rounded ni border */}
+      {/* Zoom par transform sur le contenu interne */}
+      <div style={{ transform:`scale(${s})`, transformOrigin:'top left', width:520, height:120 }}>
         <div className="timer-overlay" id="timerContainer">
           {/* Noms + score */}
           <div className={`name left ${p1Scroll ? 'scrolling' : ''}`}>
@@ -110,14 +112,14 @@ export default function TimerOverlay() {
           </div>
 
           {/* Timers */}
-          <div className={`timer left ${active===1 ? 'active' : ''}`}>
+          <div className={`timer left ${active===1 ? 'active' : ''}`} aria-label={status[1]}>
             <span className="timer-text dbd-digits">
               {t1.map((c, i) => (
                 <span key={i} className={`timer-char ${c.sep ? 'separator' : ''}`}>{c.ch}</span>
               ))}
             </span>
           </div>
-          <div className={`timer right ${active===2 ? 'active' : ''}`}>
+          <div className={`timer right ${active===2 ? 'active' : ''}`} aria-label={status[2]}>
             <span className="timer-text dbd-digits">
               {t2.map((c, i) => (
                 <span key={i} className={`timer-char ${c.sep ? 'separator' : ''}`}>{c.ch}</span>

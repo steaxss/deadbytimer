@@ -6,47 +6,43 @@ Source Tree:
 dbdoverlaytools-free
 ├── README.md
 ├── electron
-│   ├── main.cjs
+│   ├── main.mjs
 │   ├── preload.cjs
 │   └── tsconfig.json
 ├── index.html
 ├── overlay.html
 ├── package.json
-├── postcss.config.js
+├── postcss.config.cjs
 ├── scripts
 │   └── start.js
 ├── src
 │   ├── App.tsx
 │   ├── components
 │   │   ├── ControlPanel.tsx
-│   │   ├── HotkeySettings.tsx
 │   │   ├── OverlayApp.tsx
-│   │   ├── OverlaySettings.tsx
-│   │   ├── PlayerSettings.tsx
-│   │   ├── TimerControls.tsx
 │   │   └── overlay
 │   │       ├── DragHandle.tsx
-│   │       ├── TimerOverlay.tsx
-│   │       └── styles
-│   │           └── DefaultStyle.tsx
+│   │       └── TimerOverlay.tsx
 │   ├── hooks
-│   │   ├── useGlobalHotkeys.ts
 │   │   └── useTimer.ts
 │   ├── index.css
 │   ├── main.tsx
 │   ├── overlay.tsx
 │   ├── store
 │   │   └── timerStore.ts
+│   ├── themes
+│   │   └── default.css
 │   ├── types
 │   │   ├── global.d.ts
-│   │   └── index.ts
+│   │   ├── index.ts
+│   │   └── preload.d.ts
 │   └── utils
 │       ├── cn.ts
 │       └── timer.ts
-├── tailwind.config.js
+├── tailwind.config.cjs
 ├── tsconfig.json
 ├── tsconfig.node.json
-└── vite.config.ts
+└── vite.config.mts
 
 ```
 
@@ -202,412 +198,283 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/electron\main.cjs`:
+`dbdoverlaytools-free/electron\main.mjs`:
 
-```cjs
-   1 | const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
-   2 | const { join } = require('path');
-   3 | const Store = require('electron-store');
-   4 | 
-   5 | class TimerOverlayApp {
-   6 |   constructor() {
-   7 |     this.mainWindow = null;
-   8 |     this.overlayWindow = null;
-   9 |     this.store = new Store();
-  10 |     this.isDev = process.env.NODE_ENV === 'development';
-  11 |     this.isOverlayBeingCreated = false;
-  12 |     this.overlayPosition = null;
-  13 |     this.initializeApp();
-  14 |   }
-  15 | 
-  16 |   initializeApp() {
-  17 |     app.whenReady().then(() => {
-  18 |       this.createMainWindow();
-  19 |       this.setupIPC();
-  20 |       this.setupGlobalShortcuts();
-  21 |       
-  22 |       if (this.isDev) {
-  23 |         setTimeout(() => {
-  24 |           this.createOverlayWindow();
-  25 |         }, 2000);
-  26 |       }
-  27 |     });
-  28 | 
-  29 |     app.on('window-all-closed', () => {
-  30 |       globalShortcut.unregisterAll();
-  31 |       app.quit();
-  32 |     });
-  33 | 
-  34 |     app.on('activate', () => {
-  35 |       if (BrowserWindow.getAllWindows().length === 0) {
-  36 |         this.createMainWindow();
-  37 |       }
-  38 |     });
-  39 | 
-  40 |     app.on('before-quit', () => {
-  41 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-  42 |         const bounds = this.overlayWindow.getBounds();
-  43 |         this.store.set('overlaySettings.x', bounds.x);
-  44 |         this.store.set('overlaySettings.y', bounds.y);
-  45 |       }
-  46 |     });
-  47 |   }
-  48 | 
-  49 |   createMainWindow() {
-  50 |     const savedState = this.store.get('windowState') || {};
-  51 | 
-  52 |     this.mainWindow = new BrowserWindow({
-  53 |       width: savedState.width || 900,
-  54 |       height: savedState.height || 700,
-  55 |       x: savedState.x,
-  56 |       y: savedState.y,
-  57 |       minWidth: 600,
-  58 |       minHeight: 400,
-  59 |       show: false,
-  60 |       autoHideMenuBar: true,
-  61 |       icon: this.isDev ? null : join(__dirname, '../assets/icon.ico'),
-  62 |       webPreferences: {
-  63 |         nodeIntegration: false,
-  64 |         contextIsolation: true,
-  65 |         preload: join(__dirname, 'preload.cjs'),
-  66 |         webSecurity: false
-  67 |       }
-  68 |     });
-  69 | 
-  70 |     if (this.isDev) {
-  71 |       this.mainWindow.loadURL('http://localhost:5173');
-  72 |       this.mainWindow.webContents.openDevTools();
-  73 |     } else {
-  74 |       this.mainWindow.loadFile(join(__dirname, '../dist/index.html'));
-  75 |     }
-  76 | 
-  77 |     this.mainWindow.once('ready-to-show', () => {
-  78 |       this.mainWindow.show();
-  79 |       this.mainWindow.focus();
-  80 |     });
-  81 | 
-  82 |     this.mainWindow.webContents.on('before-input-event', (event, input) => {
-  83 |       if (input.control && input.shift && input.key.toLowerCase() === 'i') {
-  84 |         this.mainWindow.webContents.openDevTools();
-  85 |       }
-  86 |     });
-  87 | 
-  88 |     this.mainWindow.on('close', () => {
-  89 |       const bounds = this.mainWindow.getBounds();
-  90 |       if (bounds && !this.mainWindow.isMaximized() && !this.mainWindow.isMinimized()) {
-  91 |         this.store.set('windowState', bounds);
-  92 |       }
-  93 |     });
-  94 | 
-  95 |     this.mainWindow.on('closed', () => {
-  96 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-  97 |         this.overlayWindow.close();
-  98 |       }
-  99 |       this.mainWindow = null;
- 100 |     });
- 101 |   }
- 102 | 
- 103 |   createOverlayWindow() {
- 104 |     if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 105 |       this.overlayWindow.show();
- 106 |       this.overlayWindow.focus();
- 107 |       return;
- 108 |     }
- 109 | 
- 110 |     if (this.isOverlayBeingCreated) {
- 111 |       return;
- 112 |     }
- 113 | 
- 114 |     this.isOverlayBeingCreated = true;
- 115 | 
- 116 |     try {
- 117 |       const overlaySettings = this.store.get('overlaySettings', {
- 118 |         x: 100,
- 119 |         y: 100,
- 120 |         scale: 100,
- 121 |         locked: false,
- 122 |         alwaysOnTop: true
- 123 |       });
- 124 | 
- 125 |       const { width, height } = screen.getPrimaryDisplay().workAreaSize;
- 126 |       const dragHandleHeight = overlaySettings.locked ? 0 : 30;
- 127 |       
- 128 |       const overlayWidth = Math.ceil(520 * (overlaySettings.scale || 100) / 100);
- 129 |       const overlayHeight = Math.ceil((120 + dragHandleHeight) * (overlaySettings.scale || 100) / 100);
- 130 | 
- 131 |       let x = overlaySettings.x || Math.floor((width - overlayWidth) / 2);
- 132 |       let y = overlaySettings.y || Math.floor(height * 0.1);
+```mjs
+   1 | import { app, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
+   2 | import { join, dirname } from 'node:path'
+   3 | import { fileURLToPath } from 'node:url'
+   4 | import Store from 'electron-store'
+   5 | let uIOhook = null
+   6 | 
+   7 | const __dirname = dirname(fileURLToPath(import.meta.url))
+   8 | const isDev = process.env.NODE_ENV === 'development'
+   9 | const store = new Store()
+  10 | 
+  11 | let mainWindow = null
+  12 | let overlayWindow = null
+  13 | let usingUiohook = false
+  14 | 
+  15 | // mesures non-scalées
+  16 | let baseDims = { width: 520, height: 120 }
+  17 | 
+  18 | // hotkeys (codes uiohook)
+  19 | let hotkeys = store.get('hotkeys') || { start: null, swap: null }
+  20 | let capturing = null // 'start'|'swap'|null
+  21 | 
+  22 | function applyAlwaysOnTop(win, on) {
+  23 |   try {
+  24 |     win.setAlwaysOnTop(!!on, 'screen-saver')
+  25 |     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  26 |     win.setFullScreenable(false)
+  27 |   } catch {}
+  28 | }
+  29 | 
+  30 | function sendOverlaySettings() {
+  31 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
+  32 |     const s = store.get('overlaySettings', { x: 0, y: 0, scale: 100, locked: false, alwaysOnTop: true })
+  33 |     overlayWindow.webContents.send('overlay-settings', s)
+  34 |   }
+  35 | }
+  36 | 
+  37 | function recomputeOverlaySize() {
+  38 |   if (!overlayWindow || overlayWindow.isDestroyed()) return
+  39 |   const s = store.get('overlaySettings', { scale: 100, locked: false })
+  40 |   const dragH = s.locked ? 0 : 30
+  41 |   const scale = (s.scale || 100) / 100
+  42 |   const w = Math.ceil(baseDims.width * scale)
+  43 |   const h = Math.ceil((baseDims.height + dragH) * scale)
+  44 |   overlayWindow.setContentSize(w, h)
+  45 |   sendOverlaySettings()
+  46 | }
+  47 | 
+  48 | function createMainWindow() {
+  49 |   const saved = store.get('windowState') || {}
+  50 |   mainWindow = new BrowserWindow({
+  51 |     width: saved.width || 900,
+  52 |     height: saved.height || 640,
+  53 |     x: saved.x, y: saved.y,
+  54 |     minWidth: 700, minHeight: 480,
+  55 |     show: false,
+  56 |     autoHideMenuBar: true,
+  57 |     webPreferences: {
+  58 |       nodeIntegration: false,
+  59 |       contextIsolation: true,
+  60 |       preload: join(__dirname, 'preload.cjs'),
+  61 |     }
+  62 |   })
+  63 | 
+  64 |   if (isDev) {
+  65 |     mainWindow.loadURL('http://localhost:5173')
+  66 |     mainWindow.webContents.openDevTools({ mode: 'detach' })
+  67 |   } else {
+  68 |     mainWindow.loadFile(join(__dirname, '../dist/index.html'))
+  69 |   }
+  70 | 
+  71 |   mainWindow.once('ready-to-show', () => mainWindow.show())
+  72 |   mainWindow.on('close', () => {
+  73 |     const b = mainWindow.getBounds()
+  74 |     store.set('windowState', b)
+  75 |   })
+  76 |   mainWindow.on('closed', () => { mainWindow = null; if (overlayWindow) overlayWindow.close() })
+  77 | }
+  78 | 
+  79 | function createOverlayWindow() {
+  80 |   if (overlayWindow && !overlayWindow.isDestroyed()) { overlayWindow.show(); overlayWindow.focus(); return }
+  81 |   const display = screen.getPrimaryDisplay().workAreaSize
+  82 |   const s = store.get('overlaySettings', { x: Math.floor(display.width/2-260), y: 100, scale: 100, locked: false, alwaysOnTop: true })
+  83 |   const dragH = s.locked ? 0 : 30
+  84 |   const scale = (s.scale || 100) / 100
+  85 | 
+  86 |   overlayWindow = new BrowserWindow({
+  87 |     width: Math.ceil(baseDims.width * scale),
+  88 |     height: Math.ceil((baseDims.height + dragH) * scale),
+  89 |     x: s.x, y: s.y,
+  90 |     frame: false, transparent: true, resizable: false,
+  91 |     hasShadow: false,
+  92 |     skipTaskbar: false,
+  93 |     focusable: true,
+  94 |     title: 'DBD Timer Overlay',
+  95 |     acceptFirstMouse: true,
+  96 |     backgroundColor: '#00000000',
+  97 |     useContentSize: true,
+  98 |     webPreferences: {
+  99 |       nodeIntegration: false,
+ 100 |       contextIsolation: true,
+ 101 |       preload: join(__dirname, 'preload.cjs'),
+ 102 |       backgroundThrottling: false
+ 103 |     }
+ 104 |   })
+ 105 | 
+ 106 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop)
+ 107 | 
+ 108 |   const url = isDev ? 'http://localhost:5173/overlay.html' : join(__dirname, '../dist/overlay.html')
+ 109 |   if (isDev) overlayWindow.loadURL(url); else overlayWindow.loadFile(url)
+ 110 | 
+ 111 |   overlayWindow.on('closed', () => overlayWindow = null)
+ 112 |   overlayWindow.on('move', () => {
+ 113 |     const b = overlayWindow.getBounds()
+ 114 |     store.set('overlaySettings.x', b.x)
+ 115 |     store.set('overlaySettings.y', b.y)
+ 116 |   })
+ 117 | 
+ 118 |   overlayWindow.webContents.on('did-finish-load', () => {
+ 119 |     const data = store.get('timerData') || {
+ 120 |       player1: { name: 'Player 1', score: 0 },
+ 121 |       player2: { name: 'Player 2', score: 0 }
+ 122 |     }
+ 123 |     overlayWindow.webContents.send('timer-data-sync', data)
+ 124 |     sendOverlaySettings()
+ 125 |     if (mainWindow) mainWindow.webContents.send('overlay-ready', true)
+ 126 |     setTimeout(() => recomputeOverlaySize(), 50)
+ 127 |   })
+ 128 | }
+ 129 | 
+ 130 | function setupIPC() {
+ 131 |   ipcMain.handle('overlay-show', () => { createOverlayWindow(); return true })
+ 132 |   ipcMain.handle('overlay-hide', () => { if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close(); overlayWindow = null; return true })
  133 | 
- 134 |       if (overlaySettings.locked && this.overlayPosition) {
- 135 |         x = this.overlayPosition.x;
- 136 |         y = this.overlayPosition.y;
- 137 |       }
- 138 | 
- 139 |       if (x < 0 || x > width - overlayWidth) x = Math.floor((width - overlayWidth) / 2);
- 140 |       if (y < 0 || y > height - overlayHeight) y = Math.floor(height * 0.1);
- 141 | 
- 142 |       this.overlayWindow = new BrowserWindow({
- 143 |         width: overlayWidth,
- 144 |         height: overlayHeight,
- 145 |         x: x,
- 146 |         y: y,
- 147 |         frame: false,
- 148 |         transparent: true,
- 149 |         alwaysOnTop: overlaySettings.alwaysOnTop !== false,
- 150 |         skipTaskbar: overlaySettings.locked === true,
- 151 |         resizable: false,
- 152 |         minimizable: !overlaySettings.locked,
- 153 |         maximizable: false,
- 154 |         focusable: !overlaySettings.locked,
- 155 |         show: false,
- 156 |         titleBarStyle: 'hidden',
- 157 |         backgroundColor: '#00000000',
- 158 |         webPreferences: {
- 159 |           nodeIntegration: false,
- 160 |           contextIsolation: true,
- 161 |           preload: join(__dirname, 'preload.cjs'),
- 162 |           webSecurity: false,
- 163 |           backgroundThrottling: false,
- 164 |           offscreen: false
- 165 |         }
- 166 |       });
- 167 | 
- 168 |       this.overlayWindow.setBackgroundColor('#00000000');
- 169 | 
- 170 |       if (overlaySettings.locked) {
- 171 |         this.overlayWindow.setIgnoreMouseEvents(true, { forward: true });
- 172 |       }
- 173 | 
- 174 |       this.overlayWindow.webContents.on('before-input-event', (event, input) => {
- 175 |         if (input.control && input.shift && input.key.toLowerCase() === 'i') {
- 176 |           this.overlayWindow.webContents.openDevTools({ mode: 'detach' });
- 177 |         }
- 178 |       });
- 179 | 
- 180 |       const overlayUrl = this.isDev 
- 181 |         ? 'http://localhost:5173/overlay.html' 
- 182 |         : join(__dirname, '../dist/overlay.html');
- 183 | 
- 184 |       if (this.isDev) {
- 185 |         this.overlayWindow.loadURL(overlayUrl);
- 186 |         setTimeout(() => {
- 187 |           if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 188 |             this.overlayWindow.webContents.openDevTools({ mode: 'detach' });
- 189 |           }
- 190 |         }, 1000);
- 191 |       } else {
- 192 |         this.overlayWindow.loadFile(overlayUrl);
- 193 |       }
- 194 | 
- 195 |       this.overlayWindow.webContents.on('did-finish-load', () => {
- 196 |         this.overlayWindow.show();
- 197 |         
- 198 |         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 199 |           this.mainWindow.webContents.send('overlay-ready', true);
- 200 |         }
- 201 |         
- 202 |         const timerData = this.store.get('timerData');
- 203 |         if (timerData && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 204 |           setTimeout(() => {
- 205 |             this.overlayWindow.webContents.send('timer-data-sync', timerData);
- 206 |           }, 500);
- 207 |         }
- 208 | 
- 209 |         this.isOverlayBeingCreated = false;
- 210 |       });
- 211 | 
- 212 |       this.overlayWindow.on('closed', () => {
- 213 |         this.overlayWindow = null;
- 214 |         this.isOverlayBeingCreated = false;
- 215 |         
- 216 |         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 217 |           this.mainWindow.webContents.send('overlay-ready', false);
- 218 |         }
- 219 |       });
- 220 | 
- 221 |       this.overlayWindow.on('move', () => {
- 222 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 223 |           const bounds = this.overlayWindow.getBounds();
- 224 |           if (bounds) {
- 225 |             this.overlayPosition = { x: bounds.x, y: bounds.y };
- 226 |             this.store.set('overlaySettings.x', bounds.x);
- 227 |             this.store.set('overlaySettings.y', bounds.y);
- 228 |           }
- 229 |         }
- 230 |       });
- 231 | 
- 232 |     } catch (error) {
- 233 |       console.error('Error creating overlay window:', error);
- 234 |       this.isOverlayBeingCreated = false;
- 235 |     }
- 236 |   }
- 237 | 
- 238 |   setupIPC() {
- 239 |     ipcMain.handle('store-get', (_, key) => {
- 240 |       try {
- 241 |         return this.store.get(key);
- 242 |       } catch (error) {
- 243 |         console.error('Store get error:', error);
- 244 |         return null;
- 245 |       }
- 246 |     });
- 247 |     
- 248 |     ipcMain.handle('store-set', (_, key, value) => {
- 249 |       try {
- 250 |         this.store.set(key, value);
- 251 |         return true;
- 252 |       } catch (error) {
- 253 |         console.error('Store set error:', error);
- 254 |         return false;
- 255 |       }
- 256 |     });
- 257 | 
- 258 |     ipcMain.handle('overlay-show', async () => {
- 259 |       try {
- 260 |         this.createOverlayWindow();
- 261 |         return { success: true };
- 262 |       } catch (error) {
- 263 |         console.error('Error showing overlay:', error);
- 264 |         return { success: false, error: error.message };
- 265 |       }
- 266 |     });
- 267 | 
- 268 |     ipcMain.handle('overlay-hide', async () => {
- 269 |       try {
- 270 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 271 |           this.overlayWindow.close();
- 272 |           this.overlayWindow = null;
- 273 |         }
- 274 |         return { success: true };
- 275 |       } catch (error) {
- 276 |         console.error('Error hiding overlay:', error);
- 277 |         return { success: false, error: error.message };
- 278 |       }
- 279 |     });
- 280 | 
- 281 |     ipcMain.handle('overlay-settings-update', async (_, settings) => {
- 282 |       if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return { success: true };
- 283 | 
- 284 |       try {
- 285 |         const currentSettings = this.store.get('overlaySettings', {});
- 286 |         const newSettings = { ...currentSettings, ...settings };
- 287 | 
- 288 |         if (settings.locked !== undefined) {
- 289 |           const wasPreviouslyLocked = currentSettings.locked;
- 290 |           const newDragHandleHeight = settings.locked ? 0 : 30;
- 291 |           const newOverlayHeight = Math.ceil((120 + newDragHandleHeight) * (newSettings.scale || 100) / 100);
- 292 |           const newOverlayWidth = Math.ceil(520 * (newSettings.scale || 100) / 100);
- 293 |           
- 294 |           if (!wasPreviouslyLocked && settings.locked) {
- 295 |             this.overlayPosition = this.overlayWindow.getBounds();
- 296 |           }
- 297 |           
- 298 |           this.overlayWindow.setIgnoreMouseEvents(settings.locked, { forward: true });
- 299 |           this.overlayWindow.setFocusable(!settings.locked);
- 300 |           this.overlayWindow.setSkipTaskbar(settings.locked);
- 301 |           this.overlayWindow.setMinimizable(!settings.locked);
- 302 |           this.overlayWindow.setSize(newOverlayWidth, newOverlayHeight);
- 303 |           
- 304 |           if (!settings.locked && this.overlayPosition) {
- 305 |             this.overlayWindow.setPosition(this.overlayPosition.x, this.overlayPosition.y);
- 306 |           }
- 307 |         }
- 308 | 
- 309 |         if (settings.scale !== undefined) {
- 310 |           const dragHandleHeight = newSettings.locked ? 0 : 30;
- 311 |           const newWidth = Math.ceil(520 * settings.scale / 100);
- 312 |           const newHeight = Math.ceil((120 + dragHandleHeight) * settings.scale / 100);
- 313 |           this.overlayWindow.setSize(newWidth, newHeight);
- 314 |         }
- 315 | 
- 316 |         if (settings.alwaysOnTop !== undefined) {
- 317 |           this.overlayWindow.setAlwaysOnTop(settings.alwaysOnTop);
- 318 |         }
- 319 | 
- 320 |         if (settings.x !== undefined || settings.y !== undefined) {
- 321 |           const currentBounds = this.overlayWindow.getBounds();
- 322 |           this.overlayWindow.setPosition(
- 323 |             settings.x !== undefined ? settings.x : currentBounds.x,
- 324 |             settings.y !== undefined ? settings.y : currentBounds.y
- 325 |           );
- 326 |         }
- 327 | 
- 328 |         this.store.set('overlaySettings', newSettings);
- 329 | 
- 330 |         return { success: true };
- 331 |       } catch (error) {
- 332 |         console.error('Error updating overlay settings:', error);
- 333 |         return { success: false, error: error.message };
- 334 |       }
- 335 |     });
- 336 | 
- 337 |     ipcMain.handle('timer-data-sync', async (_, data) => {
- 338 |       try {
- 339 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 340 |           this.overlayWindow.webContents.send('timer-data-sync', data);
- 341 |         }
- 342 |         this.store.set('timerData', data);
- 343 |         return { success: true };
- 344 |       } catch (error) {
- 345 |         console.error('Error syncing timer data:', error);
- 346 |         return { success: false, error: error.message };
- 347 |       }
- 348 |     });
- 349 | 
- 350 |     ipcMain.handle('overlay-style-change', async (_, style) => {
- 351 |       try {
- 352 |         if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 353 |           this.overlayWindow.webContents.send('overlay-style-change', style);
- 354 |         }
- 355 |         return { success: true };
- 356 |       } catch (error) {
- 357 |         console.error('Error changing overlay style:', error);
- 358 |         return { success: false, error: error.message };
- 359 |       }
- 360 |     });
- 361 |   }
- 362 | 
- 363 |   setupGlobalShortcuts() {
- 364 |     const registerShortcut = (key, action) => {
- 365 |       try {
- 366 |         const success = globalShortcut.register(key, () => {
- 367 |           if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 368 |             this.mainWindow.webContents.send('hotkey-pressed', action);
- 369 |           }
- 370 |         });
- 371 |         
- 372 |         if (!success) {
- 373 |           console.warn(`Failed to register shortcut: ${key}`);
- 374 |         }
- 375 |       } catch (error) {
- 376 |         console.warn(`Error registering shortcut ${key}:`, error);
- 377 |       }
- 378 |     };
- 379 | 
- 380 |     const savedHotkeys = this.store.get('timerData.hotkeys', {
- 381 |       start: 'F1',
- 382 |       swap: 'F2'
- 383 |     });
- 384 | 
- 385 |     registerShortcut(savedHotkeys.start, 'start');
- 386 |     registerShortcut(savedHotkeys.swap, 'swap');
- 387 | 
- 388 |     ipcMain.handle('hotkey-register', async (_, hotkeys) => {
- 389 |       try {
- 390 |         globalShortcut.unregisterAll();
- 391 |         registerShortcut(hotkeys.start, 'start');
- 392 |         registerShortcut(hotkeys.swap, 'swap');
- 393 |         this.store.set('timerData.hotkeys', hotkeys);
- 394 |         return { success: true };
- 395 |       } catch (error) {
- 396 |         console.error('Error registering hotkeys:', error);
- 397 |         return { success: false, error: error.message };
- 398 |       }
- 399 |     });
- 400 |   }
- 401 | }
- 402 | 
- 403 | new TimerOverlayApp();
+ 134 |   ipcMain.handle('overlay-settings-update', (_evt, settings) => {
+ 135 |     const current = store.get('overlaySettings', {})
+ 136 |     const next = { ...current, ...settings }
+ 137 |     store.set('overlaySettings', next)
+ 138 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true
+ 139 |     if (settings.locked !== undefined) {
+ 140 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true })
+ 141 |       overlayWindow.setFocusable(true) // OBS/Alt-Tab
+ 142 |     }
+ 143 |     if (settings.alwaysOnTop !== undefined) applyAlwaysOnTop(overlayWindow, next.alwaysOnTop)
+ 144 |     if (settings.x !== undefined || settings.y !== undefined) {
+ 145 |       const b = overlayWindow.getBounds()
+ 146 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y)
+ 147 |     }
+ 148 |     if (settings.scale !== undefined || settings.locked !== undefined) recomputeOverlaySize()
+ 149 |     sendOverlaySettings()
+ 150 |     return true
+ 151 |   })
+ 152 | 
+ 153 |   ipcMain.handle('overlay-measure', (_evt, dims) => {
+ 154 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height)) return false
+ 155 |     baseDims = { width: Math.max(1, Math.floor(dims.width)), height: Math.max(1, Math.floor(dims.height)) }
+ 156 |     recomputeOverlaySize()
+ 157 |     return true
+ 158 |   })
+ 159 | 
+ 160 |   ipcMain.handle('timer-data-get', () => store.get('timerData') || { player1: { name: 'Player 1', score: 0 }, player2: { name: 'Player 2', score: 0 } })
+ 161 |   ipcMain.handle('timer-data-set', (_evt, data) => {
+ 162 |     store.set('timerData', data)
+ 163 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.webContents.send('timer-data-sync', data)
+ 164 |     return true
+ 165 |   })
+ 166 | 
+ 167 |   // hotkeys config
+ 168 |   ipcMain.handle('hotkeys-get', () => hotkeys)
+ 169 |   ipcMain.handle('hotkeys-set', (_evt, hk) => {
+ 170 |     hotkeys = { ...hotkeys, ...hk }
+ 171 |     store.set('hotkeys', hotkeys)
+ 172 |     refreshHotkeyEngine()
+ 173 |     return true
+ 174 |   })
+ 175 |   ipcMain.handle('hotkeys-capture', (_evt, type) => {
+ 176 |     capturing = type === 'start' || type === 'swap' ? type : null
+ 177 |     return true
+ 178 |   })
+ 179 | }
+ 180 | 
+ 181 | function refreshHotkeyEngine() {
+ 182 |   if (usingUiohook) return // uiohook lit directement le clavier global
+ 183 |   try {
+ 184 |     globalShortcut.unregisterAll()
+ 185 |     const RATE = 180
+ 186 |     let lastT = 0, lastS = 0
+ 187 |     if (hotkeys.start) {
+ 188 |       // NOTE: globalShortcut attend une string type 'F1', pas un keycode. Fallback basique:
+ 189 |       if (!registerFKey(hotkeys.start, () => {
+ 190 |         const now = Date.now(); if (now - lastT < RATE) return; lastT = now
+ 191 |         overlayWindow?.webContents.send('global-hotkey', { type: 'toggle' })
+ 192 |       })) { /* pas d’enregistrement possible pour ce code, on ignore */ }
+ 193 |     }
+ 194 |     if (hotkeys.swap) {
+ 195 |       if (!registerFKey(hotkeys.swap, () => {
+ 196 |         const now = Date.now(); if (now - lastS < RATE) return; lastS = now
+ 197 |         overlayWindow?.webContents.send('global-hotkey', { type: 'swap' })
+ 198 |       })) { /* ignore */ }
+ 199 |     }
+ 200 |   } catch {}
+ 201 | }
+ 202 | 
+ 203 | // mapping trivial pour F-keys si on a capturé F1..F12
+ 204 | function registerFKey(code, handler) {
+ 205 |   // uiohook keycodes pour F1..F12 varient selon version; on tente une map simple:
+ 206 |   // Essaie F1..F24
+ 207 |   for (let i=1;i<=24;i++){
+ 208 |     const maybe = `F${i}`
+ 209 |     // heuristique: si code est dans une plage “F”, on suppose F1 pour tester
+ 210 |     // On enregistre toutes les F pour maximiser les chances (fallback de secours)
+ 211 |     try { globalShortcut.register(maybe, handler); return true } catch {}
+ 212 |   }
+ 213 |   return false
+ 214 | }
+ 215 | 
+ 216 | // uiohook global (pass-through)
+ 217 | function setupUiohook() {
+ 218 |   try {
+ 219 |     // charge dynamiquement (évite crash si rebuild non fait)
+ 220 |     // eslint-disable-next-line @typescript-eslint/no-var-requires
+ 221 |     const lib = require('uiohook-napi')
+ 222 |     uIOhook = lib.uIOhook
+ 223 |   } catch (e) {
+ 224 |     console.warn('[hotkeys] uiohook non disponible, fallback globalShortcut (intercept).', e?.message || e)
+ 225 |     usingUiohook = false
+ 226 |     refreshHotkeyEngine()
+ 227 |     return
+ 228 |   }
+ 229 | 
+ 230 |   usingUiohook = true
+ 231 |   let lastToggle = 0
+ 232 |   let lastSwap = 0
+ 233 |   const RATE = 180
+ 234 | 
+ 235 |   uIOhook.on('keydown', (e) => {
+ 236 |     if (capturing) {
+ 237 |       const type = capturing
+ 238 |       capturing = null
+ 239 |       hotkeys = { ...hotkeys, [type]: e.keycode }
+ 240 |       store.set('hotkeys', hotkeys)
+ 241 |       if (mainWindow && !mainWindow.isDestroyed()) {
+ 242 |         mainWindow.webContents.send('hotkeys-captured', { type, keycode: e.keycode })
+ 243 |       }
+ 244 |       return
+ 245 |     }
+ 246 |     if (!overlayWindow || overlayWindow.isDestroyed()) return
+ 247 |     const now = Date.now()
+ 248 |     if (hotkeys.start && e.keycode === hotkeys.start) {
+ 249 |       if (now - lastToggle < RATE) return; lastToggle = now
+ 250 |       overlayWindow.webContents.send('global-hotkey', { type: 'toggle' })
+ 251 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
+ 252 |       if (now - lastSwap < RATE) return; lastSwap = now
+ 253 |       overlayWindow.webContents.send('global-hotkey', { type: 'swap' })
+ 254 |     }
+ 255 |   })
+ 256 | 
+ 257 |   try { uIOhook.start() } catch (e) {
+ 258 |     console.warn('[hotkeys] uiohook start a échoué, fallback globalShortcut.', e?.message || e)
+ 259 |     usingUiohook = false
+ 260 |     refreshHotkeyEngine()
+ 261 |   }
+ 262 | }
+ 263 | 
+ 264 | app.whenReady().then(() => {
+ 265 |   createMainWindow()
+ 266 |   setupIPC()
+ 267 |   setupUiohook()
+ 268 |   if (isDev) setTimeout(createOverlayWindow, 800)
+ 269 | })
+ 270 | app.on('will-quit', () => {
+ 271 |   try { if (usingUiohook) uIOhook.stop() } catch {}
+ 272 |   try { globalShortcut.unregisterAll() } catch {}
+ 273 | })
+ 274 | app.on('window-all-closed', () => { app.quit() })
 
 ```
 
@@ -616,56 +483,28 @@ dbdoverlaytools-free
 ```cjs
    1 | const { contextBridge, ipcRenderer } = require('electron');
    2 | 
-   3 | const api = {
-   4 |   store: {
-   5 |     get: (key) => ipcRenderer.invoke('store-get', key),
-   6 |     set: (key, value) => ipcRenderer.invoke('store-set', key, value),
-   7 |   },
-   8 |   
-   9 |   overlay: {
-  10 |     show: () => ipcRenderer.invoke('overlay-show'),
-  11 |     hide: () => ipcRenderer.invoke('overlay-hide'),
-  12 |     updateSettings: (settings) => ipcRenderer.invoke('overlay-settings-update', settings),
-  13 |     styleChange: (style) => ipcRenderer.invoke('overlay-style-change', style),
-  14 |     
-  15 |     onDataSync: (callback) => {
-  16 |       ipcRenderer.on('timer-data-sync', (_, data) => callback(data));
-  17 |       return () => ipcRenderer.removeAllListeners('timer-data-sync');
-  18 |     },
-  19 |     
-  20 |     onStyleChange: (callback) => {
-  21 |       ipcRenderer.on('overlay-style-change', (_, style) => callback(style));
-  22 |       return () => ipcRenderer.removeAllListeners('overlay-style-change');
-  23 |     },
-  24 |     
-  25 |     onReady: (callback) => {
-  26 |       ipcRenderer.on('overlay-ready', (_, isReady) => callback(isReady));
-  27 |       return () => ipcRenderer.removeAllListeners('overlay-ready');
-  28 |     },
-  29 |   },
-  30 |   
-  31 |   timer: {
-  32 |     syncData: (data) => ipcRenderer.invoke('timer-data-sync', data),
-  33 |   },
-  34 |   
-  35 |   hotkeys: {
-  36 |     register: (hotkeys) => ipcRenderer.invoke('hotkey-register', hotkeys),
-  37 |     
-  38 |     onPressed: (callback) => {
-  39 |       ipcRenderer.on('hotkey-pressed', (_, action) => callback(action));
-  40 |       return () => ipcRenderer.removeAllListeners('hotkey-pressed');
-  41 |     },
-  42 |   },
-  43 |   
-  44 |   removeAllListeners: () => {
-  45 |     ipcRenderer.removeAllListeners('timer-data-sync');
-  46 |     ipcRenderer.removeAllListeners('overlay-style-change');
-  47 |     ipcRenderer.removeAllListeners('hotkey-pressed');
-  48 |     ipcRenderer.removeAllListeners('overlay-ready');
-  49 |   },
-  50 | };
-  51 | 
-  52 | contextBridge.exposeInMainWorld('electronAPI', api);
+   3 | contextBridge.exposeInMainWorld('api', {
+   4 |   overlay: {
+   5 |     show: () => ipcRenderer.invoke('overlay-show'),
+   6 |     hide: () => ipcRenderer.invoke('overlay-hide'),
+   7 |     updateSettings: (s) => ipcRenderer.invoke('overlay-settings-update', s),
+   8 |     onReady: (cb) => ipcRenderer.on('overlay-ready', (_, v) => cb(v)),
+   9 |     onSettings: (cb) => ipcRenderer.on('overlay-settings', (_, s) => cb(s)),
+  10 |     measure: (w, h) => ipcRenderer.invoke('overlay-measure', { width: w, height: h })
+  11 |   },
+  12 |   timer: {
+  13 |     get: () => ipcRenderer.invoke('timer-data-get'),
+  14 |     set: (data) => ipcRenderer.invoke('timer-data-set', data),
+  15 |     onSync: (cb) => ipcRenderer.on('timer-data-sync', (_, d) => cb(d))
+  16 |   },
+  17 |   hotkeys: {
+  18 |     get: () => ipcRenderer.invoke('hotkeys-get'),
+  19 |     set: (hk) => ipcRenderer.invoke('hotkeys-set', hk),
+  20 |     capture: (type) => ipcRenderer.invoke('hotkeys-capture', type),
+  21 |     onCaptured: (cb) => ipcRenderer.on('hotkeys-captured', (_, p) => cb(p)),
+  22 |     on: (cb) => ipcRenderer.on('global-hotkey', (_, payload) => cb(payload))
+  23 |   }
+  24 | });
 
 ```
 
@@ -694,19 +533,18 @@ dbdoverlaytools-free
 
 ```html
    1 | <!doctype html>
-   2 | <html lang="en">
+   2 | <html>
    3 |   <head>
    4 |     <meta charset="UTF-8" />
-   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:* https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; connect-src 'self' http://localhost:* ws://localhost:*; font-src 'self' https://fonts.gstatic.com data:;" />
-   6 |     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-   7 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-   8 |     <title>DBD Timer Overlay - Control Panel</title>
-   9 |   </head>
-  10 |   <body>
-  11 |     <div id="root"></div>
-  12 |     <script type="module" src="/src/main.tsx"></script>
-  13 |   </body>
-  14 | </html>
+   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'inline-speculation-rules'">
+   6 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+   7 |     <title>DBD Timer - Control Panel</title>
+   8 |   </head>
+   9 |   <body class="bg-zinc-950 text-zinc-100">
+  10 |     <div id="root"></div>
+  11 |     <script type="module" src="/src/main.tsx"></script>
+  12 |   </body>
+  13 | </html>
 
 ```
 
@@ -714,38 +552,18 @@ dbdoverlaytools-free
 
 ```html
    1 | <!doctype html>
-   2 | <html lang="en" style="background: transparent !important;">
+   2 | <html>
    3 |   <head>
    4 |     <meta charset="UTF-8" />
-   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:* https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; connect-src 'self' http://localhost:* ws://localhost:*; font-src 'self' https://fonts.gstatic.com data:;" />
-   6 |     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-   7 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-   8 |     <title>DBD Timer Overlay</title>
-   9 |     <style>
-  10 |       html, body {
-  11 |         margin: 0 !important;
-  12 |         padding: 0 !important;
-  13 |         background: transparent !important;
-  14 |         overflow: hidden !important;
-  15 |         user-select: none !important;
-  16 |         width: 100% !important;
-  17 |         height: 100% !important;
-  18 |       }
-  19 |       
-  20 |       #overlay-root {
-  21 |         background: transparent !important;
-  22 |         margin: 0 !important;
-  23 |         padding: 0 !important;
-  24 |         width: 100% !important;
-  25 |         height: 100% !important;
-  26 |       }
-  27 |     </style>
-  28 |   </head>
-  29 |   <body>
-  30 |     <div id="overlay-root"></div>
-  31 |     <script type="module" src="/src/overlay.tsx"></script>
-  32 |   </body>
-  33 | </html>
+   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'inline-speculation-rules'">
+   6 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+   7 |     <title>DBD Timer - Overlay</title>
+   8 |   </head>
+   9 |   <body class="bg-transparent">
+  10 |     <div id="root"></div>
+  11 |     <script type="module" src="/src/overlay.tsx"></script>
+  12 |   </body>
+  13 | </html>
 
 ```
 
@@ -753,52 +571,56 @@ dbdoverlaytools-free
 
 ```json
    1 | {
-   2 |   "name": "dbd-timer-overlay",
+   2 |   "name": "dbdoverlaytools-free",
    3 |   "version": "1.0.0",
-   4 |   "description": "Dead by Daylight 1v1 Timer Overlay",
-   5 |   "main": "electron/main.cjs",
-   6 |   "type": "module",
-   7 |   "scripts": {
-   8 |     "dev": "vite",
-   9 |     "build": "vite build",
-  10 |     "electron:dev": "node scripts/start.js",
-  11 |     "electron:build": "npm run build && electron-builder",
-  12 |     "clean": "rimraf dist dist-electron release"
-  13 |   },
-  14 |   "devDependencies": {
-  15 |     "@types/node": "^20.10.0",
-  16 |     "@types/react": "^18.2.43",
-  17 |     "@types/react-dom": "^18.2.17",
-  18 |     "@vitejs/plugin-react": "^4.2.1",
-  19 |     "autoprefixer": "^10.4.16",
-  20 |     "cross-env": "^7.0.3",
-  21 |     "electron": "^28.1.0",
-  22 |     "electron-builder": "^24.9.1",
-  23 |     "postcss": "^8.4.32",
-  24 |     "rimraf": "^5.0.5",
-  25 |     "tailwindcss": "^3.3.6",
-  26 |     "typescript": "^5.2.2",
-  27 |     "vite": "^5.0.8"
-  28 |   },
-  29 |   "dependencies": {
-  30 |     "electron-store": "^8.2.0",
-  31 |     "react": "^18.2.0",
-  32 |     "react-dom": "^18.2.0",
-  33 |     "zustand": "^4.4.7"
-  34 |   }
-  35 | }
+   4 |   "private": true,
+   5 |   "description": "DBD 1v1 Timer Overlay (Free)",
+   6 |   "main": "electron/main.mjs",
+   7 |   "author": "",
+   8 |   "license": "MIT",
+   9 |   "type": "commonjs",
+  10 |   "scripts": {
+  11 |     "dev": "concurrently -k -n VITE,ELECTRON \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+  12 |     "electron:dev": "npm run dev",
+  13 |     "build": "vite build && electron-builder",
+  14 |     "typecheck": "tsc --noEmit"
+  15 |   },
+  16 |   "dependencies": {
+  17 |     "electron-store": "^9.0.0",
+  18 |     "react": "^18.3.1",
+  19 |     "react-dom": "^18.3.1",
+  20 |     "uiohook-napi": "^1.5.4",
+  21 |     "zustand": "^4.5.2"
+  22 |   },
+  23 |   "devDependencies": {
+  24 |     "@types/node": "^20.12.12",
+  25 |     "@types/react": "^18.3.3",
+  26 |     "@types/react-dom": "^18.3.0",
+  27 |     "@vitejs/plugin-react": "^4.3.1",
+  28 |     "autoprefixer": "^10.4.19",
+  29 |     "concurrently": "^9.0.1",
+  30 |     "cross-env": "^7.0.3",
+  31 |     "electron": "^30.0.9",
+  32 |     "electron-builder": "^24.13.3",
+  33 |     "postcss": "^8.4.38",
+  34 |     "tailwindcss": "^3.4.7",
+  35 |     "typescript": "^5.5.4",
+  36 |     "vite": "^5.4.19",
+  37 |     "wait-on": "^7.2.0"
+  38 |   }
+  39 | }
 
 ```
 
-`dbdoverlaytools-free/postcss.config.js`:
+`dbdoverlaytools-free/postcss.config.cjs`:
 
-```js
-   1 | export default {
+```cjs
+   1 | module.exports = {
    2 |   plugins: {
    3 |     tailwindcss: {},
    4 |     autoprefixer: {},
    5 |   },
-   6 | }
+   6 | };
 
 ```
 
@@ -960,262 +782,138 @@ dbdoverlaytools-free
 
 ```tsx
    1 | import React, { useEffect, useState } from 'react';
-   2 | import { useTimerStore } from '@/store/timerStore';
-   3 | import PlayerSettings from '@/components/PlayerSettings';
-   4 | import OverlaySettings from '@/components/OverlaySettings';
-   5 | import HotkeySettings from '@/components/HotkeySettings';
-   6 | import TimerControls from '@/components/TimerControls';
-   7 | 
-   8 | const ControlPanel: React.FC = () => {
-   9 |   const { 
-  10 |     timerData, 
-  11 |     overlaySettings, 
-  12 |     setOverlayVisible, 
-  13 |     isOverlayVisible, 
-  14 |     saveToStorage,
-  15 |     startTimer,
-  16 |     swapTimer,
-  17 |     resetAllTimers 
-  18 |   } = useTimerStore();
-  19 |   
-  20 |   const [saving, setSaving] = useState(false);
-  21 | 
+   2 | 
+   3 | type HK = { start: number|null, swap: number|null }
+   4 | 
+   5 | function keycodeLabel(kc: number|null) {
+   6 |   if (kc == null) return 'Not set';
+   7 |   // quelques labels “propres” pour F-keys courantes
+   8 |   const F_BASE = 59; // uiohook F1≈59, F12≈88 (selon uiohook)
+   9 |   if (kc >= F_BASE && kc <= F_BASE + 23) return `F${kc - F_BASE + 1}`;
+  10 |   return `Keycode ${kc}`;
+  11 | }
+  12 | 
+  13 | const ControlPanel: React.FC = () => {
+  14 |   const [overlayOn, setOverlayOn] = useState(false);
+  15 |   const [locked, setLocked] = useState(false);
+  16 |   const [scale, setScale] = useState(100);
+  17 |   const [players, setPlayers] = useState({ player1:{name:'PLAYER 1',score:0}, player2:{name:'PLAYER 2',score:0} });
+  18 |   const [hotkeys, setHotkeys] = useState<HK>({ start: null, swap: null });
+  19 |   const [capturing, setCapturing] = useState<null|'start'|'swap'>(null);
+  20 | 
+  21 |   // init
   22 |   useEffect(() => {
-  23 |     const id = setInterval(() => {
-  24 |       setSaving(true);
-  25 |       saveToStorage().finally(() => setSaving(false));
-  26 |     }, 2000);
-  27 |     return () => clearInterval(id);
-  28 |   }, [saveToStorage]);
-  29 | 
-  30 |   const handleStartPause = () => {
-  31 |     startTimer();
-  32 |     setTimeout(() => saveToStorage(), 100);
-  33 |   };
+  23 |     window.api.timer.get().then(setPlayers);
+  24 |     window.api.hotkeys.get().then((hk:HK) => setHotkeys(hk || {start:null, swap:null}));
+  25 |     window.api.overlay.onReady((v:boolean)=>setOverlayOn(v));
+  26 |     window.api.overlay.onSettings((s:any)=>{ setLocked(!!s.locked); setScale(s.scale||100); });
+  27 |     window.api.timer.onSync((d:any)=>setPlayers(d));
+  28 | 
+  29 |     window.api.hotkeys.onCaptured(({type, keycode}:{type:'start'|'swap', keycode:number})=>{
+  30 |       setHotkeys(h=>({...h, [type]: keycode}));
+  31 |       setCapturing(null);
+  32 |     })
+  33 |   }, []);
   34 | 
-  35 |   const handleSwap = () => {
-  36 |     swapTimer();
-  37 |     setTimeout(() => saveToStorage(), 100);
+  35 |   const savePlayers = (next:any) => {
+  36 |     setPlayers(next);
+  37 |     window.api.timer.set(next);
   38 |   };
   39 | 
-  40 |   const handleResetAll = () => {
-  41 |     resetAllTimers();
-  42 |     setTimeout(() => saveToStorage(), 100);
-  43 |   };
-  44 | 
-  45 |   return (
-  46 |     <div className="min-h-screen bg-gray-900 text-gray-200">
-  47 |       <header className="border-b border-gray-800 p-4 flex items-center justify-between">
-  48 |         <h1 className="text-lg font-semibold">DBD Timer Overlay</h1>
-  49 |         <div className="flex items-center gap-2">
-  50 |           <button
-  51 |             onClick={() => setOverlayVisible(!isOverlayVisible)}
-  52 |             className="px-4 py-2 rounded-md bg-purple-600 hover:bg-purple-700 text-white"
-  53 |           >
-  54 |             {isOverlayVisible ? 'Hide Overlay' : 'Show Overlay'}
-  55 |           </button>
-  56 |           <span className="text-xs text-gray-400">{saving ? 'Saving…' : ''}</span>
-  57 |         </div>
-  58 |       </header>
-  59 | 
-  60 |       <main className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-  61 |         <section className="bg-gray-800 rounded-xl p-4">
-  62 |           <h2 className="text-sm font-semibold mb-3 text-gray-300">Timer Controls</h2>
-  63 |           <TimerControls />
-  64 |         </section>
-  65 | 
-  66 |         <section className="bg-gray-800 rounded-xl p-4">
-  67 |           <h2 className="text-sm font-semibold mb-3 text-gray-300">Players</h2>
-  68 |           <PlayerSettings />
-  69 |         </section>
-  70 | 
-  71 |         <section className="bg-gray-800 rounded-xl p-4">
-  72 |           <h2 className="text-sm font-semibold mb-3 text-gray-300">Overlay</h2>
-  73 |           <OverlaySettings />
-  74 |         </section>
+  40 |   const toggleOverlay = async () => {
+  41 |     if (overlayOn) await window.api.overlay.hide(); else await window.api.overlay.show();
+  42 |   };
+  43 | 
+  44 |   return (
+  45 |     <div className="p-6 max-w-xl mx-auto font-ui">
+  46 |       <h1 className="text-2xl font-semibold mb-4">DBD 1v1 Timer — Control Panel</h1>
+  47 | 
+  48 |       <div className="grid grid-cols-2 gap-6">
+  49 |         <div className="space-y-3">
+  50 |           <label className="block text-sm text-zinc-400">Player 1 name</label>
+  51 |           <input className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
+  52 |             value={players.player1.name}
+  53 |             onChange={e=>savePlayers({...players, player1:{...players.player1, name:e.target.value}})} />
+  54 |           <label className="block text-sm text-zinc-400">Score</label>
+  55 |           <div className="flex items-center gap-2">
+  56 |             <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>savePlayers({...players, player1:{...players.player1, score:Math.max(0, players.player1.score-1)}})}>-</button>
+  57 |             <div className="min-w-10 text-center">{players.player1.score}</div>
+  58 |             <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>savePlayers({...players, player1:{...players.player1, score:players.player1.score+1}})}>+</button>
+  59 |           </div>
+  60 |         </div>
+  61 | 
+  62 |         <div className="space-y-3">
+  63 |           <label className="block text-sm text-zinc-400">Player 2 name</label>
+  64 |           <input className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
+  65 |             value={players.player2.name}
+  66 |             onChange={e=>savePlayers({...players, player2:{...players.player2, name:e.target.value}})} />
+  67 |           <label className="block text-sm text-zinc-400">Score</label>
+  68 |           <div className="flex items-center gap-2">
+  69 |             <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>savePlayers({...players, player2:{...players.player2, score:Math.max(0, players.player2.score-1)}})}>-</button>
+  70 |             <div className="min-w-10 text-center">{players.player2.score}</div>
+  71 |             <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>savePlayers({...players, player2:{...players.player2, score:players.player2.score+1}})}>+</button>
+  72 |           </div>
+  73 |         </div>
+  74 |       </div>
   75 | 
-  76 |         <section className="bg-gray-800 rounded-xl p-4">
-  77 |           <h2 className="text-sm font-semibold mb-3 text-gray-300">Hotkeys</h2>
-  78 |           <HotkeySettings />
-  79 |         </section>
-  80 | 
-  81 |         <section className="bg-gray-800 rounded-xl p-4 lg:col-span-2">
-  82 |           <h2 className="text-sm font-semibold mb-3 text-gray-300">Quick Actions</h2>
-  83 |           <div className="grid grid-cols-3 gap-3">
-  84 |             <button
-  85 |               onClick={handleStartPause}
-  86 |               className="py-3 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium"
-  87 |             >
-  88 |               Start/Pause ({timerData.startHotkey})
-  89 |             </button>
-  90 |             <button
-  91 |               onClick={handleSwap}
-  92 |               className="py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
-  93 |             >
-  94 |               Swap Timer ({timerData.swapHotkey})
-  95 |             </button>
-  96 |             <button
-  97 |               onClick={handleResetAll}
-  98 |               className="py-3 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium"
-  99 |             >
- 100 |               Reset All
- 101 |             </button>
- 102 |           </div>
- 103 |         </section>
- 104 |       </main>
- 105 | 
- 106 |       <footer className="p-4 text-center text-xs text-gray-500">
- 107 |         Selected: {timerData.selectedTimer === 1 ? timerData.player1Name : timerData.player2Name} • 
- 108 |         Status: {timerData.isRunning ? 'Running' : 'Stopped'} • 
- 109 |         Hotkeys: {timerData.startHotkey} (Start/Pause) • {timerData.swapHotkey} (Swap)
- 110 |       </footer>
- 111 |     </div>
- 112 |   );
- 113 | };
- 114 | 
- 115 | export default ControlPanel;
-
-```
-
-`dbdoverlaytools-free/src\components\HotkeySettings.tsx`:
-
-```tsx
-   1 | // src/components/HotkeySettings.tsx
-   2 | import React, { useState } from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | 
-   5 | const HotkeySettings: React.FC = () => {
-   6 |   const { timerData, updateHotkeys, saveToStorage } = useTimerStore();
-   7 |   
-   8 |   const [startKey, setStartKey] = useState(timerData.startHotkey);
-   9 |   const [swapKey, setSwapKey] = useState(timerData.swapHotkey);
-  10 |   const [isListening, setIsListening] = useState<'start' | 'swap' | null>(null);
-  11 | 
-  12 |   const handleKeyCapture = (type: 'start' | 'swap') => {
-  13 |     setIsListening(type);
-  14 |     
-  15 |     const handleKeyDown = (e: KeyboardEvent) => {
-  16 |       e.preventDefault();
-  17 |       e.stopPropagation();
-  18 |       
-  19 |       let key = '';
-  20 |       
-  21 |       if (e.code.startsWith('F') && /^F\d+$/.test(e.code)) {
-  22 |         key = e.code;
-  23 |       } else if (e.code.startsWith('Key')) {
-  24 |         key = e.code.slice(3);
-  25 |       } else if (e.code.startsWith('Digit')) {
-  26 |         key = e.code.slice(5);
-  27 |       } else {
-  28 |         key = e.code;
-  29 |       }
-  30 |       
-  31 |       if (type === 'start') {
-  32 |         setStartKey(key);
-  33 |       } else {
-  34 |         setSwapKey(key);
-  35 |       }
-  36 |       
-  37 |       setIsListening(null);
-  38 |       document.removeEventListener('keydown', handleKeyDown);
-  39 |     };
-  40 |     
-  41 |     document.addEventListener('keydown', handleKeyDown);
-  42 |     
-  43 |     setTimeout(() => {
-  44 |       if (isListening === type) {
-  45 |         setIsListening(null);
-  46 |         document.removeEventListener('keydown', handleKeyDown);
-  47 |       }
-  48 |     }, 5000);
-  49 |   };
-  50 | 
-  51 |   const handleSave = async () => {
-  52 |     const hotkeys = {
-  53 |       start: startKey,
-  54 |       swap: swapKey,
-  55 |     };
-  56 |     
-  57 |     updateHotkeys(hotkeys);
-  58 |     
-  59 |     if (window.electronAPI) {
-  60 |       await window.electronAPI.hotkeys.register(hotkeys);
-  61 |     }
-  62 |     
-  63 |     saveToStorage();
-  64 |   };
-  65 | 
-  66 |   const handleReset = () => {
-  67 |     setStartKey('F1');
-  68 |     setSwapKey('F2');
-  69 |   };
-  70 | 
-  71 |   return (
-  72 |     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-  73 |       <h2 className="text-xl font-semibold text-primary-400 mb-4">
-  74 |         Hotkey Settings
-  75 |       </h2>
-  76 |       
-  77 |       <div className="space-y-4">
-  78 |         <div>
-  79 |           <label className="block text-sm font-medium text-gray-300 mb-2">
-  80 |             Start/Pause Timer
-  81 |           </label>
-  82 |           <button
-  83 |             onClick={() => handleKeyCapture('start')}
-  84 |             className={`w-full py-2 px-4 rounded-md border text-left transition-colors ${
-  85 |               isListening === 'start'
-  86 |                 ? 'bg-primary-600 border-primary-500 text-white'
-  87 |                 : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
-  88 |             }`}
-  89 |           >
-  90 |             {isListening === 'start' ? 'Press any key...' : startKey}
-  91 |           </button>
-  92 |         </div>
-  93 | 
-  94 |         <div>
-  95 |           <label className="block text-sm font-medium text-gray-300 mb-2">
-  96 |             Swap Timer
-  97 |           </label>
-  98 |           <button
-  99 |             onClick={() => handleKeyCapture('swap')}
- 100 |             className={`w-full py-2 px-4 rounded-md border text-left transition-colors ${
- 101 |               isListening === 'swap'
- 102 |                 ? 'bg-primary-600 border-primary-500 text-white'
- 103 |                 : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
- 104 |             }`}
+  76 |       <div className="mt-6 flex items-center gap-3">
+  77 |         {overlayOn ? (
+  78 |           <button className="px-3 py-2 rounded bg-red-700 hover:bg-red-600" onClick={toggleOverlay}>Hide Overlay</button>
+  79 |         ) : (
+  80 |           <button className="px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600" onClick={toggleOverlay}>Show Overlay</button>
+  81 |         )}
+  82 | 
+  83 |         <label className="inline-flex items-center gap-2">
+  84 |           <input type="checkbox" checked={locked} onChange={(e)=>{ setLocked(e.target.checked); window.api.overlay.updateSettings({locked:e.target.checked}) }} />
+  85 |           <span>Lock (click-through)</span>
+  86 |         </label>
+  87 | 
+  88 |         <label className="inline-flex items-center gap-2">
+  89 |           <span>Scale</span>
+  90 |           <input type="range" min={50} max={200} value={scale} onChange={e=>{ const v=Number(e.target.value); setScale(v); window.api.overlay.updateSettings({scale:v}) }} />
+  91 |         </label>
+  92 | 
+  93 |         <label className="inline-flex items-center gap-2">
+  94 |           <input type="checkbox" defaultChecked onChange={(e)=>window.api.overlay.updateSettings({alwaysOnTop:e.target.checked})}/>
+  95 |           <span>Always on top</span>
+  96 |         </label>
+  97 |       </div>
+  98 | 
+  99 |       <div className="mt-6 grid grid-cols-2 gap-4">
+ 100 |         <div className="bg-zinc-900 border border-zinc-800 rounded p-3">
+ 101 |           <div className="text-sm text-zinc-400 mb-2">Start/Pause key</div>
+ 102 |           <button
+ 103 |             className={`w-full px-3 py-2 rounded ${capturing==='start' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+ 104 |             onClick={() => { setCapturing('start'); window.api.hotkeys.capture('start') }}
  105 |           >
- 106 |             {isListening === 'swap' ? 'Press any key...' : swapKey}
+ 106 |             {capturing==='start' ? 'Press a key…' : keycodeLabel(hotkeys.start)}
  107 |           </button>
  108 |         </div>
- 109 | 
- 110 |         <div className="flex gap-3">
+ 109 |         <div className="bg-zinc-900 border border-zinc-800 rounded p-3">
+ 110 |           <div className="text-sm text-zinc-400 mb-2">Swap key</div>
  111 |           <button
- 112 |             onClick={handleSave}
- 113 |             disabled={isListening !== null}
- 114 |             className="flex-1 py-2 px-4 bg-success-600 hover:bg-success-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-md font-medium transition-colors"
- 115 |           >
- 116 |             Save Hotkeys
- 117 |           </button>
- 118 |           
- 119 |           <button
- 120 |             onClick={handleReset}
- 121 |             disabled={isListening !== null}
- 122 |             className="flex-1 py-2 px-4 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-gray-300 rounded-md font-medium transition-colors"
- 123 |           >
- 124 |             Reset
- 125 |           </button>
- 126 |         </div>
- 127 | 
- 128 |         <div className="text-xs text-gray-500">
- 129 |           Global hotkeys work even when the app is not focused. Current: Start ({timerData.startHotkey}), Swap ({timerData.swapHotkey})
- 130 |         </div>
- 131 |       </div>
- 132 |     </div>
- 133 |   );
- 134 | };
- 135 | 
- 136 | export default HotkeySettings;
+ 112 |             className={`w-full px-3 py-2 rounded ${capturing==='swap' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+ 113 |             onClick={() => { setCapturing('swap'); window.api.hotkeys.capture('swap') }}
+ 114 |           >
+ 115 |             {capturing==='swap' ? 'Press a key…' : keycodeLabel(hotkeys.swap)}
+ 116 |           </button>
+ 117 |         </div>
+ 118 |       </div>
+ 119 | 
+ 120 |       <div className="mt-3">
+ 121 |         <button
+ 122 |           className="px-4 py-2 rounded bg-violet-700 hover:bg-violet-600"
+ 123 |           onClick={() => window.api.hotkeys.set(hotkeys)}
+ 124 |         >
+ 125 |           Save hotkeys
+ 126 |         </button>
+ 127 |         <span className="ml-3 text-sm text-zinc-500">Global, non-interceptées (pass-through)</span>
+ 128 |       </div>
+ 129 |     </div>
+ 130 |   )
+ 131 | }
+ 132 | 
+ 133 | export default ControlPanel
 
 ```
 
@@ -1370,435 +1068,6 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/src\components\OverlaySettings.tsx`:
-
-```tsx
-   1 | // src/components/OverlaySettings.tsx
-   2 | import React from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | 
-   5 | const OverlaySettings: React.FC = () => {
-   6 |   const {
-   7 |     overlaySettings,
-   8 |     isOverlayVisible,
-   9 |     setOverlayVisible,
-  10 |     setOverlaySettings
-  11 |   } = useTimerStore();
-  12 | 
-  13 |   const handleScaleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  14 |     const scale = parseInt(e.target.value);
-  15 |     setOverlaySettings({ scale });
-  16 |   };
-  17 | 
-  18 |   const handleLockToggle = () => {
-  19 |     setOverlaySettings({ locked: !overlaySettings.locked });
-  20 |   };
-  21 | 
-  22 |   const handleAlwaysOnTopToggle = () => {
-  23 |     setOverlaySettings({ alwaysOnTop: !overlaySettings.alwaysOnTop });
-  24 |   };
-  25 | 
-  26 |   return (
-  27 |     <div className="space-y-6">
-  28 |       <div className="flex items-center justify-between">
-  29 |         <h3 className="text-xl font-semibold text-white">Overlay Settings</h3>
-  30 |         <button
-  31 |           onClick={() => setOverlayVisible(!isOverlayVisible)}
-  32 |           className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-  33 |             isOverlayVisible
-  34 |               ? 'bg-red-600 hover:bg-red-700 text-white'
-  35 |               : 'bg-primary-600 hover:bg-primary-700 text-white'
-  36 |           }`}
-  37 |         >
-  38 |           {isOverlayVisible ? 'Hide Overlay' : 'Show Overlay'}
-  39 |         </button>
-  40 |       </div>
-  41 | 
-  42 |       <div className="bg-gray-800 rounded-lg p-6 space-y-6">
-  43 |         <div>
-  44 |           <div className="flex items-center justify-between mb-3">
-  45 |             <label className="text-white font-medium">Scale</label>
-  46 |             <span className="text-primary-400 font-mono">{overlaySettings.scale}%</span>
-  47 |           </div>
-  48 |           <input
-  49 |             type="range"
-  50 |             min="50"
-  51 |             max="200"
-  52 |             step="10"
-  53 |             value={overlaySettings.scale}
-  54 |             onChange={handleScaleChange}
-  55 |             className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-  56 |           />
-  57 |           <div className="flex justify-between text-xs text-gray-400 mt-1">
-  58 |             <span>50%</span>
-  59 |             <span>100%</span>
-  60 |             <span>200%</span>
-  61 |           </div>
-  62 |         </div>
-  63 | 
-  64 |         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-  65 |           <div className="flex items-center justify-between p-4 bg-gray-700 rounded-lg">
-  66 |             <div>
-  67 |               <div className="text-white font-medium">Lock Position</div>
-  68 |               <div className="text-sm text-gray-400">
-  69 |                 {overlaySettings.locked ? 'Overlay is click-through' : 'Overlay can be dragged'}
-  70 |               </div>
-  71 |             </div>
-  72 |             <button
-  73 |               onClick={handleLockToggle}
-  74 |               className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
-  75 |                 overlaySettings.locked ? 'bg-primary-600' : 'bg-gray-600'
-  76 |               }`}
-  77 |             >
-  78 |               <div
-  79 |                 className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200 ${
-  80 |                   overlaySettings.locked ? 'translate-x-6' : 'translate-x-0.5'
-  81 |                 }`}
-  82 |               />
-  83 |             </button>
-  84 |           </div>
-  85 | 
-  86 |           <div className="flex items-center justify-between p-4 bg-gray-700 rounded-lg">
-  87 |             <div>
-  88 |               <div className="text-white font-medium">Always on Top</div>
-  89 |               <div className="text-sm text-gray-400">
-  90 |                 {overlaySettings.alwaysOnTop ? 'Overlay stays above other windows' : 'Normal window behavior'}
-  91 |               </div>
-  92 |             </div>
-  93 |             <button
-  94 |               onClick={handleAlwaysOnTopToggle}
-  95 |               className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
-  96 |                 overlaySettings.alwaysOnTop ? 'bg-primary-600' : 'bg-gray-600'
-  97 |               }`}
-  98 |             >
-  99 |               <div
- 100 |                 className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200 ${
- 101 |                   overlaySettings.alwaysOnTop ? 'translate-x-6' : 'translate-x-0.5'
- 102 |                 }`}
- 103 |               />
- 104 |             </button>
- 105 |           </div>
- 106 |         </div>
- 107 | 
- 108 |         <div className="bg-gray-700 rounded-lg p-4">
- 109 |           <div className="flex items-center gap-2 mb-2">
- 110 |             <div className={`w-3 h-3 rounded-full ${overlaySettings.locked ? 'bg-red-500' : 'bg-green-500'}`} />
- 111 |             <span className="text-white font-medium">
- 112 |               {overlaySettings.locked ? 'Overlay Locked' : 'Overlay Unlocked'}
- 113 |             </span>
- 114 |           </div>
- 115 |           <p className="text-sm text-gray-400">
- 116 |             {overlaySettings.locked
- 117 |               ? 'The overlay is now click-through and cannot be moved. Unlock to reposition.'
- 118 |               : 'Drag the purple bar at the top of the overlay to reposition it.'}
- 119 |           </p>
- 120 |         </div>
- 121 |       </div>
- 122 |     </div>
- 123 |   );
- 124 | };
- 125 | 
- 126 | export default OverlaySettings;
-
-```
-
-`dbdoverlaytools-free/src\components\PlayerSettings.tsx`:
-
-```tsx
-   1 | // src/components/PlayerSettings.tsx
-   2 | import React, { useState } from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | 
-   5 | const PlayerSettings: React.FC = () => {
-   6 |   const {
-   7 |     timerData,
-   8 |     updatePlayerName,
-   9 |     updatePlayerScore,
-  10 |     saveToStorage,
-  11 |   } = useTimerStore();
-  12 | 
-  13 |   const [player1Input, setPlayer1Input] = useState(timerData.player1Name);
-  14 |   const [player2Input, setPlayer2Input] = useState(timerData.player2Name);
-  15 | 
-  16 |   const handlePlayer1NameSubmit = (e: React.FormEvent) => {
-  17 |     e.preventDefault();
-  18 |     updatePlayerName(1, player1Input.trim() || 'PLAYER 1');
-  19 |     saveToStorage();
-  20 |   };
-  21 | 
-  22 |   const handlePlayer2NameSubmit = (e: React.FormEvent) => {
-  23 |     e.preventDefault();
-  24 |     updatePlayerName(2, player2Input.trim() || 'PLAYER 2');
-  25 |     saveToStorage();
-  26 |   };
-  27 | 
-  28 |   const handleScoreChange = (player: 1 | 2, delta: number) => {
-  29 |     updatePlayerScore(player, delta);
-  30 |     saveToStorage();
-  31 |   };
-  32 | 
-  33 |   return (
-  34 |     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-  35 |       <h2 className="text-xl font-semibold text-primary-400 mb-4">
-  36 |         Player Settings
-  37 |       </h2>
-  38 |       
-  39 |       <div className="space-y-6">
-  40 |         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-  41 |           <div>
-  42 |             <label className="block text-sm font-medium text-gray-300 mb-2">
-  43 |               Player 1 Name
-  44 |             </label>
-  45 |             <form onSubmit={handlePlayer1NameSubmit} className="space-y-2">
-  46 |               <input
-  47 |                 type="text"
-  48 |                 value={player1Input}
-  49 |                 onChange={(e) => setPlayer1Input(e.target.value)}
-  50 |                 maxLength={20}
-  51 |                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-  52 |                 placeholder="Enter player 1 name"
-  53 |               />
-  54 |               <button
-  55 |                 type="submit"
-  56 |                 className="w-full py-1 px-3 bg-primary-600 hover:bg-primary-700 text-white rounded-md text-sm font-medium transition-colors"
-  57 |               >
-  58 |                 Update
-  59 |               </button>
-  60 |             </form>
-  61 |             
-  62 |             <div className="mt-3">
-  63 |               <label className="block text-sm font-medium text-gray-300 mb-2">
-  64 |                 Score: {timerData.player1Score}
-  65 |               </label>
-  66 |               <div className="flex gap-2">
-  67 |                 <button
-  68 |                   onClick={() => handleScoreChange(1, -1)}
-  69 |                   className="flex-1 py-1 px-2 bg-danger-600 hover:bg-danger-700 text-white rounded text-sm font-medium transition-colors"
-  70 |                 >
-  71 |                   -1
-  72 |                 </button>
-  73 |                 <button
-  74 |                   onClick={() => handleScoreChange(1, 1)}
-  75 |                   className="flex-1 py-1 px-2 bg-success-600 hover:bg-success-700 text-white rounded text-sm font-medium transition-colors"
-  76 |                 >
-  77 |                   +1
-  78 |                 </button>
-  79 |               </div>
-  80 |             </div>
-  81 |           </div>
-  82 | 
-  83 |           <div>
-  84 |             <label className="block text-sm font-medium text-gray-300 mb-2">
-  85 |               Player 2 Name
-  86 |             </label>
-  87 |             <form onSubmit={handlePlayer2NameSubmit} className="space-y-2">
-  88 |               <input
-  89 |                 type="text"
-  90 |                 value={player2Input}
-  91 |                 onChange={(e) => setPlayer2Input(e.target.value)}
-  92 |                 maxLength={20}
-  93 |                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-  94 |                 placeholder="Enter player 2 name"
-  95 |               />
-  96 |               <button
-  97 |                 type="submit"
-  98 |                 className="w-full py-1 px-3 bg-primary-600 hover:bg-primary-700 text-white rounded-md text-sm font-medium transition-colors"
-  99 |               >
- 100 |                 Update
- 101 |               </button>
- 102 |             </form>
- 103 |             
- 104 |             <div className="mt-3">
- 105 |               <label className="block text-sm font-medium text-gray-300 mb-2">
- 106 |                 Score: {timerData.player2Score}
- 107 |               </label>
- 108 |               <div className="flex gap-2">
- 109 |                 <button
- 110 |                   onClick={() => handleScoreChange(2, -1)}
- 111 |                   className="flex-1 py-1 px-2 bg-danger-600 hover:bg-danger-700 text-white rounded text-sm font-medium transition-colors"
- 112 |                 >
- 113 |                   -1
- 114 |                 </button>
- 115 |                 <button
- 116 |                   onClick={() => handleScoreChange(2, 1)}
- 117 |                   className="flex-1 py-1 px-2 bg-success-600 hover:bg-success-700 text-white rounded text-sm font-medium transition-colors"
- 118 |                 >
- 119 |                   +1
- 120 |                 </button>
- 121 |               </div>
- 122 |             </div>
- 123 |           </div>
- 124 |         </div>
- 125 |       </div>
- 126 |     </div>
- 127 |   );
- 128 | };
- 129 | 
- 130 | export default PlayerSettings;
-
-```
-
-`dbdoverlaytools-free/src\components\TimerControls.tsx`:
-
-```tsx
-   1 | import React from 'react';
-   2 | import { useTimerStore } from '../store/timerStore';
-   3 | import { formatTime } from '../utils/timer';
-   4 | 
-   5 | const TimerControls: React.FC = () => {
-   6 |   const {
-   7 |     timerData,
-   8 |     startTimer,
-   9 |     swapTimer,
-  10 |     resetAllTimers,
-  11 |     setCurrentTimer,
-  12 |     saveToStorage
-  13 |   } = useTimerStore();
-  14 | 
-  15 |   const handleStartPause = () => {
-  16 |     startTimer();
-  17 |     setTimeout(() => saveToStorage(), 100);
-  18 |   };
-  19 | 
-  20 |   const handleSwap = () => {
-  21 |     swapTimer();
-  22 |     setTimeout(() => saveToStorage(), 100);
-  23 |   };
-  24 | 
-  25 |   const handleResetAll = () => {
-  26 |     resetAllTimers();
-  27 |     setTimeout(() => saveToStorage(), 100);
-  28 |   };
-  29 | 
-  30 |   const handleTimerSelect = (timer: 1 | 2) => {
-  31 |     if (timerData.selectedTimer === timer) return;
-  32 |     setCurrentTimer(timer);
-  33 |     setTimeout(() => saveToStorage(), 100);
-  34 |   };
-  35 | 
-  36 |   const getTimerStatus = (timerId: 1 | 2) => {
-  37 |     const isSelected = timerData.selectedTimer === timerId;
-  38 |     const isActive = timerData.currentTimer === timerId && timerData.isRunning;
-  39 |     const clickCount = timerId === 1 ? timerData.timer1ClickCount : timerData.timer2ClickCount;
-  40 |     
-  41 |     if (isActive) return 'RUNNING';
-  42 |     if (clickCount === 2) return 'PAUSED';
-  43 |     if (clickCount === 1) return 'READY';
-  44 |     return 'IDLE';
-  45 |   };
-  46 | 
-  47 |   const getActionButtonText = () => {
-  48 |     const selected = timerData.selectedTimer;
-  49 |     const clickCount = selected === 1 ? timerData.timer1ClickCount : timerData.timer2ClickCount;
-  50 |     
-  51 |     if (clickCount === 0) return 'Start';
-  52 |     if (clickCount === 1 && timerData.isRunning && timerData.currentTimer === selected) return 'Pause';
-  53 |     if (clickCount === 2) return 'Reset';
-  54 |     return 'Start';
-  55 |   };
-  56 | 
-  57 |   return (
-  58 |     <div className="space-y-4">
-  59 |       <div className="grid grid-cols-2 gap-4">
-  60 |         <div className="bg-gray-700 rounded-lg p-4">
-  61 |           <div className="flex items-center justify-between mb-2">
-  62 |             <h3 className="font-medium text-white">{timerData.player1Name}</h3>
-  63 |             <span className={`text-xs px-2 py-1 rounded ${
-  64 |               timerData.selectedTimer === 1 ? 'bg-purple-600' : 'bg-gray-600'
-  65 |             }`}>
-  66 |               {getTimerStatus(1)}
-  67 |             </span>
-  68 |           </div>
-  69 |           <div className="text-2xl font-mono mb-3">
-  70 |             {formatTime(timerData.timer1Value)}
-  71 |           </div>
-  72 |           <button
-  73 |             onClick={() => handleTimerSelect(1)}
-  74 |             className={`w-full py-2 px-3 rounded-md font-medium transition-colors ${
-  75 |               timerData.selectedTimer === 1
-  76 |                 ? 'bg-purple-600 text-white'
-  77 |                 : 'bg-gray-600 hover:bg-gray-500 text-gray-300'
-  78 |             }`}
-  79 |           >
-  80 |             {timerData.selectedTimer === 1 ? 'Selected' : 'Select'}
-  81 |           </button>
-  82 |         </div>
-  83 | 
-  84 |         <div className="bg-gray-700 rounded-lg p-4">
-  85 |           <div className="flex items-center justify-between mb-2">
-  86 |             <h3 className="font-medium text-white">{timerData.player2Name}</h3>
-  87 |             <span className={`text-xs px-2 py-1 rounded ${
-  88 |               timerData.selectedTimer === 2 ? 'bg-purple-600' : 'bg-gray-600'
-  89 |             }`}>
-  90 |               {getTimerStatus(2)}
-  91 |             </span>
-  92 |           </div>
-  93 |           <div className="text-2xl font-mono mb-3">
-  94 |             {formatTime(timerData.timer2Value)}
-  95 |           </div>
-  96 |           <button
-  97 |             onClick={() => handleTimerSelect(2)}
-  98 |             className={`w-full py-2 px-3 rounded-md font-medium transition-colors ${
-  99 |               timerData.selectedTimer === 2
- 100 |                 ? 'bg-purple-600 text-white'
- 101 |                 : 'bg-gray-600 hover:bg-gray-500 text-gray-300'
- 102 |             }`}
- 103 |           >
- 104 |             {timerData.selectedTimer === 2 ? 'Selected' : 'Select'}
- 105 |           </button>
- 106 |         </div>
- 107 |       </div>
- 108 | 
- 109 |       <div className="grid grid-cols-3 gap-3">
- 110 |         <button
- 111 |           onClick={handleStartPause}
- 112 |           className={`py-3 px-4 rounded-lg font-semibold transition-colors ${
- 113 |             timerData.isRunning
- 114 |               ? 'bg-red-600 hover:bg-red-700 text-white'
- 115 |               : 'bg-green-600 hover:bg-green-700 text-white'
- 116 |           }`}
- 117 |         >
- 118 |           {getActionButtonText()}
- 119 |         </button>
- 120 |         
- 121 |         <button
- 122 |           onClick={handleSwap}
- 123 |           className="py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold"
- 124 |         >
- 125 |           Swap
- 126 |         </button>
- 127 |         
- 128 |         <button
- 129 |           onClick={handleResetAll}
- 130 |           className="py-3 px-4 bg-red-700 hover:bg-red-800 text-white rounded-lg font-semibold"
- 131 |         >
- 132 |           Reset All
- 133 |         </button>
- 134 |       </div>
- 135 | 
- 136 |       <div className="bg-gray-700 rounded-lg p-3">
- 137 |         <div className="text-center text-sm text-gray-300">
- 138 |           <div className="flex items-center justify-center gap-2 mb-1">
- 139 |             <div className={`w-2 h-2 rounded-full ${
- 140 |               timerData.isRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
- 141 |             }`} />
- 142 |             <span>Currently selected: <strong>{timerData.selectedTimer === 1 ? timerData.player1Name : timerData.player2Name}</strong></span>
- 143 |           </div>
- 144 |           {timerData.isRunning && (
- 145 |             <div className="text-green-400">
- 146 |               Timer {timerData.currentTimer} is running
- 147 |             </div>
- 148 |           )}
- 149 |         </div>
- 150 |       </div>
- 151 |     </div>
- 152 |   );
- 153 | };
- 154 | 
- 155 | export default TimerControls;
-
-```
-
 `dbdoverlaytools-free/src\components\overlay\DragHandle.tsx`:
 
 ```tsx
@@ -1853,501 +1122,139 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\components\overlay\TimerOverlay.tsx`:
 
 ```tsx
-   1 | import React, { useEffect, useState } from 'react';
-   2 | import { useTimerStore } from '../../store/timerStore';
-   3 | import DragHandle from './DragHandle';
-   4 | import { formatTime } from '../../utils/timer';
-   5 | import type { TimerData } from '../../types';
+   1 | import React from 'react'
+   2 | import { useTimerStore } from '@/store/timerStore'
+   3 | import { formatMillisDynamic } from '@/utils/timer'
+   4 | 
+   5 | type TD = { player1:{name:string,score:number}, player2:{name:string,score:number} }
    6 | 
-   7 | interface TimerOverlayProps {
-   8 |   timerData?: TimerData;
-   9 | }
-  10 | 
-  11 | function parseTimeForDisplay(timeString: string) {
-  12 |   const [main, centis = '00'] = timeString.split('.');
-  13 |   const parts = main.split(':');
-  14 |   const hasHours = parts.length === 3;
-  15 |   const hasMinutes = parts.length >= 2;
-  16 |   
-  17 |   if (hasHours) {
-  18 |     return {
-  19 |       hasHours: true,
-  20 |       hours: parts[0].padStart(2, '0'),
-  21 |       minutes: parts[1].padStart(2, '0'),
-  22 |       seconds: parts[2].padStart(2, '0'),
-  23 |       centis: centis.padStart(2, '0')
-  24 |     };
-  25 |   } else if (hasMinutes) {
-  26 |     return {
-  27 |       hasHours: false,
-  28 |       hasMinutes: true,
-  29 |       minutes: parts[0],
-  30 |       seconds: parts[1].padStart(2, '0'),
-  31 |       centis: centis.padStart(2, '0')
-  32 |     };
-  33 |   } else {
-  34 |     return {
-  35 |       hasHours: false,
-  36 |       hasMinutes: false,
-  37 |       seconds: main.padStart(2, '0'),
-  38 |       centis: centis.padStart(2, '0')
-  39 |     };
-  40 |   }
-  41 | }
-  42 | 
-  43 | const TimerOverlay: React.FC<TimerOverlayProps> = ({ timerData: propTimerData }) => {
-  44 |   const { timerData: storeTimerData, overlaySettings } = useTimerStore();
-  45 |   const [formattedTime1, setFormattedTime1] = useState('0.00');
-  46 |   const [formattedTime2, setFormattedTime2] = useState('0.00');
-  47 | 
-  48 |   const timerData = propTimerData || storeTimerData;
-  49 | 
-  50 |   useEffect(() => {
-  51 |     setFormattedTime1(formatTime(timerData.timer1Value || 0));
-  52 |     setFormattedTime2(formatTime(timerData.timer2Value || 0));
-  53 |   }, [timerData.timer1Value, timerData.timer2Value]);
-  54 | 
-  55 |   const t1 = parseTimeForDisplay(formattedTime1);
-  56 |   const t2 = parseTimeForDisplay(formattedTime2);
-  57 | 
-  58 |   const scaleFactor = overlaySettings.scale / 100;
-  59 |   const dragHandleHeight = overlaySettings.locked ? 0 : 30;
-  60 | 
-  61 |   return (
-  62 |     <div
-  63 |       style={{
-  64 |         width: '520px',
-  65 |         height: `${120 + dragHandleHeight}px`,
-  66 |         transform: `scale(${scaleFactor})`,
-  67 |         transformOrigin: 'top left',
-  68 |         background: 'transparent',
-  69 |         position: 'relative',
-  70 |         userSelect: 'none',
-  71 |         WebkitUserSelect: 'none',
-  72 |         margin: 0,
-  73 |         padding: 0,
-  74 |         overflow: 'hidden',
-  75 |         fontFamily: 'Poppins, sans-serif'
-  76 |       }}
-  77 |     >
-  78 |       <DragHandle 
-  79 |         isVisible={!overlaySettings.locked} 
-  80 |         className={overlaySettings.locked ? 'opacity-0 pointer-events-none h-0' : ''}
-  81 |       />
-  82 |       
-  83 |       <div 
-  84 |         style={{
-  85 |           width: '520px',
-  86 |           height: '120px',
-  87 |           position: 'absolute',
-  88 |           top: overlaySettings.locked ? '0px' : '30px',
-  89 |           left: '0px',
-  90 |           pointerEvents: overlaySettings.locked ? 'none' : 'auto',
-  91 |           background: 'transparent',
-  92 |           margin: 0,
-  93 |           padding: 0
-  94 |         }}
-  95 |       >
-  96 |         <div className="timer-overlay" style={{
-  97 |           display: 'grid',
-  98 |           gridTemplateColumns: 'minmax(160px, 1fr) auto minmax(160px, 1fr)',
-  99 |           gridTemplateRows: '50px 1fr',
- 100 |           width: '520px',
- 101 |           height: '120px',
- 102 |           position: 'relative'
- 103 |         }}>
- 104 |           <div className="name left" style={{
- 105 |             gridRow: 1,
- 106 |             gridColumn: 1,
- 107 |             borderBottom: '1px solid rgba(255,255,255,0.32)',
- 108 |             background: 'linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%)',
- 109 |             display: 'flex',
- 110 |             alignItems: 'center',
- 111 |             justifyContent: 'center',
- 112 |             fontSize: '24px',
- 113 |             fontWeight: 500,
- 114 |             color: '#FFF',
- 115 |             textTransform: 'uppercase',
- 116 |             textShadow: '0 0 6px rgba(255,255,255,0.50)',
- 117 |             overflow: 'hidden',
- 118 |             position: 'relative'
- 119 |           }}>
- 120 |             <span style={{ 
- 121 |               whiteSpace: 'nowrap', 
- 122 |               padding: '0 15px',
- 123 |               display: 'inline-block'
- 124 |             }}>
- 125 |               {timerData.player1Name}
- 126 |             </span>
- 127 |           </div>
- 128 | 
- 129 |           <div className="score-value" style={{
- 130 |             gridRow: 1,
- 131 |             gridColumn: 2,
- 132 |             borderBottom: '1px solid rgba(255,255,255,0.32)',
- 133 |             background: 'linear-gradient(90deg, #274B90 0.06%, #09327E 40.01%, #04296F 79.97%)',
- 134 |             display: 'flex',
- 135 |             alignItems: 'center',
- 136 |             justifyContent: 'center',
- 137 |             fontSize: '24px',
- 138 |             fontWeight: 500,
- 139 |             color: '#FFF',
- 140 |             padding: '0 15px',
- 141 |             textTransform: 'uppercase',
- 142 |             minWidth: '90px',
- 143 |             maxWidth: '120px'
- 144 |           }}>
- 145 |             {timerData.player1Score} – {timerData.player2Score}
- 146 |           </div>
- 147 | 
- 148 |           <div className="name right" style={{
- 149 |             gridRow: 1,
- 150 |             gridColumn: 3,
- 151 |             borderBottom: '1px solid rgba(255,255,255,0.32)',
- 152 |             background: 'linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%)',
- 153 |             display: 'flex',
- 154 |             alignItems: 'center',
- 155 |             justifyContent: 'center',
- 156 |             fontSize: '24px',
- 157 |             fontWeight: 500,
- 158 |             color: '#FFF',
- 159 |             textTransform: 'uppercase',
- 160 |             textShadow: '0 0 6px rgba(255,255,255,0.50)',
- 161 |             overflow: 'hidden',
- 162 |             position: 'relative'
- 163 |           }}>
- 164 |             <span style={{ 
- 165 |               whiteSpace: 'nowrap', 
- 166 |               padding: '0 15px',
- 167 |               display: 'inline-block'
- 168 |             }}>
- 169 |               {timerData.player2Name}
- 170 |             </span>
- 171 |           </div>
- 172 | 
- 173 |           <div className={`timer left ${timerData.selectedTimer === 1 ? 'active' : ''}`} style={{
- 174 |             gridRow: 2,
- 175 |             gridColumn: 1,
- 176 |             display: 'flex',
- 177 |             alignItems: 'center',
- 178 |             justifyContent: 'center',
- 179 |             fontFamily: 'Monaco, Consolas, "Courier New", monospace',
- 180 |             fontSize: '32px',
- 181 |             fontWeight: 400,
- 182 |             textShadow: '0 0 6px rgba(190,190,190,0.50)',
- 183 |             position: 'relative',
- 184 |             height: '100%',
- 185 |             textAlign: 'center',
- 186 |             minWidth: '160px'
- 187 |           }}>
- 188 |             <span style={{
- 189 |               display: 'inline-flex',
- 190 |               alignItems: 'center',
- 191 |               background: 'linear-gradient(180deg, #FFF 0%, #FFF 100%)',
- 192 |               WebkitBackgroundClip: 'text',
- 193 |               backgroundClip: 'text',
- 194 |               WebkitTextFillColor: 'transparent'
- 195 |             }}>
- 196 |               {t1.hasHours && (
- 197 |                 <>
- 198 |                   <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t1.hours}</span>
- 199 |                   <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
- 200 |                   <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t1.minutes}</span>
- 201 |                   <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
- 202 |                 </>
- 203 |               )}
- 204 |               {t1.hasMinutes && !t1.hasHours && (
- 205 |                 <>
- 206 |                   <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t1.minutes}</span>
- 207 |                   <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
- 208 |                 </>
- 209 |               )}
- 210 |               <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t1.seconds}</span>
- 211 |               <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>.</span>
- 212 |               <span style={{ display: 'inline-block', width: '18px', textAlign: 'center', fontSize: '28px' }}>{t1.centis}</span>
- 213 |             </span>
- 214 |             {timerData.selectedTimer === 1 && (
- 215 |               <div style={{
- 216 |                 content: '',
- 217 |                 position: 'absolute',
- 218 |                 bottom: 0,
- 219 |                 left: 0,
- 220 |                 right: 0,
- 221 |                 height: '3px',
- 222 |                 background: 'linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%)',
- 223 |                 animation: 'pulseBar 1.5s ease-in-out infinite'
- 224 |               }} />
- 225 |             )}
- 226 |           </div>
- 227 | 
- 228 |           <div className={`timer right ${timerData.selectedTimer === 2 ? 'active' : ''}`} style={{
- 229 |             gridRow: 2,
- 230 |             gridColumn: 3,
- 231 |             display: 'flex',
- 232 |             alignItems: 'center',
- 233 |             justifyContent: 'center',
- 234 |             fontFamily: 'Monaco, Consolas, "Courier New", monospace',
- 235 |             fontSize: '32px',
- 236 |             fontWeight: 400,
- 237 |             textShadow: '0 0 6px rgba(190,190,190,0.50)',
- 238 |             position: 'relative',
- 239 |             height: '100%',
- 240 |             textAlign: 'center',
- 241 |             minWidth: '160px'
- 242 |           }}>
- 243 |             <span style={{
- 244 |               display: 'inline-flex',
- 245 |               alignItems: 'center',
- 246 |               background: 'linear-gradient(180deg, #FFF 0%, #FFF 100%)',
- 247 |               WebkitBackgroundClip: 'text',
- 248 |               backgroundClip: 'text',
- 249 |               WebkitTextFillColor: 'transparent'
- 250 |             }}>
- 251 |               {t2.hasHours && (
- 252 |                 <>
- 253 |                   <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t2.hours}</span>
- 254 |                   <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
- 255 |                   <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t2.minutes}</span>
- 256 |                   <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
- 257 |                 </>
- 258 |               )}
- 259 |               {t2.hasMinutes && !t2.hasHours && (
- 260 |                 <>
- 261 |                   <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t2.minutes}</span>
- 262 |                   <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
- 263 |                 </>
- 264 |               )}
- 265 |               <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t2.seconds}</span>
- 266 |               <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>.</span>
- 267 |               <span style={{ display: 'inline-block', width: '18px', textAlign: 'center', fontSize: '28px' }}>{t2.centis}</span>
- 268 |             </span>
- 269 |             {timerData.selectedTimer === 2 && (
- 270 |               <div style={{
- 271 |                 content: '',
- 272 |                 position: 'absolute',
- 273 |                 bottom: 0,
- 274 |                 left: 0,
- 275 |                 right: 0,
- 276 |                 height: '3px',
- 277 |                 background: 'linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%)',
- 278 |                 animation: 'pulseBar 1.5s ease-in-out infinite'
- 279 |               }} />
- 280 |             )}
- 281 |           </div>
- 282 |         </div>
- 283 | 
- 284 |         <style>
- 285 |           {`
- 286 |             @keyframes pulseBar {
- 287 |               0%, 100% { 
- 288 |                 opacity: 0.8;
- 289 |                 transform: scaleY(1);
- 290 |               }
- 291 |               50% { 
- 292 |                 opacity: 1;
- 293 |                 transform: scaleY(1.5);
- 294 |               }
- 295 |             }
- 296 |           `}
- 297 |         </style>
- 298 |       </div>
- 299 |     </div>
- 300 |   );
- 301 | };
- 302 | 
- 303 | export default TimerOverlay;
-
-```
-
-`dbdoverlaytools-free/src\components\overlay\styles\DefaultStyle.tsx`:
-
-```tsx
-   1 | import React, { useMemo } from 'react';
-   2 | import { cn } from '@/utils/cn';
-   3 | 
-   4 | interface DefaultStyleProps {
-   5 |   player1Name: string;
-   6 |   player2Name: string;
-   7 |   player1Score: number;
-   8 |   player2Score: number;
-   9 |   timer1: string;
-  10 |   timer2: string;
-  11 |   currentTimer: 1 | 2;
-  12 |   isRunning: boolean;
-  13 | }
-  14 | 
-  15 | function parseChars(s: string) {
-  16 |   const [main, centis = '00'] = s.split('.');
-  17 |   const parts = main.split(':');
-  18 |   const hasHours = parts.length === 3;
-  19 |   const hasMinutes = parts.length >= 2;
-  20 |   const [h, m, sec] = hasHours ? parts : hasMinutes ? ['0', parts[0], parts[1]] : ['0', '0', parts[0]];
-  21 |   const seconds = sec ?? '0';
-  22 |   const singleDigitSeconds = seconds.length === 1;
-  23 |   return {
-  24 |     hasHours,
-  25 |     hasMinutes,
-  26 |     hours: hasHours ? h : undefined,
-  27 |     minutes: hasMinutes ? (hasHours ? m : parts[0]) : undefined,
-  28 |     seconds1: seconds[0],
-  29 |     seconds2: seconds.length > 1 ? seconds[1] : undefined,
-  30 |     dot: '.',
-  31 |     colon: ':',
-  32 |     colon1: ':',
-  33 |     colon2: ':',
-  34 |     centis1: centis[0] ?? '0',
-  35 |     centis2: centis[1] ?? '0',
-  36 |     singleDigitSeconds,
-  37 |   };
-  38 | }
-  39 | 
-  40 | const DefaultStyle: React.FC<DefaultStyleProps> = ({
-  41 |   player1Name,
-  42 |   player2Name,
-  43 |   player1Score,
-  44 |   player2Score,
-  45 |   timer1,
-  46 |   timer2,
-  47 |   currentTimer,
-  48 | }) => {
-  49 |   const t1 = useMemo(() => parseChars(timer1), [timer1]);
-  50 |   const t2 = useMemo(() => parseChars(timer2), [timer2]);
-  51 | 
-  52 |   return (
-  53 |     <div className="overlay default-style">
-  54 |       <div className="header">
-  55 |         <div className="name left">
-  56 |           <span className="scrolling-text">{player1Name}</span>
-  57 |         </div>
-  58 |         <div className="score">{player1Score} - {player2Score}</div>
-  59 |         <div className="name right">
-  60 |           <span className="scrolling-text">{player2Name}</span>
-  61 |         </div>
-  62 |       </div>
-  63 | 
-  64 |       <div className="timers">
-  65 |         <div className={cn('timer left', currentTimer === 1 && 'active')}>
-  66 |           <span className="timer-text">
-  67 |             {t1.hasHours && (
-  68 |               <>
-  69 |                 <span className="timer-char">{t1.hours}</span>
-  70 |                 <span className="timer-char separator">{t1.colon1}</span>
-  71 |                 <span className="timer-char">{t1.minutes}</span>
-  72 |                 <span className="timer-char separator">{t1.colon2}</span>
-  73 |               </>
-  74 |             )}
-  75 |             {t1.hasMinutes && !t1.hasHours && (
-  76 |               <>
-  77 |                 <span className="timer-char">{t1.minutes}</span>
-  78 |                 <span className="timer-char separator">{t1.colon}</span>
-  79 |               </>
-  80 |             )}
-  81 |             <span className="timer-char">{t1.seconds1}</span>
-  82 |             {!t1.singleDigitSeconds && t1.seconds2 && (
-  83 |               <span className="timer-char">{t1.seconds2}</span>
-  84 |             )}
-  85 |             <span className="timer-char separator">{t1.dot}</span>
-  86 |             <span className="timer-char centis">{t1.centis1}</span>
-  87 |             <span className="timer-char centis">{t1.centis2}</span>
-  88 |           </span>
-  89 |         </div>
-  90 | 
-  91 |         <div className={cn('timer right', currentTimer === 2 && 'active')}>
-  92 |           <span className="timer-text">
-  93 |             {t2.hasHours && (
-  94 |               <>
-  95 |                 <span className="timer-char">{t2.hours}</span>
-  96 |                 <span className="timer-char separator">{t2.colon1}</span>
-  97 |                 <span className="timer-char">{t2.minutes}</span>
-  98 |                 <span className="timer-char separator">{t2.colon2}</span>
-  99 |               </>
- 100 |             )}
- 101 |             {t2.hasMinutes && !t2.hasHours && (
- 102 |               <>
- 103 |                 <span className="timer-char">{t2.minutes}</span>
- 104 |                 <span className="timer-char separator">{t2.colon}</span>
- 105 |               </>
- 106 |             )}
- 107 |             <span className="timer-char">{t2.seconds1}</span>
- 108 |             {!t2.singleDigitSeconds && t2.seconds2 && (
- 109 |               <span className="timer-char">{t2.seconds2}</span>
- 110 |             )}
- 111 |             <span className="timer-char separator">{t2.dot}</span>
- 112 |             <span className="timer-char centis">{t2.centis1}</span>
- 113 |             <span className="timer-char centis">{t2.centis2}</span>
- 114 |           </span>
- 115 |         </div>
- 116 |       </div>
- 117 |     </div>
- 118 |   );
- 119 | };
- 120 | 
- 121 | export default DefaultStyle;
-
-```
-
-`dbdoverlaytools-free/src\hooks\useGlobalHotkeys.ts`:
-
-```ts
-   1 | import { useEffect } from 'react';
-   2 | import { useTimerStore } from '../store/timerStore';
-   3 | 
-   4 | const useGlobalHotkeys = () => {
-   5 |   const { 
-   6 |     startTimer,
-   7 |     swapTimer,
-   8 |     saveToStorage 
-   9 |   } = useTimerStore();
-  10 | 
-  11 |   useEffect(() => {
-  12 |     if (!window.electronAPI) return;
-  13 | 
-  14 |     const handleHotkeyPress = (action: string) => {
-  15 |       switch (action) {
-  16 |         case 'start':
-  17 |           startTimer();
-  18 |           setTimeout(() => {
-  19 |             saveToStorage();
-  20 |           }, 100);
-  21 |           break;
-  22 |           
-  23 |         case 'swap':
-  24 |           swapTimer();
-  25 |           setTimeout(() => {
-  26 |             saveToStorage();
-  27 |           }, 100);
-  28 |           break;
-  29 |       }
-  30 |     };
-  31 | 
-  32 |     const cleanup = window.electronAPI.hotkeys.onPressed(handleHotkeyPress);
-  33 | 
-  34 |     return () => {
-  35 |       if (cleanup) {
-  36 |         cleanup();
-  37 |       }
-  38 |     };
-  39 |   }, [startTimer, swapTimer, saveToStorage]);
+   7 | function splitForTheme(fmt: string) {
+   8 |   // support "SS.CC" ou "M:SS.CC"
+   9 |   const arr: { ch: string; sep?: boolean }[] = []
+  10 |   for (let i=0;i<fmt.length;i++){
+  11 |     const ch = fmt[i]
+  12 |     if (ch === ':' || ch === '.') arr.push({ ch, sep: true })
+  13 |     else arr.push({ ch })
+  14 |   }
+  15 |   return arr
+  16 | }
+  17 | 
+  18 | export default function TimerOverlay() {
+  19 |   const [players, setPlayers] = React.useState<TD>({player1:{name:'Player 1',score:0}, player2:{name:'Player 2',score:0}})
+  20 |   const active = useTimerStore(s=>s.active)
+  21 |   const status = useTimerStore(s=>s.status)
+  22 |   const elapsed = useTimerStore(s=>s.elapsed)
+  23 | 
+  24 |   const [locked, setLocked] = React.useState(false)
+  25 |   const [scale, setScale] = React.useState(100)
+  26 | 
+  27 |   // IPC: names/scores only
+  28 |   React.useEffect(() => {
+  29 |     (async () => setPlayers(await window.api.timer.get()))()
+  30 |     window.api.timer.onSync((d:any)=>setPlayers(d))
+  31 |   }, [])
+  32 | 
+  33 |   // Receive overlay settings (lock + scale)
+  34 |   React.useEffect(() => {
+  35 |     window.api.overlay.onSettings((s:any) => {
+  36 |       setLocked(!!s.locked)
+  37 |       setScale(s.scale || 100)
+  38 |     })
+  39 |   }, [])
   40 | 
-  41 |   const registerHotkeys = async (startKey: string, swapKey: string) => {
-  42 |     if (!window.electronAPI) {
-  43 |       return;
-  44 |     }
-  45 | 
-  46 |     try {
-  47 |       await window.electronAPI.hotkeys.register({
-  48 |         start: startKey,
-  49 |         swap: swapKey,
-  50 |       });
-  51 |     } catch (error) {
-  52 |       console.error('Failed to register hotkeys:', error);
-  53 |     }
-  54 |   };
-  55 | 
-  56 |   return { registerHotkeys };
-  57 | };
-  58 | 
-  59 | export default useGlobalHotkeys;
+  41 |   // Hotkeys globales (venant du main via uiohook)
+  42 |   React.useEffect(() => {
+  43 |     const handler = (p:any) => {
+  44 |       const api = useTimerStore.getState()
+  45 |       if (p?.type === 'toggle') api.toggle()
+  46 |       else if (p?.type === 'swap') api.select(api.active === 1 ? 2 : 1)
+  47 |     }
+  48 |     window.api.hotkeys.on(handler)
+  49 |   }, [])
+  50 | 
+  51 |   // rAF tick
+  52 |   const [, setTick] = React.useState(0)
+  53 |   React.useEffect(() => {
+  54 |     let raf = 0
+  55 |     const loop = () => { setTick(t => (t+1)&1023); raf = requestAnimationFrame(loop) }
+  56 |     raf = requestAnimationFrame(loop)
+  57 |     return () => cancelAnimationFrame(raf)
+  58 |   }, [])
+  59 | 
+  60 |   // Mesure DOM non-scalée (offsetWidth/Height ignorent transform)
+  61 |   React.useLayoutEffect(() => {
+  62 |     const el = document.getElementById('timerContainer')
+  63 |     if (!el) return
+  64 |     const measure = () => {
+  65 |       const w = el.offsetWidth
+  66 |       const h = el.offsetHeight
+  67 |       window.api.overlay.measure(w, h)
+  68 |     }
+  69 |     // fonts prêtes → mesurer
+  70 |     // @ts-ignore
+  71 |     if (document.fonts?.ready) {
+  72 |       // @ts-ignore
+  73 |       document.fonts.ready.then(() => { measure(); setTimeout(measure, 50) })
+  74 |     }
+  75 |     measure()
+  76 |     window.addEventListener('resize', measure)
+  77 |     return () => window.removeEventListener('resize', measure)
+  78 |   }, [players.player1.name, players.player2.name])
+  79 | 
+  80 |   const t1 = splitForTheme(formatMillisDynamic(elapsed(1)))
+  81 |   const t2 = splitForTheme(formatMillisDynamic(elapsed(2)))
+  82 | 
+  83 |   const p1Scroll = players.player1.name.length > 16
+  84 |   const p2Scroll = players.player2.name.length > 16
+  85 | 
+  86 |   const s = (scale || 100)/100
+  87 | 
+  88 |   return (
+  89 |     // wrapper extérieur = dimension exacte *après* zoom → pas de scroll
+  90 |     <div
+  91 |       className="pointer-events-none select-none"
+  92 |       style={{ width: Math.round(520*s), height: Math.round((120 + (locked?0:30))*s), overflow:'hidden' }}
+  93 |     >
+  94 |       {/* Drag handle (visible quand unlock) */}
+  95 |       <div className={`drag-handle ${locked ? '' : 'visible'}`}>
+  96 |         Drag to move
+  97 |       </div>
+  98 | 
+  99 |       {/* Coins carrés: pas de rounded ni border */}
+ 100 |       {/* Zoom par transform sur le contenu interne */}
+ 101 |       <div style={{ transform:`scale(${s})`, transformOrigin:'top left', width:520, height:120 }}>
+ 102 |         <div className="timer-overlay" id="timerContainer">
+ 103 |           {/* Noms + score */}
+ 104 |           <div className={`name left ${p1Scroll ? 'scrolling' : ''}`}>
+ 105 |             <span className="name-scroll">{players.player1.name || 'PLAYER 1'}</span>
+ 106 |           </div>
+ 107 |           <div className="score-value">
+ 108 |             {players.player1.score} – {players.player2.score}
+ 109 |           </div>
+ 110 |           <div className={`name right ${p2Scroll ? 'scrolling' : ''}`}>
+ 111 |             <span className="name-scroll">{players.player2.name || 'PLAYER 2'}</span>
+ 112 |           </div>
+ 113 | 
+ 114 |           {/* Timers */}
+ 115 |           <div className={`timer left ${active===1 ? 'active' : ''}`} aria-label={status[1]}>
+ 116 |             <span className="timer-text dbd-digits">
+ 117 |               {t1.map((c, i) => (
+ 118 |                 <span key={i} className={`timer-char ${c.sep ? 'separator' : ''}`}>{c.ch}</span>
+ 119 |               ))}
+ 120 |             </span>
+ 121 |           </div>
+ 122 |           <div className={`timer right ${active===2 ? 'active' : ''}`} aria-label={status[2]}>
+ 123 |             <span className="timer-text dbd-digits">
+ 124 |               {t2.map((c, i) => (
+ 125 |                 <span key={i} className={`timer-char ${c.sep ? 'separator' : ''}`}>{c.ch}</span>
+ 126 |               ))}
+ 127 |             </span>
+ 128 |           </div>
+ 129 |         </div>
+ 130 |       </div>
+ 131 |     </div>
+ 132 |   )
+ 133 | }
 
 ```
 
@@ -2410,439 +1317,259 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\index.css`:
 
 ```css
-   1 | @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Russo+One&display=swap');
-   2 | @tailwind base;
-   3 | @tailwind components;
-   4 | @tailwind utilities;
-   5 | 
-   6 | .drag-handle {
-   7 |   -webkit-app-region: drag;
-   8 |   cursor: move;
-   9 | }
-  10 | 
-  11 | .slider {
-  12 |   -webkit-appearance: none;
-  13 |   appearance: none;
-  14 |   background: transparent;
-  15 |   cursor: pointer;
-  16 | }
-  17 | 
-  18 | .slider::-webkit-slider-track {
-  19 |   background: #374151;
-  20 |   height: 8px;
-  21 |   border-radius: 4px;
-  22 | }
-  23 | 
-  24 | .slider::-webkit-slider-thumb {
-  25 |   -webkit-appearance: none;
-  26 |   appearance: none;
-  27 |   background: #8b5cf6;
-  28 |   height: 20px;
-  29 |   width: 20px;
-  30 |   border-radius: 50%;
-  31 |   cursor: pointer;
-  32 |   box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
-  33 |   transition: all 0.2s ease;
-  34 | }
-  35 | 
-  36 | .slider::-webkit-slider-thumb:hover {
-  37 |   background: #7c3aed;
-  38 |   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.5);
-  39 |   transform: scale(1.1);
-  40 | }
-  41 | 
-  42 | .slider::-moz-range-track {
-  43 |   background: #374151;
-  44 |   height: 8px;
-  45 |   border-radius: 4px;
-  46 |   border: none;
-  47 | }
-  48 | 
-  49 | .slider::-moz-range-thumb {
-  50 |   background: #8b5cf6;
-  51 |   height: 20px;
-  52 |   width: 20px;
-  53 |   border-radius: 50%;
-  54 |   cursor: pointer;
-  55 |   border: none;
-  56 |   box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
-  57 | }
-  58 | 
-  59 | @keyframes pulse-glow {
-  60 |   0%, 100% {
-  61 |     opacity: 0.6;
-  62 |     box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-  63 |   }
-  64 |   50% {
-  65 |     opacity: 1;
-  66 |     box-shadow: 0 0 30px rgba(168, 85, 247, 0.6);
-  67 |   }
-  68 | }
-  69 | 
-  70 | .animate-pulse-glow {
-  71 |   animation: pulse-glow 2s ease-in-out infinite;
-  72 | }
-  73 | 
-  74 | .overlay-container {
-  75 |   -webkit-user-select: none;
-  76 |   user-select: none;
-  77 |   -webkit-app-region: no-drag;
-  78 |   background: transparent !important;
-  79 | }
-  80 | 
-  81 | * {
-  82 |   box-sizing: border-box;
-  83 | }
-  84 | 
-  85 | body {
-  86 |   margin: 0;
-  87 |   font-family: 'Poppins', sans-serif;
-  88 |   -webkit-font-smoothing: antialiased;
-  89 |   -moz-osx-font-smoothing: grayscale;
-  90 |   color: #ffffff;
-  91 |   background: #1a1a1a;
-  92 | }
-  93 | 
-  94 | #root, #overlay-root {
-  95 |   width: 100%;
-  96 |   height: 100%;
-  97 | }
-  98 | 
-  99 | #overlay-root {
- 100 |   background: transparent !important;
- 101 |   margin: 0 !important;
- 102 |   padding: 0 !important;
- 103 | }
- 104 | 
- 105 | html.overlay-page,
- 106 | body.overlay-page {
- 107 |   background: transparent !important;
- 108 |   margin: 0 !important;
- 109 |   padding: 0 !important;
- 110 |   overflow: hidden !important;
- 111 | }
- 112 | 
- 113 | .no-drag {
- 114 |   -webkit-app-region: no-drag;
- 115 | }
- 116 | 
- 117 | .timer-glow {
- 118 |   text-shadow: 0 0 10px currentColor;
- 119 | }
- 120 | 
- 121 | .scrolling-text {
- 122 |   white-space: nowrap;
- 123 |   overflow: hidden;
- 124 | }
- 125 | 
- 126 | .scrolling-text.active {
- 127 |   animation: scroll-text 6s linear infinite;
- 128 | }
- 129 | 
- 130 | @keyframes scroll-text {
- 131 |   0% {
- 132 |     transform: translateX(80%);
- 133 |   }
- 134 |   100% {
- 135 |     transform: translateX(-80%);
- 136 |   }
- 137 | }
+   1 | @tailwind base;
+   2 | @tailwind components;
+   3 | @tailwind utilities;
+   4 | 
+   5 | .dbd-digits {
+   6 |   font-variant-numeric: tabular-nums;
+   7 |   -moz-font-feature-settings: "tnum";
+   8 |   -webkit-font-feature-settings: "tnum";
+   9 |   font-feature-settings: "tnum";
+  10 |   letter-spacing: 0.02em;
+  11 | }
 
 ```
 
 `dbdoverlaytools-free/src\main.tsx`:
 
 ```tsx
-   1 | // src/main.tsx
-   2 | import React from 'react';
-   3 | import ReactDOM from 'react-dom/client';
-   4 | import App from './App';
-   5 | import './index.css';
-   6 | 
-   7 | ReactDOM.createRoot(document.getElementById('root')!).render(
-   8 |   <React.StrictMode>
-   9 |     <App />
-  10 |   </React.StrictMode>
-  11 | );
+   1 | import React from 'react'
+   2 | import ReactDOM from 'react-dom/client'
+   3 | import './index.css'
+   4 | import ControlPanel from './components/ControlPanel'
+   5 | 
+   6 | function useTimerData() {
+   7 |   const [data, setData] = React.useState<{player1:{name:string,score:number}, player2:{name:string,score:number}}>({player1:{name:'Player 1',score:0}, player2:{name:'Player 2',score:0}});
+   8 |   React.useEffect(() => {
+   9 |     (async () => setData(await window.api.timer.get()))();
+  10 |     const off = window.api.timer.onSync((d:any) => setData(d));
+  11 |     return () => { /* ipcRenderer removes automatically on reload */ };
+  12 |   }, []);
+  13 |   const commit = (next:any) => { setData(next); window.api.timer.set(next); };
+  14 |   return [data, commit] as const;
+  15 | }
+  16 | 
+  17 | function NumberField(props:{value:number,onChange:(v:number)=>void}) {
+  18 |   return (
+  19 |     <div className="flex items-center gap-2">
+  20 |       <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>props.onChange(props.value-1)}>-</button>
+  21 |       <div className="min-w-10 text-center">{props.value}</div>
+  22 |       <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>props.onChange(props.value+1)}>+</button>
+  23 |     </div>
+  24 |   )
+  25 | }
+  26 | 
+  27 | function App() {
+  28 |   const [data, setData] = useTimerData();
+  29 |   const [overlayOn, setOverlayOn] = React.useState(false);
+  30 |   const [locked, setLocked] = React.useState(false);
+  31 |   const [scale, setScale] = React.useState(100);
+  32 | 
+  33 |   React.useEffect(() => {
+  34 |     window.api.overlay.onReady((v:boolean) => setOverlayOn(v));
+  35 |   }, []);
+  36 | 
+  37 |   return (
+  38 |     <div className="p-6 max-w-xl mx-auto font-ui">
+  39 |       <h1 className="text-2xl font-semibold mb-4">DBD 1v1 Timer — Control Panel</h1>
+  40 | 
+  41 |       <div className="grid grid-cols-2 gap-6">
+  42 |         <div className="space-y-3">
+  43 |           <label className="block text-sm text-zinc-400">Player 1 name</label>
+  44 |           <input className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
+  45 |             value={data.player1.name}
+  46 |             onChange={e=>setData({...data, player1:{...data.player1, name:e.target.value}})} />
+  47 |           <label className="block text-sm text-zinc-400">Score</label>
+  48 |           <NumberField value={data.player1.score} onChange={(v)=>setData({...data, player1:{...data.player1, score:Math.max(0,v)}})} />
+  49 |         </div>
+  50 | 
+  51 |         <div className="space-y-3">
+  52 |           <label className="block text-sm text-zinc-400">Player 2 name</label>
+  53 |           <input className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
+  54 |             value={data.player2.name}
+  55 |             onChange={e=>setData({...data, player2:{...data.player2, name:e.target.value}})} />
+  56 |           <label className="block text-sm text-zinc-400">Score</label>
+  57 |           <NumberField value={data.player2.score} onChange={(v)=>setData({...data, player2:{...data.player2, score:Math.max(0,v)}})} />
+  58 |         </div>
+  59 |       </div>
+  60 | 
+  61 |       <div className="mt-6 flex items-center gap-3">
+  62 |         {overlayOn ? (
+  63 |           <button className="px-3 py-2 rounded bg-red-700 hover:bg-red-600" onClick={()=>window.api.overlay.hide()}>Hide Overlay</button>
+  64 |         ) : (
+  65 |           <button className="px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600" onClick={()=>window.api.overlay.show()}>Show Overlay</button>
+  66 |         )}
+  67 |         <label className="inline-flex items-center gap-2">
+  68 |           <input type="checkbox" checked={locked} onChange={(e)=>{setLocked(e.target.checked); window.api.overlay.updateSettings({locked:e.target.checked})}} />
+  69 |           <span>Lock (click-through)</span>
+  70 |         </label>
+  71 |         <label className="inline-flex items-center gap-2">
+  72 |           <span>Scale</span>
+  73 |           <input type="range" min={50} max={200} value={scale} onChange={e=>{const v=Number(e.target.value); setScale(v); window.api.overlay.updateSettings({scale:v})}} />
+  74 |         </label>
+  75 |         <label className="inline-flex items-center gap-2">
+  76 |           <input type="checkbox" defaultChecked onChange={(e)=>window.api.overlay.updateSettings({alwaysOnTop:e.target.checked})}/>
+  77 |           <span>Always on top</span>
+  78 |         </label>
+  79 |       </div>
+  80 | 
+  81 |       <div className="mt-6 text-sm text-zinc-400">
+  82 |         Hotkeys: <b>F1</b> start/pause/reset — <b>F2</b> swap active timer.
+  83 |       </div>
+  84 |     </div>
+  85 |   )
+  86 | }
+  87 | 
+  88 | ReactDOM.createRoot(document.getElementById('root')!).render(<ControlPanel />)
 
 ```
 
 `dbdoverlaytools-free/src\overlay.tsx`:
 
 ```tsx
-   1 | // src/overlay.tsx
-   2 | import React from 'react';
-   3 | import ReactDOM from 'react-dom/client';
-   4 | import OverlayApp from './components/OverlayApp';
-   5 | import { useTimerStore } from './store/timerStore';
-   6 | import './index.css';
-   7 | 
-   8 | // Initialize store for overlay
-   9 | const initializeOverlay = async () => {
-  10 |   const store = useTimerStore.getState();
-  11 |   await store.loadFromStorage();
-  12 |   console.log('Overlay initialized with data:', store.timerData);
-  13 | };
-  14 | 
-  15 | // Initialize store
-  16 | initializeOverlay().catch(console.error);
-  17 | 
-  18 | ReactDOM.createRoot(document.getElementById('overlay-root')!).render(
-  19 |   <React.StrictMode>
-  20 |     <OverlayApp />
-  21 |   </React.StrictMode>
-  22 | );
+   1 | import React from 'react'
+   2 | import ReactDOM from 'react-dom/client'
+   3 | import './index.css'
+   4 | import './themes/default.css'
+   5 | import TimerOverlay from './components/overlay/TimerOverlay'
+   6 | 
+   7 | ReactDOM.createRoot(document.getElementById('root')!).render(<TimerOverlay />)
 
 ```
 
 `dbdoverlaytools-free/src\store\timerStore.ts`:
 
 ```ts
-   1 | import { create } from 'zustand';
-   2 | import type { OverlaySettings, TimerData, TimerId } from '@/types';
+   1 | import { create } from 'zustand'
+   2 | import { PreciseTimer } from '@/utils/timer'
    3 | 
-   4 | interface TimerStoreState {
-   5 |   timerData: TimerData;
-   6 |   overlaySettings: OverlaySettings;
-   7 |   isOverlayVisible: boolean;
+   4 | type Status = 'stopped'|'running'|'paused'
+   5 | 
+   6 | const t1 = new PreciseTimer()
+   7 | const t2 = new PreciseTimer()
    8 | 
-   9 |   loadFromStorage: () => Promise<void>;
-  10 |   saveToStorage: () => Promise<void>;
-  11 | 
-  12 |   setOverlayVisible: (visible: boolean) => Promise<void>;
-  13 |   setOverlaySettings: (patch: Partial<OverlaySettings>) => Promise<void>;
-  14 | 
-  15 |   updateHotkeys: (hotkeys: { start: string; swap: string }) => Promise<void>;
-  16 |   updatePlayerName: (id: TimerId, name: string) => void;
-  17 |   updatePlayerScore: (id: TimerId, delta: number) => void;
+   9 | type S = {
+  10 |   active: 1|2
+  11 |   status: Record<1|2, Status>
+  12 |   clicks: Record<1|2, 0|1|2> // press cycles on F1 for the current pause → reset
+  13 |   select: (n:1|2)=>void
+  14 |   toggle: ()=>void // F1 behavior
+  15 |   reset: (n:1|2)=>void
+  16 |   elapsed: (n:1|2)=>number
+  17 | }
   18 | 
-  19 |   startTimer: () => void;
-  20 |   swapTimer: () => void;
-  21 |   resetAllTimers: () => void;
-  22 |   setCurrentTimer: (id: TimerId) => void;
-  23 | }
-  24 | 
-  25 | const defaultOverlaySettings: OverlaySettings = {
-  26 |   baseWidth: 520,
-  27 |   baseHeight: 120,
-  28 |   scale: 100,
-  29 |   x: 100,
-  30 |   y: 100,
-  31 |   locked: false,
-  32 |   alwaysOnTop: true,
-  33 | };
-  34 | 
-  35 | const defaultTimerData: TimerData = {
-  36 |   player1Name: 'PLAYER 1',
-  37 |   player2Name: 'PLAYER 2',
-  38 |   player1Score: 0,
-  39 |   player2Score: 0,
-  40 | 
-  41 |   timer1Value: 0,
-  42 |   timer2Value: 0,
-  43 | 
-  44 |   selectedTimer: 1,
-  45 |   currentTimer: 1,
-  46 |   isRunning: false,
-  47 | 
-  48 |   timer1ClickCount: 0,
-  49 |   timer2ClickCount: 0,
+  19 | export const useTimerStore = create<S>((set, get) => ({
+  20 |   active: 1,
+  21 |   status: { 1: 'stopped', 2: 'stopped' },
+  22 |   clicks: { 1: 0, 2: 0 },
+  23 | 
+  24 |   select: (n) => set((s)=>({ active: n, clicks: { ...s.clicks, [n]: s.clicks[n] as 0|1|2 } })),
+  25 | 
+  26 |   toggle: () => {
+  27 |     const { active, status, clicks } = get()
+  28 |     const timer = active === 1 ? t1 : t2
+  29 |     if (status[active] === 'running') {
+  30 |       timer.pause()
+  31 |       set({ status: { ...status, [active]: 'paused' }, clicks: { ...clicks, [active]: 1 } })
+  32 |       return
+  33 |     }
+  34 |     if (status[active] === 'paused') {
+  35 |       // third press → reset
+  36 |       if (clicks[active] >= 1) {
+  37 |         timer.reset()
+  38 |         set({ status: { ...status, [active]: 'stopped' }, clicks: { ...clicks, [active]: 0 } })
+  39 |       } else {
+  40 |         // safety, but should not happen
+  41 |         timer.start()
+  42 |         set({ status: { ...status, [active]: 'running' }, clicks: { ...clicks, [active]: 0 } })
+  43 |       }
+  44 |       return
+  45 |     }
+  46 |     // stopped → start
+  47 |     timer.start()
+  48 |     set({ status: { ...status, [active]: 'running' }, clicks: { ...clicks, [active]: 0 } })
+  49 |   },
   50 | 
-  51 |   startHotkey: 'F1',
-  52 |   swapHotkey: 'F2',
-  53 |   hotkeys: { start: 'F1', swap: 'F2' },
-  54 | };
+  51 |   reset: (n) => {
+  52 |     (n===1?t1:t2).reset()
+  53 |     set((s)=>({ status: { ...s.status, [n]: 'stopped' }, clicks: { ...s.clicks, [n]: 0 } }))
+  54 |   },
   55 | 
-  56 | function syncToOverlay(data: TimerData) {
-  57 |   try {
-  58 |     if (window.electronAPI?.timer?.syncData) {
-  59 |       window.electronAPI.timer.syncData(data).catch(console.error);
-  60 |     }
-  61 |   } catch (error) {
-  62 |     console.error('Failed to sync to overlay:', error);
-  63 |   }
-  64 | }
+  56 |   elapsed: (n) => (n===1?t1:t2).elapsedMs
+  57 | }))
+
+```
+
+`dbdoverlaytools-free/src\themes\default.css`:
+
+```css
+   1 | /* === Default Theme === */
+   2 | .timer-overlay {
+   3 |   display: grid;
+   4 |   grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr);
+   5 |   grid-template-rows: 50px 1fr;
+   6 |   width: 520px;
+   7 |   height: 120px;
+   8 |   position: relative;
+   9 | }
+  10 | 
+  11 | .drag-handle {
+  12 |   position: absolute; top: 0; left: 0; right: 0; height: 30px;
+  13 |   background: linear-gradient(90deg, rgba(181,121,255,0.15) 0%, rgba(181,121,255,0.25) 50%, rgba(181,121,255,0.15) 100%);
+  14 |   border-bottom: 2px solid rgba(181,121,255,0.4);
+  15 |   box-shadow: 0 2px 10px rgba(181,121,255,0.3);
+  16 |   display: none; align-items: center; justify-content: center;
+  17 |   cursor: move; -webkit-app-region: drag;
+  18 |   font-size: 0.85rem; color: #B579FF; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+  19 |   z-index: 1000;
+  20 | }
+  21 | .drag-handle.visible { display: flex; }
+  22 | 
+  23 | .name, .score-value {
+  24 |   border-bottom: 1px solid rgba(255,255,255,0.32);
+  25 |   background: linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%);
+  26 |   display: flex; align-items: center; justify-content: center;
+  27 |   font-family: 'Poppins', system-ui, sans-serif;
+  28 |   font-size: 22px; font-weight: 500; color: #FFF;
+  29 |   position: relative; overflow: hidden;
+  30 | }
+  31 | .name.left { grid-row: 1; grid-column: 1; font-size: 24px; text-transform: uppercase; text-shadow: 0 0 6px rgba(255,255,255,0.50); }
+  32 | .score-value { 
+  33 |   grid-row: 1; grid-column: 2; font-size: 24px; text-transform: uppercase;
+  34 |   background: linear-gradient(90deg, #274B90 0.06%, #09327E 40.01%, #04296F 79.97%);
+  35 |   padding: 0 15px; min-width: 90px; max-width: 120px;
+  36 | }
+  37 | .name.right { grid-row: 1; grid-column: 3; font-size: 24px; text-transform: uppercase; text-shadow: 0 0 6px rgba(255,255,255,0.50); }
+  38 | 
+  39 | .name .name-scroll { display: inline-block; white-space: nowrap; padding: 0 15px; }
+  40 | .name.scrolling .name-scroll { animation: scroll-text 6s linear infinite; padding: 0 50px; }
+  41 | @keyframes scroll-text { 0%{transform:translateX(80%)} 100%{transform:translateX(-80%)} }
+  42 | 
+  43 | .timer {
+  44 |   display: flex; align-items: center; justify-content: center;
+  45 |   font-family: "Consolas","Monaco","Courier New",monospace;
+  46 |   font-size: 32px; font-weight: 400;
+  47 |   text-shadow: 0 0 6px rgba(190,190,190,0.50);
+  48 |   position: relative; height: 100%; text-align: center; min-width: 160px;
+  49 | }
+  50 | .timer.left { grid-row: 2; grid-column: 1; }
+  51 | .timer.right { grid-row: 2; grid-column: 3; }
+  52 | 
+  53 | .timer-text { display: inline-flex; align-items: center; background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
+  54 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  55 | .timer-char { display: inline-block; width: 22px; text-align: center;
+  56 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  57 | .timer-char.separator { width: 11px; }
+  58 | 
+  59 | .timer.active::before {
+  60 |   content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+  61 |   background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
+  62 |   animation: pulseBar 1s ease-in-out infinite;
+  63 | }
+  64 | @keyframes pulseBar { 0%,100%{opacity:.5} 50%{opacity:1} }
   65 | 
-  66 | export const useTimerStore = create<TimerStoreState>((set, get) => ({
-  67 |   timerData: defaultTimerData,
-  68 |   overlaySettings: defaultOverlaySettings,
-  69 |   isOverlayVisible: false,
-  70 | 
-  71 |   async loadFromStorage() {
-  72 |     try {
-  73 |       const storedTimer: Partial<TimerData> | null = await window.electronAPI?.store?.get('timerData');
-  74 |       const storedOverlay: Partial<OverlaySettings> | null = await window.electronAPI?.store?.get('overlaySettings');
-  75 | 
-  76 |       const timerData: TimerData = {
-  77 |         ...defaultTimerData,
-  78 |         ...(storedTimer ?? {}),
-  79 |       };
-  80 |       timerData.hotkeys = { start: timerData.startHotkey, swap: timerData.swapHotkey };
-  81 | 
-  82 |       const overlaySettings: OverlaySettings = {
-  83 |         ...defaultOverlaySettings,
-  84 |         ...(storedOverlay ?? {}),
-  85 |       };
-  86 | 
-  87 |       set({ timerData, overlaySettings });
-  88 |     } catch (e) {
-  89 |       console.warn('loadFromStorage failed', e);
-  90 |     }
-  91 |   },
-  92 | 
-  93 |   async saveToStorage() {
-  94 |     const { timerData, overlaySettings } = get();
-  95 |     try {
-  96 |       await window.electronAPI?.store?.set('timerData', timerData);
-  97 |       await window.electronAPI?.store?.set('overlaySettings', overlaySettings);
-  98 |     } catch (e) {
-  99 |       console.warn('saveToStorage failed', e);
- 100 |     }
- 101 |   },
- 102 | 
- 103 |   async setOverlayVisible(visible) {
- 104 |     set({ isOverlayVisible: visible });
- 105 |     try {
- 106 |       if (visible) await window.electronAPI?.overlay?.show();
- 107 |       else await window.electronAPI?.overlay?.hide();
- 108 |     } catch (e) {
- 109 |       console.warn('overlay show/hide failed', e);
- 110 |     }
- 111 |   },
- 112 | 
- 113 |   async setOverlaySettings(patch) {
- 114 |     const next = { ...get().overlaySettings, ...patch };
- 115 |     set({ overlaySettings: next });
- 116 |     try {
- 117 |       await window.electronAPI?.overlay?.updateSettings(patch);
- 118 |     } catch (e) {
- 119 |       console.warn('overlay settings update failed', e);
- 120 |     }
- 121 |   },
- 122 | 
- 123 |   async updateHotkeys(hotkeys) {
- 124 |     set((s) => ({
- 125 |       timerData: {
- 126 |         ...s.timerData,
- 127 |         startHotkey: hotkeys.start,
- 128 |         swapHotkey: hotkeys.swap,
- 129 |         hotkeys: { ...hotkeys },
- 130 |       },
- 131 |     }));
- 132 | 
- 133 |     try {
- 134 |       await window.electronAPI?.hotkeys?.register(hotkeys);
- 135 |     } catch (e) {
- 136 |       console.warn('hotkey register failed', e);
- 137 |     }
- 138 |   },
- 139 | 
- 140 |   updatePlayerName(id, name) {
- 141 |     set((s) => ({
- 142 |       timerData: {
- 143 |         ...s.timerData,
- 144 |         ...(id === 1 ? { player1Name: name } : { player2Name: name }),
- 145 |       },
- 146 |     }));
- 147 |   },
- 148 | 
- 149 |   updatePlayerScore(id, delta) {
- 150 |     set((s) => {
- 151 |       const currentScore = id === 1 ? s.timerData.player1Score : s.timerData.player2Score;
- 152 |       const newScore = Math.max(0, currentScore + delta);
- 153 |       return {
- 154 |         timerData: {
- 155 |           ...s.timerData,
- 156 |           ...(id === 1 ? { player1Score: newScore } : { player2Score: newScore }),
- 157 |         },
- 158 |       };
- 159 |     });
- 160 |   },
- 161 | 
- 162 |   startTimer() {
- 163 |     set((s) => {
- 164 |       const data = { ...s.timerData };
- 165 |       const selected = data.selectedTimer;
- 166 |       const clickCount = selected === 1 ? data.timer1ClickCount : data.timer2ClickCount;
- 167 | 
- 168 |       if (clickCount === 0) {
- 169 |         data.isRunning = true;
- 170 |         data.currentTimer = selected;
- 171 |         if (selected === 1) {
- 172 |           data.timer1ClickCount = 1;
- 173 |         } else {
- 174 |           data.timer2ClickCount = 1;
- 175 |         }
- 176 |       } else if (clickCount === 1 && data.isRunning && data.currentTimer === selected) {
- 177 |         data.isRunning = false;
- 178 |         if (selected === 1) {
- 179 |           data.timer1ClickCount = 2;
- 180 |         } else {
- 181 |           data.timer2ClickCount = 2;
- 182 |         }
- 183 |       } else if (clickCount === 2) {
- 184 |         if (selected === 1) {
- 185 |           data.timer1Value = 0;
- 186 |           data.timer1ClickCount = 0;
- 187 |         } else {
- 188 |           data.timer2Value = 0;
- 189 |           data.timer2ClickCount = 0;
- 190 |         }
- 191 |         if (data.currentTimer === selected && data.isRunning) {
- 192 |           data.isRunning = false;
- 193 |         }
- 194 |       } else if (clickCount === 1 && (!data.isRunning || data.currentTimer !== selected)) {
- 195 |         const otherTimer: TimerId = selected === 1 ? 2 : 1;
- 196 |         if (data.isRunning && data.currentTimer === otherTimer) {
- 197 |           if (otherTimer === 1) {
- 198 |             data.timer1ClickCount = 2;
- 199 |           } else {
- 200 |             data.timer2ClickCount = 2;
- 201 |           }
- 202 |         }
- 203 |         data.isRunning = true;
- 204 |         data.currentTimer = selected;
- 205 |       }
- 206 | 
- 207 |       syncToOverlay(data);
- 208 |       return { timerData: data };
- 209 |     });
- 210 |   },
- 211 | 
- 212 |   swapTimer() {
- 213 |     set((s) => {
- 214 |       const data = { ...s.timerData };
- 215 |       data.selectedTimer = data.selectedTimer === 1 ? 2 : 1;
- 216 |       
- 217 |       syncToOverlay(data);
- 218 |       return { timerData: data };
- 219 |     });
- 220 |   },
- 221 | 
- 222 |   resetAllTimers() {
- 223 |     set((s) => {
- 224 |       const data = { ...s.timerData };
- 225 |       data.timer1Value = 0;
- 226 |       data.timer2Value = 0;
- 227 |       data.timer1ClickCount = 0;
- 228 |       data.timer2ClickCount = 0;
- 229 |       data.isRunning = false;
- 230 | 
- 231 |       syncToOverlay(data);
- 232 |       return { timerData: data };
- 233 |     });
- 234 |   },
- 235 | 
- 236 |   setCurrentTimer(id) {
- 237 |     set((s) => {
- 238 |       const data = { ...s.timerData };
- 239 |       data.selectedTimer = id;
- 240 | 
- 241 |       syncToOverlay(data);
- 242 |       return { timerData: data };
- 243 |     });
- 244 |   },
- 245 | }));
+  66 | .dbd-digits { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: 0.02em; }
 
 ```
 
@@ -2967,6 +1694,39 @@ dbdoverlaytools-free
 
 ```
 
+`dbdoverlaytools-free/src\types\preload.d.ts`:
+
+```ts
+   1 | export {}
+   2 | declare global {
+   3 |   interface Window {
+   4 |     api: {
+   5 |       overlay: {
+   6 |         show(): Promise<any>
+   7 |         hide(): Promise<any>
+   8 |         updateSettings(s: any): Promise<any>
+   9 |         onReady(cb: (v: boolean) => void): void
+  10 |         onSettings(cb: (s: any) => void): void
+  11 |         measure(w: number, h: number): Promise<any>
+  12 |       }
+  13 |       timer: {
+  14 |         get(): Promise<any>
+  15 |         set(d: any): Promise<any>
+  16 |         onSync(cb: (d: any) => void): void
+  17 |       }
+  18 |       hotkeys: {
+  19 |         get(): Promise<{start:number|null, swap:number|null}>
+  20 |         set(hk: {start:number|null, swap:number|null}): Promise<any>
+  21 |         capture(type:'start'|'swap'): Promise<any>
+  22 |         onCaptured(cb: (p:{type:'start'|'swap', keycode:number}) => void): void
+  23 |         on(cb: (p: any) => void): void
+  24 |       }
+  25 |     }
+  26 |   }
+  27 | }
+
+```
+
 `dbdoverlaytools-free/src\utils\cn.ts`:
 
 ```ts
@@ -2979,291 +1739,77 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\utils\timer.ts`:
 
 ```ts
-   1 | /**
-   2 |  * Formats milliseconds to LiveSplit format with centiseconds
-   3 |  * Examples:
-   4 |  * - 0ms -> "0.00"
-   5 |  * - 30110ms -> "30.11" 
-   6 |  * - 80220ms -> "1:20.22"
-   7 |  * - 5428450ms -> "01:30:28.45"
-   8 |  */
-   9 | export function formatTime(milliseconds: number): string {
-  10 |   if (milliseconds < 0) return "0.00";
-  11 |   
-  12 |   const totalMs = Math.floor(milliseconds);
-  13 |   const totalSeconds = Math.floor(totalMs / 1000);
-  14 |   const minutes = Math.floor(totalSeconds / 60);
-  15 |   const hours = Math.floor(minutes / 60);
-  16 |   const remainingMinutes = minutes % 60;
-  17 |   const remainingSeconds = totalSeconds % 60;
-  18 |   const centiseconds = Math.floor((totalMs % 1000) / 10);
-  19 |   
-  20 |   if (hours > 0) {
-  21 |     return `${hours.toString().padStart(2, '0')}:${remainingMinutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
-  22 |   } else if (minutes > 0) {
-  23 |     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
-  24 |   } else {
-  25 |     // Pour les secondes seules, on n'ajoute pas de zéro devant si c'est moins de 10
-  26 |     return `${remainingSeconds}.${centiseconds.toString().padStart(2, '0')}`;
-  27 |   }
-  28 | }
-  29 | 
-  30 | /**
-  31 |  * Parses a formatted time string to milliseconds
-  32 |  * Supports formats: "SS.HH", "M:SS.HH", "HH:MM:SS.HH"
-  33 |  */
-  34 | export function parseTimeToMs(timeString: string): number {
-  35 |   // Handle HH:MM:SS.HH format
-  36 |   const hoursMatch = timeString.match(/(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
-  37 |   if (hoursMatch) {
-  38 |     const hours = parseInt(hoursMatch[1]);
-  39 |     const minutes = parseInt(hoursMatch[2]);
-  40 |     const seconds = parseInt(hoursMatch[3]);
-  41 |     const centiseconds = parseInt(hoursMatch[4]);
-  42 |     return (hours * 3600 * 1000) + (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
-  43 |   }
-  44 |   
-  45 |   // Handle M:SS.HH format
-  46 |   const minutesMatch = timeString.match(/(\d+):(\d{2})\.(\d{2})/);
-  47 |   if (minutesMatch) {
-  48 |     const minutes = parseInt(minutesMatch[1]);
-  49 |     const seconds = parseInt(minutesMatch[2]);
-  50 |     const centiseconds = parseInt(minutesMatch[3]);
-  51 |     return (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
-  52 |   }
-  53 |   
-  54 |   // Handle SS.HH format (including single digit seconds)
-  55 |   const secondsMatch = timeString.match(/(\d+)\.(\d{2})/);
-  56 |   if (secondsMatch) {
-  57 |     const seconds = parseInt(secondsMatch[1]);
-  58 |     const centiseconds = parseInt(secondsMatch[2]);
-  59 |     return (seconds * 1000) + (centiseconds * 10);
-  60 |   }
-  61 |   
-  62 |   return 0;
-  63 | }
-  64 | 
-  65 | /**
-  66 |  * High-precision timer class for LiveSplit-like functionality
-  67 |  */
-  68 | export class PreciseTimer {
-  69 |   private startTime: number = 0;
-  70 |   private pausedTime: number = 0;
-  71 |   private totalPausedTime: number = 0;
-  72 |   private animationId: number | null = null;
-  73 |   private intervalId: number | null = null;
-  74 |   private isRunning: boolean = false;
-  75 |   private isPaused: boolean = false;
-  76 |   private onUpdate: (value: number) => void;
-  77 |   private lastUpdateTime: number = 0;
-  78 | 
-  79 |   constructor(onUpdate: (value: number) => void) {
-  80 |     this.onUpdate = onUpdate;
-  81 |   }
-  82 | 
-  83 |   start(resumeFromValue: number = 0) {
-  84 |     if (this.isRunning && !this.isPaused) return;
-  85 |     
-  86 |     const now = Date.now();
-  87 |     
-  88 |     if (this.isPaused) {
-  89 |       // Resume from pause
-  90 |       this.totalPausedTime += now - this.pausedTime;
-  91 |       this.isPaused = false;
-  92 |     } else {
-  93 |       // Fresh start or restart
-  94 |       this.startTime = now;
-  95 |       this.totalPausedTime = 0;
-  96 |       this.pausedTime = 0;
-  97 |       
-  98 |       // If resuming from a specific value, adjust start time
-  99 |       if (resumeFromValue > 0) {
- 100 |         this.startTime = now - resumeFromValue;
- 101 |       }
- 102 |     }
- 103 |     
- 104 |     this.isRunning = true;
- 105 |     this.lastUpdateTime = 0;
- 106 | 
- 107 |     const updateTimer = () => {
- 108 |       if (!this.isRunning || this.isPaused) return;
- 109 | 
- 110 |       const now = Date.now();
- 111 |       const elapsed = now - this.startTime - this.totalPausedTime;
- 112 |       const currentValue = Math.max(0, elapsed);
- 113 | 
- 114 |       if (now - this.lastUpdateTime >= 10) {
- 115 |         this.onUpdate(currentValue);
- 116 |         this.lastUpdateTime = now;
- 117 |       }
- 118 | 
- 119 |       this.animationId = requestAnimationFrame(updateTimer);
- 120 |     };
- 121 | 
- 122 |     updateTimer();
- 123 | 
- 124 |     // Backup interval for precision
- 125 |     this.intervalId = window.setInterval(() => {
- 126 |       if (this.isRunning && !this.isPaused) {
- 127 |         const now = Date.now();
- 128 |         const elapsed = now - this.startTime - this.totalPausedTime;
- 129 |         const currentValue = Math.max(0, elapsed);
- 130 |         this.onUpdate(currentValue);
- 131 |       }
- 132 |     }, 10);
- 133 |   }
- 134 | 
- 135 |   pause(): number {
- 136 |     if (!this.isRunning || this.isPaused) return this.currentValue;
- 137 | 
- 138 |     this.isPaused = true;
- 139 |     this.pausedTime = Date.now();
- 140 |     
- 141 |     const currentValue = this.currentValue;
- 142 |     
- 143 |     if (this.animationId) {
- 144 |       cancelAnimationFrame(this.animationId);
- 145 |       this.animationId = null;
- 146 |     }
- 147 |     
- 148 |     if (this.intervalId) {
- 149 |       clearInterval(this.intervalId);
- 150 |       this.intervalId = null;
- 151 |     }
- 152 |     
- 153 |     return currentValue;
- 154 |   }
- 155 | 
- 156 |   stop() {
- 157 |     this.isRunning = false;
- 158 |     this.isPaused = false;
- 159 | 
- 160 |     if (this.animationId) {
- 161 |       cancelAnimationFrame(this.animationId);
- 162 |       this.animationId = null;
- 163 |     }
- 164 | 
- 165 |     if (this.intervalId) {
- 166 |       clearInterval(this.intervalId);
- 167 |       this.intervalId = null;
- 168 |     }
- 169 |   }
- 170 | 
- 171 |   reset() {
- 172 |     this.stop();
- 173 |     this.startTime = 0;
- 174 |     this.pausedTime = 0;
- 175 |     this.totalPausedTime = 0;
- 176 |     this.onUpdate(0);
- 177 |   }
- 178 | 
- 179 |   get running(): boolean {
- 180 |     return this.isRunning && !this.isPaused;
- 181 |   }
- 182 |   
- 183 |   get paused(): boolean {
- 184 |     return this.isPaused;
- 185 |   }
- 186 | 
- 187 |   get currentValue(): number {
- 188 |     if (!this.isRunning) return 0;
- 189 |     
- 190 |     if (this.isPaused) {
- 191 |       return Math.max(0, this.pausedTime - this.startTime - this.totalPausedTime);
- 192 |     }
- 193 |     
- 194 |     const now = Date.now();
- 195 |     const elapsed = now - this.startTime - this.totalPausedTime;
- 196 |     return Math.max(0, elapsed);
- 197 |   }
- 198 | }
- 199 | 
- 200 | /**
- 201 |  * Validates and normalizes hotkey string
- 202 |  */
- 203 | export function normalizeHotkey(hotkey: string): string {
- 204 |   const key = hotkey.trim().toLowerCase();
- 205 |   
- 206 |   if (key.startsWith('f') && key.length <= 3) {
- 207 |     const num = key.slice(1);
- 208 |     if (/^\d{1,2}$/.test(num)) {
- 209 |       return key.toUpperCase();
- 210 |     }
- 211 |   }
- 212 |   
- 213 |   if (key.length === 1 && /[a-z0-9]/.test(key)) {
- 214 |     return key.toUpperCase();
- 215 |   }
- 216 |   
- 217 |   const specialKeys = ['space', 'enter', 'tab', 'escape', 'backspace'];
- 218 |   if (specialKeys.includes(key)) {
- 219 |     return key.charAt(0).toUpperCase() + key.slice(1);
- 220 |   }
- 221 |   
- 222 |   return hotkey.toUpperCase();
- 223 | }
+   1 | export class PreciseTimer {
+   2 |   private _running = false;
+   3 |   private _startedAt = 0;
+   4 |   private _accum = 0;
+   5 | 
+   6 |   start() {
+   7 |     if (this._running) return;
+   8 |     this._startedAt = performance.now();
+   9 |     this._running = true;
+  10 |   }
+  11 |   pause() {
+  12 |     if (!this._running) return;
+  13 |     this._accum += performance.now() - this._startedAt;
+  14 |     this._running = false;
+  15 |   }
+  16 |   reset() {
+  17 |     this._running = false;
+  18 |     this._accum = 0;
+  19 |     this._startedAt = 0;
+  20 |   }
+  21 |   get running() { return this._running; }
+  22 |   get elapsedMs() {
+  23 |     return this._running ? this._accum + (performance.now() - this._startedAt) : this._accum;
+  24 |   }
+  25 | }
+  26 | 
+  27 | export function formatMillis(ms:number) {
+  28 |   // legacy "MM:SS:CC" — conservé si besoin ailleurs
+  29 |   const total = Math.max(0, Math.floor(ms));
+  30 |   const cs = Math.floor((total % 1000) / 10);
+  31 |   const secs = Math.floor(total / 1000) % 60;
+  32 |   const mins = Math.floor(total / 60000);
+  33 |   const pad = (n:number)=>n.toString().padStart(2,'0');
+  34 |   return `${pad(mins)}:${pad(secs)}:${pad(cs)}`;
+  35 | }
+  36 | 
+  37 | // Nouveau : dynamique
+  38 | export function formatMillisDynamic(ms:number) {
+  39 |   const total = Math.max(0, Math.floor(ms));
+  40 |   const cs = Math.floor((total % 1000) / 10);           // 0..99
+  41 |   const secs = Math.floor(total / 1000) % 60;           // 0..59
+  42 |   const mins = Math.floor(total / 60000);               // 0..∞
+  43 | 
+  44 |   const cs2 = cs.toString().padStart(2, '0');
+  45 |   if (mins > 0) {
+  46 |     const ss = secs.toString().padStart(2,'0');
+  47 |     return `${mins}:${ss}.${cs2}`;                      // M:SS.CC (minutes sans zéro superflu)
+  48 |   } else {
+  49 |     // pas de minutes → "S.CC" (et 0.00 au départ)
+  50 |     return `${secs}.${cs2}`;
+  51 |   }
+  52 | }
 
 ```
 
-`dbdoverlaytools-free/tailwind.config.js`:
+`dbdoverlaytools-free/tailwind.config.cjs`:
 
-```js
-   1 | // tailwind.config.js
-   2 | /** @type {import('tailwindcss').Config} */
-   3 | export default {
-   4 |   content: [
-   5 |     "./index.html",
-   6 |     "./overlay.html",
-   7 |     "./src/**/*.{js,ts,jsx,tsx}",
-   8 |   ],
-   9 |   theme: {
-  10 |     extend: {
-  11 |       colors: {
-  12 |         primary: {
-  13 |           300: '#a855f7',
-  14 |           400: '#9333ea',
-  15 |           500: '#8b5cf6',
-  16 |           600: '#7c3aed',
-  17 |           700: '#6d28d9',
-  18 |         },
-  19 |         success: {
-  20 |           400: '#10b981',
-  21 |         },
-  22 |         gray: {
-  23 |           800: '#1f2937',
-  24 |           900: '#111827',
-  25 |         }
-  26 |       },
-  27 |       animation: {
-  28 |         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
-  29 |         'scrolling-text': 'scrolling-text 8s linear infinite',
-  30 |       },
-  31 |       keyframes: {
-  32 |         'pulse-glow': {
-  33 |           '0%, 100%': { 
-  34 |             opacity: '0.6',
-  35 |             boxShadow: '0 0 20px rgba(168, 85, 247, 0.3)'
-  36 |           },
-  37 |           '50%': { 
-  38 |             opacity: '1',
-  39 |             boxShadow: '0 0 30px rgba(168, 85, 247, 0.6)'
-  40 |           }
-  41 |         },
-  42 |         'scrolling-text': {
-  43 |           '0%': { transform: 'translateX(100%)' },
-  44 |           '100%': { transform: 'translateX(-100%)' }
-  45 |         }
-  46 |       },
-  47 |       fontFamily: {
-  48 |         'mono': ['Monaco', 'Menlo', 'Ubuntu Mono', 'monospace'],
-  49 |       },
-  50 |       backdropBlur: {
-  51 |         'xs': '2px',
-  52 |       }
-  53 |     },
-  54 |   },
-  55 |   plugins: [],
-  56 | }
+```cjs
+   1 | /** @type {import('tailwindcss').Config} */
+   2 | module.exports = {
+   3 |   content: ["./index.html", "./overlay.html", "./src/**/*.{ts,tsx}"],
+   4 |   theme: {
+   5 |     extend: {
+   6 |       fontFamily: {
+   7 |         ui: ['Inter', 'system-ui', 'Segoe UI', 'Roboto', 'Arial', 'sans-serif'],
+   8 |         mono: ['ui-monospace','SFMono-Regular','Menlo','Monaco','Consolas','Liberation Mono','monospace']
+   9 |       }
+  10 |     }
+  11 |   },
+  12 |   plugins: []
+  13 | };
 
 ```
 
@@ -3272,44 +1818,24 @@ dbdoverlaytools-free
 ```json
    1 | {
    2 |   "compilerOptions": {
-   3 |     "target": "ES2020",
+   3 |     "target": "ES2021",
    4 |     "useDefineForClassFields": true,
-   5 |     "lib": ["ES2020", "DOM", "DOM.Iterable"],
+   5 |     "lib": ["ES2021", "DOM"],
    6 |     "module": "ESNext",
    7 |     "skipLibCheck": true,
-   8 | 
-   9 |     /* Bundler mode */
-  10 |     "moduleResolution": "bundler",
-  11 |     "allowImportingTsExtensions": true,
-  12 |     "resolveJsonModule": true,
-  13 |     "isolatedModules": true,
-  14 |     "noEmit": true,
-  15 |     "jsx": "react-jsx",
-  16 | 
-  17 |     /* Linting */
-  18 |     "strict": true,
-  19 |     "noUnusedLocals": true,
-  20 |     "noUnusedParameters": true,
-  21 |     "noFallthroughCasesInSwitch": true,
-  22 | 
-  23 |     /* Path mapping */
-  24 |     "baseUrl": ".",
-  25 |     "paths": {
-  26 |       "@/*": ["src/*"],
-  27 |       "@/components/*": ["src/components/*"],
-  28 |       "@/stores/*": ["src/stores/*"],
-  29 |       "@/types/*": ["src/types/*"],
-  30 |       "@/utils/*": ["src/utils/*"]
-  31 |     }
-  32 |   },
-  33 |   "include": [
-  34 |     "src",
-  35 |     "electron",
-  36 |     "vite.config.ts",
-  37 |     "src/types/global.d.ts"
-  38 |   ],
-  39 |   "references": [{ "path": "./tsconfig.node.json" }]
-  40 | }
+   8 |     "moduleResolution": "Bundler",
+   9 |     "resolveJsonModule": true,
+  10 |     "isolatedModules": true,
+  11 |     "noEmit": true,
+  12 |     "jsx": "react-jsx",
+  13 |     "baseUrl": ".",
+  14 |     "paths": {
+  15 |       "@/*": ["src/*"]
+  16 |     },
+  17 |     "types": ["vite/client", "node"]
+  18 |   },
+  19 |   "include": ["src", "electron", "vite.config.ts"]
+  20 | }
 
 ```
 
@@ -3331,37 +1857,25 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/vite.config.ts`:
+`dbdoverlaytools-free/vite.config.mts`:
 
-```ts
-   1 | import { defineConfig } from 'vite';
-   2 | import react from '@vitejs/plugin-react';
-   3 | import { resolve } from 'path';
+```mts
+   1 | import { defineConfig } from 'vite'
+   2 | import react from '@vitejs/plugin-react'
+   3 | import { fileURLToPath, URL } from 'node:url'
    4 | 
    5 | export default defineConfig({
    6 |   plugins: [react()],
-   7 |   base: './',
+   7 |   server: { port: 5173, strictPort: true },
    8 |   resolve: {
    9 |     alias: {
-  10 |       '@': resolve(__dirname, 'src'),
-  11 |     },
+  10 |       '@': fileURLToPath(new URL('./src', import.meta.url))
+  11 |     }
   12 |   },
   13 |   build: {
   14 |     outDir: 'dist',
-  15 |     assetsDir: 'assets',
-  16 |     emptyOutDir: true,
-  17 |     rollupOptions: {
-  18 |       input: {
-  19 |         main: resolve(__dirname, 'index.html'),
-  20 |         overlay: resolve(__dirname, 'overlay.html'),
-  21 |       },
-  22 |     },
-  23 |   },
-  24 |   server: {
-  25 |     port: 5173,
-  26 |     strictPort: true,
-  27 |     cors: true,
-  28 |   },
-  29 | });
+  15 |     sourcemap: true
+  16 |   }
+  17 | })
 
 ```
