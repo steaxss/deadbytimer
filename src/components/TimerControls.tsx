@@ -23,6 +23,7 @@ const TimerControls: React.FC = () => {
   };
 
   const handleSwap = () => {
+    // Juste swap, sans pause automatique
     swapTimer();
     setTimeout(() => saveToStorage(), 100);
   };
@@ -38,9 +39,12 @@ const TimerControls: React.FC = () => {
   };
 
   const handleTimerSelect = (timer: 1 | 2) => {
-    if (timerData.isRunning) {
-      pauseTimer();
+    // Si on sélectionne le même timer, ne rien faire
+    if (timerData.currentTimer === timer) {
+      return;
     }
+    
+    // Changer de timer sans pause automatique
     setCurrentTimer(timer);
     setTimeout(() => saveToStorage(), 100);
   };

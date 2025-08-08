@@ -1450,67 +1450,67 @@ dbdoverlaytools-free
   71 |       timer2Value: localTimerData.timer2Value
   72 |     };
   73 | 
-  74 |     // Handle running state changes
-  75 |     if (lastState.isRunning !== currentState.isRunning) {
-  76 |       if (currentState.isRunning) {
-  77 |         console.log('Starting timer in overlay, current:', currentState.currentTimer);
-  78 |         const timerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-  79 |         const resumeValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
-  80 |         
-  81 |         if (timerRef) {
-  82 |           timerRef.start(resumeValue);
-  83 |         }
-  84 |       } else {
-  85 |         console.log('Pausing timer in overlay');
-  86 |         const currentTimer = currentState.currentTimer;
-  87 |         const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-  88 |         
-  89 |         if (timerRef && timerRef.running) {
-  90 |           const finalValue = timerRef.pause();
-  91 |           const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
-  92 |           setLocalTimerData(prev => ({ ...prev, [valueKey]: finalValue }));
-  93 |         }
-  94 |       }
-  95 |     }
-  96 | 
-  97 |     // Handle timer swap (don't reset values, just change active timer)
-  98 |     if (lastState.currentTimer !== currentState.currentTimer) {
-  99 |       console.log('Timer swapped in overlay from', lastState.currentTimer, 'to:', currentState.currentTimer);
- 100 |       
- 101 |       if (lastState.isRunning) {
- 102 |         // Pause the old timer and start the new one
- 103 |         const oldTimerRef = lastState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
- 104 |         const newTimerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
- 105 |         
- 106 |         if (oldTimerRef && oldTimerRef.running) {
- 107 |           const finalValue = oldTimerRef.pause();
- 108 |           const oldValueKey = lastState.currentTimer === 1 ? 'timer1Value' : 'timer2Value';
- 109 |           setLocalTimerData(prev => ({ ...prev, [oldValueKey]: finalValue }));
- 110 |         }
- 111 |         
- 112 |         if (newTimerRef && currentState.isRunning) {
- 113 |           const resumeValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
- 114 |           newTimerRef.start(resumeValue);
- 115 |         }
- 116 |       }
- 117 |     }
- 118 | 
- 119 |     // Handle reset (only when value goes to 0 and not running)
- 120 |     if (lastState.timer1Value !== currentState.timer1Value && 
- 121 |         !currentState.isRunning && 
- 122 |         currentState.timer1Value === 0 && 
- 123 |         lastState.timer1Value > 0) {
- 124 |       if (timer1Ref.current) {
- 125 |         timer1Ref.current.reset();
- 126 |       }
- 127 |     }
- 128 | 
- 129 |     if (lastState.timer2Value !== currentState.timer2Value && 
- 130 |         !currentState.isRunning && 
- 131 |         currentState.timer2Value === 0 && 
- 132 |         lastState.timer2Value > 0) {
- 133 |       if (timer2Ref.current) {
- 134 |         timer2Ref.current.reset();
+  74 |     console.log('State change detected:', {
+  75 |       lastState,
+  76 |       currentState,
+  77 |       stateChanges: {
+  78 |         runningChanged: lastState.isRunning !== currentState.isRunning,
+  79 |         timerChanged: lastState.currentTimer !== currentState.currentTimer,
+  80 |         timer1ValueChanged: lastState.timer1Value !== currentState.timer1Value,
+  81 |         timer2ValueChanged: lastState.timer2Value !== currentState.timer2Value
+  82 |       }
+  83 |     });
+  84 | 
+  85 |     // Handle timer swap AVANT tout le reste
+  86 | if (lastState.currentTimer !== currentState.currentTimer) {
+  87 |   console.log('SWAP DETECTED: from timer', lastState.currentTimer, 'to timer', currentState.currentTimer);
+  88 | 
+  89 |   if (timer1Ref.current?.running) {
+  90 |     const finalValue1 = timer1Ref.current.pause();
+  91 |     console.log('SWAP: Pausing timer 1 at value:', finalValue1);
+  92 |     setTimerValue(1, finalValue1); // <<< ajout
+  93 |   }
+  94 |   if (timer2Ref.current?.running) {
+  95 |     const finalValue2 = timer2Ref.current.pause();
+  96 |     console.log('SWAP: Pausing timer 2 at value:', finalValue2);
+  97 |     setTimerValue(2, finalValue2); // <<< ajout
+  98 |   }
+  99 | 
+ 100 |   console.log('SWAP: Timer', currentState.currentTimer, 'is now selected');
+ 101 | }
+ 102 | 
+ 103 |     // Handle running state changes
+ 104 |     if (lastState.isRunning !== currentState.isRunning) {
+ 105 |       if (currentState.isRunning) {
+ 106 |         // Démarrer SEULEMENT le timer actuel
+ 107 |         console.log('Starting timer', currentState.currentTimer);
+ 108 |         const timerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+ 109 |         const resumeValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
+ 110 |         
+ 111 |         // S'assurer que l'autre timer est arrêté
+ 112 |         const otherTimerRef = currentState.currentTimer === 1 ? timer2Ref.current : timer1Ref.current;
+ 113 |         if (otherTimerRef?.running) {
+ 114 |           console.log('Stopping other timer before starting current one');
+ 115 |           otherTimerRef.pause();
+ 116 |         }
+ 117 |         
+ 118 |         console.log('Resuming timer with value:', resumeValue);
+ 119 |         if (timerRef) {
+ 120 |           timerRef.start(resumeValue);
+ 121 |         }
+ 122 |       } else {
+ 123 |         // Pause TOUS les timers
+ 124 |         console.log('Pausing all timers');
+ 125 |         if (timer1Ref.current?.running) {
+ 126 |           const finalValue1 = timer1Ref.current.pause();
+ 127 |           console.log('Paused timer 1 at value:', finalValue1);
+ 128 |           setLocalTimerData(prev => ({ ...prev, timer1Value: finalValue1 }));
+ 129 |         }
+ 130 |         if (timer2Ref.current?.running) {
+ 131 |           const finalValue2 = timer2Ref.current.pause();
+ 132 |           console.log('Paused timer 2 at value:', finalValue2);
+ 133 |           setLocalTimerData(prev => ({ ...prev, timer2Value: finalValue2 }));
+ 134 |         }
  135 |       }
  136 |     }
  137 | 
@@ -1523,74 +1523,85 @@ dbdoverlaytools-free
  144 |     const cleanupDataSync = window.electronAPI.overlay.onDataSync((data) => {
  145 |       console.log('Received timer data sync in overlay:', data);
  146 |       syncingRef.current = true;
- 147 |       setLocalTimerData(data);
- 148 |       setTimeout(() => {
- 149 |         syncingRef.current = false;
- 150 |       }, 100);
- 151 |     });
- 152 | 
- 153 |     return cleanupDataSync;
- 154 |   }, []);
- 155 | 
- 156 |   useEffect(() => {
- 157 |     const forceTransparency = () => {
- 158 |       const elements = [
- 159 |         document.body,
- 160 |         document.documentElement,
- 161 |         document.getElementById('overlay-root')
- 162 |       ].filter(Boolean);
+ 147 |       
+ 148 |       // Mettre à jour l'état local avec les nouvelles données
+ 149 |       setLocalTimerData(data);
+ 150 |       
+ 151 |       // Si les timers tournent, les arrêter d'abord
+ 152 |       if (timer1Ref.current?.running) {
+ 153 |         timer1Ref.current.stop();
+ 154 |       }
+ 155 |       if (timer2Ref.current?.running) {
+ 156 |         timer2Ref.current.stop();
+ 157 |       }
+ 158 |       
+ 159 |       setTimeout(() => {
+ 160 |         syncingRef.current = false;
+ 161 |       }, 100);
+ 162 |     });
  163 | 
- 164 |       elements.forEach(el => {
- 165 |         if (el) {
- 166 |           el.style.background = 'transparent';
- 167 |           el.style.backgroundColor = 'transparent';
- 168 |           el.style.margin = '0';
- 169 |           el.style.padding = '0';
- 170 |           el.style.overflow = 'hidden';
- 171 |           el.style.border = 'none';
- 172 |           el.style.outline = 'none';
- 173 |         }
- 174 |       });
- 175 |     };
- 176 | 
- 177 |     forceTransparency();
- 178 |     const interval = setInterval(forceTransparency, 1000);
- 179 | 
- 180 |     return () => clearInterval(interval);
- 181 |   }, []);
- 182 | 
- 183 |   if (!isInitialized) {
- 184 |     return (
- 185 |       <div style={{ 
- 186 |         background: 'transparent', 
- 187 |         color: 'white', 
- 188 |         padding: '20px',
- 189 |         fontFamily: 'monospace'
- 190 |       }}>
- 191 |         Loading overlay...
- 192 |       </div>
- 193 |     );
- 194 |   }
- 195 | 
- 196 |   return (
- 197 |     <div 
- 198 |       className="w-full h-full"
- 199 |       style={{ 
- 200 |         background: 'transparent',
- 201 |         backgroundColor: 'transparent',
- 202 |         margin: 0,
- 203 |         padding: 0,
- 204 |         overflow: 'hidden',
- 205 |         border: 'none',
- 206 |         outline: 'none'
- 207 |       }}
- 208 |     >
- 209 |       <TimerOverlay timerData={localTimerData} />
- 210 |     </div>
- 211 |   );
- 212 | };
- 213 | 
- 214 | export default OverlayApp;
+ 164 |     return cleanupDataSync;
+ 165 |   }, []);
+ 166 | 
+ 167 |   useEffect(() => {
+ 168 |     const forceTransparency = () => {
+ 169 |       const elements = [
+ 170 |         document.body,
+ 171 |         document.documentElement,
+ 172 |         document.getElementById('overlay-root')
+ 173 |       ].filter(Boolean);
+ 174 | 
+ 175 |       elements.forEach(el => {
+ 176 |         if (el) {
+ 177 |           el.style.background = 'transparent';
+ 178 |           el.style.backgroundColor = 'transparent';
+ 179 |           el.style.margin = '0';
+ 180 |           el.style.padding = '0';
+ 181 |           el.style.overflow = 'hidden';
+ 182 |           el.style.border = 'none';
+ 183 |           el.style.outline = 'none';
+ 184 |         }
+ 185 |       });
+ 186 |     };
+ 187 | 
+ 188 |     forceTransparency();
+ 189 |     const interval = setInterval(forceTransparency, 1000);
+ 190 | 
+ 191 |     return () => clearInterval(interval);
+ 192 |   }, []);
+ 193 | 
+ 194 |   if (!isInitialized) {
+ 195 |     return (
+ 196 |       <div style={{ 
+ 197 |         background: 'transparent', 
+ 198 |         color: 'white', 
+ 199 |         padding: '20px',
+ 200 |         fontFamily: 'monospace'
+ 201 |       }}>
+ 202 |         Loading overlay...
+ 203 |       </div>
+ 204 |     );
+ 205 |   }
+ 206 | 
+ 207 |   return (
+ 208 |     <div 
+ 209 |       className="w-full h-full"
+ 210 |       style={{ 
+ 211 |         background: 'transparent',
+ 212 |         backgroundColor: 'transparent',
+ 213 |         margin: 0,
+ 214 |         padding: 0,
+ 215 |         overflow: 'hidden',
+ 216 |         border: 'none',
+ 217 |         outline: 'none'
+ 218 |       }}
+ 219 |     >
+ 220 |       <TimerOverlay timerData={localTimerData} />
+ 221 |     </div>
+ 222 |   );
+ 223 | };
+ 224 | 
+ 225 | export default OverlayApp;
 
 ```
 
@@ -1890,129 +1901,133 @@ dbdoverlaytools-free
   23 |   };
   24 | 
   25 |   const handleSwap = () => {
-  26 |     swapTimer();
-  27 |     setTimeout(() => saveToStorage(), 100);
-  28 |   };
-  29 | 
-  30 |   const handleResetCurrent = () => {
-  31 |     resetTimer();
-  32 |     setTimeout(() => saveToStorage(), 100);
-  33 |   };
-  34 | 
-  35 |   const handleResetAll = () => {
-  36 |     resetAllTimers();
-  37 |     setTimeout(() => saveToStorage(), 100);
-  38 |   };
-  39 | 
-  40 |   const handleTimerSelect = (timer: 1 | 2) => {
-  41 |     if (timerData.isRunning) {
-  42 |       pauseTimer();
-  43 |     }
-  44 |     setCurrentTimer(timer);
-  45 |     setTimeout(() => saveToStorage(), 100);
-  46 |   };
-  47 | 
-  48 |   return (
-  49 |     <div className="space-y-6">
-  50 |       <div className="text-center mb-6">
-  51 |         <h3 className="text-xl font-semibold text-white mb-2">Timer Controls</h3>
-  52 |         <p className="text-gray-400">All timer actions are displayed on the overlay</p>
-  53 |       </div>
-  54 | 
-  55 |       <div className="grid grid-cols-2 gap-4">
-  56 |         <button
-  57 |           onClick={() => handleTimerSelect(1)}
-  58 |           className={`py-3 px-4 rounded-md font-medium transition-colors ${
-  59 |             timerData.currentTimer === 1
-  60 |               ? 'bg-primary-600 text-white ring-2 ring-primary-400'
-  61 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-  62 |           }`}
-  63 |         >
-  64 |           Select {timerData.player1Name}
-  65 |           {timerData.currentTimer === 1 && timerData.isRunning && (
-  66 |             <div className="text-xs text-green-400 mt-1">● ACTIVE</div>
-  67 |           )}
-  68 |         </button>
-  69 |         
-  70 |         <button
-  71 |           onClick={() => handleTimerSelect(2)}
-  72 |           className={`py-3 px-4 rounded-md font-medium transition-colors ${
-  73 |             timerData.currentTimer === 2
-  74 |               ? 'bg-primary-600 text-white ring-2 ring-primary-400'
-  75 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-  76 |           }`}
-  77 |         >
-  78 |           Select {timerData.player2Name}
-  79 |           {timerData.currentTimer === 2 && timerData.isRunning && (
-  80 |             <div className="text-xs text-green-400 mt-1">● ACTIVE</div>
-  81 |           )}
-  82 |         </button>
-  83 |       </div>
-  84 | 
-  85 |       <div className="grid grid-cols-2 gap-4">
-  86 |         <button
-  87 |           onClick={handleStartPause}
-  88 |           className={`py-4 px-6 rounded-lg font-semibold text-lg transition-colors ${
-  89 |             timerData.isRunning
-  90 |               ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/30'
-  91 |               : 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/30'
-  92 |           }`}
-  93 |         >
-  94 |           {timerData.isRunning ? '⏸️ PAUSE' : '▶️ START'}
-  95 |         </button>
-  96 |         
-  97 |         <button
-  98 |           onClick={handleSwap}
-  99 |           className="py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-lg transition-colors shadow-lg shadow-blue-500/30"
- 100 |         >
- 101 |           🔄 SWAP
- 102 |         </button>
- 103 |       </div>
- 104 | 
- 105 |       <div className="grid grid-cols-2 gap-4">
- 106 |         <button
- 107 |           onClick={handleResetCurrent}
- 108 |           className="py-3 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors"
- 109 |         >
- 110 |           Reset Current
- 111 |         </button>
- 112 |         
- 113 |         <button
- 114 |           onClick={handleResetAll}
- 115 |           className="py-3 px-4 bg-red-700 hover:bg-red-800 text-white rounded-lg font-medium transition-colors"
- 116 |         >
- 117 |           Reset All
- 118 |         </button>
- 119 |       </div>
- 120 | 
- 121 |       <div className="bg-gray-700 rounded-lg p-4 mt-6">
- 122 |         <div className="flex items-center justify-between mb-2">
- 123 |           <span className="text-white font-medium">Current Active Timer</span>
- 124 |           <div className="flex items-center space-x-2">
- 125 |             <div className={`w-3 h-3 rounded-full ${
- 126 |               timerData.isRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
- 127 |             }`} />
- 128 |             <span className={`font-medium ${
- 129 |               timerData.isRunning ? 'text-green-400' : 'text-gray-400'
- 130 |             }`}>
- 131 |               {timerData.isRunning ? 'Running' : 'Stopped'}
- 132 |             </span>
- 133 |           </div>
- 134 |         </div>
- 135 |         <p className="text-center text-lg font-semibold text-primary-400">
- 136 |           {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
- 137 |         </p>
- 138 |       </div>
- 139 | 
- 140 |       <div className="text-sm text-gray-400 text-center bg-gray-800 p-3 rounded-lg">
- 141 |         <p>💡 Use your configured hotkeys to control timers globally:</p>
- 142 |         <p><kbd className="bg-gray-700 px-2 py-1 rounded">{timerData.startHotkey}</kbd> Start/Pause • <kbd className="bg-gray-700 px-2 py-1 rounded">{timerData.swapHotkey}</kbd> Swap</p>
- 143 |       </div>
- 144 |     </div>
- 145 |   );
- 146 | };
- 147 | 
- 148 | export default TimerControls;
+  26 |     // Juste swap, sans pause automatique
+  27 |     swapTimer();
+  28 |     setTimeout(() => saveToStorage(), 100);
+  29 |   };
+  30 | 
+  31 |   const handleResetCurrent = () => {
+  32 |     resetTimer();
+  33 |     setTimeout(() => saveToStorage(), 100);
+  34 |   };
+  35 | 
+  36 |   const handleResetAll = () => {
+  37 |     resetAllTimers();
+  38 |     setTimeout(() => saveToStorage(), 100);
+  39 |   };
+  40 | 
+  41 |   const handleTimerSelect = (timer: 1 | 2) => {
+  42 |     // Si on sélectionne le même timer, ne rien faire
+  43 |     if (timerData.currentTimer === timer) {
+  44 |       return;
+  45 |     }
+  46 |     
+  47 |     // Changer de timer sans pause automatique
+  48 |     setCurrentTimer(timer);
+  49 |     setTimeout(() => saveToStorage(), 100);
+  50 |   };
+  51 | 
+  52 |   return (
+  53 |     <div className="space-y-6">
+  54 |       <div className="text-center mb-6">
+  55 |         <h3 className="text-xl font-semibold text-white mb-2">Timer Controls</h3>
+  56 |         <p className="text-gray-400">All timer actions are displayed on the overlay</p>
+  57 |       </div>
+  58 | 
+  59 |       <div className="grid grid-cols-2 gap-4">
+  60 |         <button
+  61 |           onClick={() => handleTimerSelect(1)}
+  62 |           className={`py-3 px-4 rounded-md font-medium transition-colors ${
+  63 |             timerData.currentTimer === 1
+  64 |               ? 'bg-primary-600 text-white ring-2 ring-primary-400'
+  65 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+  66 |           }`}
+  67 |         >
+  68 |           Select {timerData.player1Name}
+  69 |           {timerData.currentTimer === 1 && timerData.isRunning && (
+  70 |             <div className="text-xs text-green-400 mt-1">● ACTIVE</div>
+  71 |           )}
+  72 |         </button>
+  73 |         
+  74 |         <button
+  75 |           onClick={() => handleTimerSelect(2)}
+  76 |           className={`py-3 px-4 rounded-md font-medium transition-colors ${
+  77 |             timerData.currentTimer === 2
+  78 |               ? 'bg-primary-600 text-white ring-2 ring-primary-400'
+  79 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+  80 |           }`}
+  81 |         >
+  82 |           Select {timerData.player2Name}
+  83 |           {timerData.currentTimer === 2 && timerData.isRunning && (
+  84 |             <div className="text-xs text-green-400 mt-1">● ACTIVE</div>
+  85 |           )}
+  86 |         </button>
+  87 |       </div>
+  88 | 
+  89 |       <div className="grid grid-cols-2 gap-4">
+  90 |         <button
+  91 |           onClick={handleStartPause}
+  92 |           className={`py-4 px-6 rounded-lg font-semibold text-lg transition-colors ${
+  93 |             timerData.isRunning
+  94 |               ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/30'
+  95 |               : 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/30'
+  96 |           }`}
+  97 |         >
+  98 |           {timerData.isRunning ? '⏸️ PAUSE' : '▶️ START'}
+  99 |         </button>
+ 100 |         
+ 101 |         <button
+ 102 |           onClick={handleSwap}
+ 103 |           className="py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-lg transition-colors shadow-lg shadow-blue-500/30"
+ 104 |         >
+ 105 |           🔄 SWAP
+ 106 |         </button>
+ 107 |       </div>
+ 108 | 
+ 109 |       <div className="grid grid-cols-2 gap-4">
+ 110 |         <button
+ 111 |           onClick={handleResetCurrent}
+ 112 |           className="py-3 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors"
+ 113 |         >
+ 114 |           Reset Current
+ 115 |         </button>
+ 116 |         
+ 117 |         <button
+ 118 |           onClick={handleResetAll}
+ 119 |           className="py-3 px-4 bg-red-700 hover:bg-red-800 text-white rounded-lg font-medium transition-colors"
+ 120 |         >
+ 121 |           Reset All
+ 122 |         </button>
+ 123 |       </div>
+ 124 | 
+ 125 |       <div className="bg-gray-700 rounded-lg p-4 mt-6">
+ 126 |         <div className="flex items-center justify-between mb-2">
+ 127 |           <span className="text-white font-medium">Current Active Timer</span>
+ 128 |           <div className="flex items-center space-x-2">
+ 129 |             <div className={`w-3 h-3 rounded-full ${
+ 130 |               timerData.isRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
+ 131 |             }`} />
+ 132 |             <span className={`font-medium ${
+ 133 |               timerData.isRunning ? 'text-green-400' : 'text-gray-400'
+ 134 |             }`}>
+ 135 |               {timerData.isRunning ? 'Running' : 'Stopped'}
+ 136 |             </span>
+ 137 |           </div>
+ 138 |         </div>
+ 139 |         <p className="text-center text-lg font-semibold text-primary-400">
+ 140 |           {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
+ 141 |         </p>
+ 142 |       </div>
+ 143 | 
+ 144 |       <div className="text-sm text-gray-400 text-center bg-gray-800 p-3 rounded-lg">
+ 145 |         <p>💡 Use your configured hotkeys to control timers globally:</p>
+ 146 |         <p><kbd className="bg-gray-700 px-2 py-1 rounded">{timerData.startHotkey}</kbd> Start/Pause • <kbd className="bg-gray-700 px-2 py-1 rounded">{timerData.swapHotkey}</kbd> Swap</p>
+ 147 |       </div>
+ 148 |     </div>
+ 149 |   );
+ 150 | };
+ 151 | 
+ 152 | export default TimerControls;
 
 ```
 
@@ -2210,121 +2225,142 @@ dbdoverlaytools-free
   47 |         centis1: centiseconds?.[0] || '0',
   48 |         centis2: centiseconds?.[1] || '0',
   49 |         hasHours: true,
-  50 |         hasMinutes: true
-  51 |       };
-  52 |     }
-  53 |     // Handle M:SS.HH format
-  54 |     else if (timeStr.includes(':') && timeStr.split(':').length === 2) {
-  55 |       const [minutesPart, secondsCentiseconds] = timeStr.split(':');
-  56 |       const [secondsPart, centiseconds] = secondsCentiseconds.split('.');
-  57 |       
-  58 |       return {
-  59 |         minutes: minutesPart || '0',
-  60 |         colon: ':',
-  61 |         seconds1: secondsPart?.[0] || '0',
-  62 |         seconds2: secondsPart?.[1] || '0',
-  63 |         dot: '.',
-  64 |         centis1: centiseconds?.[0] || '0',
-  65 |         centis2: centiseconds?.[1] || '0',
-  66 |         hasHours: false,
-  67 |         hasMinutes: true
-  68 |       };
-  69 |     } 
-  70 |     // Handle SS.HH format
-  71 |     else {
-  72 |       const [secondsPart, centiseconds] = timeStr.split('.');
-  73 |       
-  74 |       return {
-  75 |         seconds1: secondsPart?.[0] || '0',
-  76 |         seconds2: secondsPart?.[1] || '0',
-  77 |         dot: '.',
-  78 |         centis1: centiseconds?.[0] || '0',
-  79 |         centis2: centiseconds?.[1] || '0',
-  80 |         hasHours: false,
-  81 |         hasMinutes: false
-  82 |       };
-  83 |     }
-  84 |   };
-  85 | 
-  86 |   const timer1Chars = formatTimerChars(timer1 || '0.00');
-  87 |   const timer2Chars = formatTimerChars(timer2 || '0.00');
-  88 | 
-  89 |   return (
-  90 |     <div className="timer-overlay">
-  91 |       <div className="name left">
-  92 |         <span className={cn("name-scroll", player1Scrolling && "scrolling")}>
-  93 |           {player1Name.toUpperCase()}
-  94 |         </span>
-  95 |       </div>
-  96 |       
-  97 |       <div className="score-value">
-  98 |         {player1Score} – {player2Score}
-  99 |       </div>
- 100 |       
- 101 |       <div className="name right">
- 102 |         <span className={cn("name-scroll", player2Scrolling && "scrolling")}>
- 103 |           {player2Name.toUpperCase()}
- 104 |         </span>
- 105 |       </div>
- 106 |       
- 107 |       <div className={cn(
- 108 |         "timer left",
- 109 |         currentTimer === 1 && "active"
- 110 |       )}>
- 111 |         <span className="timer-text">
- 112 |           {timer1Chars.hasHours && (
- 113 |             <>
- 114 |               <span className="timer-char">{timer1Chars.hours}</span>
- 115 |               <span className="timer-char separator">{timer1Chars.colon1}</span>
- 116 |               <span className="timer-char">{timer1Chars.minutes}</span>
- 117 |               <span className="timer-char separator">{timer1Chars.colon2}</span>
- 118 |             </>
- 119 |           )}
- 120 |           {timer1Chars.hasMinutes && !timer1Chars.hasHours && (
- 121 |             <>
- 122 |               <span className="timer-char">{timer1Chars.minutes}</span>
- 123 |               <span className="timer-char separator">{timer1Chars.colon}</span>
- 124 |             </>
- 125 |           )}
- 126 |           <span className="timer-char">{timer1Chars.seconds1}</span>
- 127 |           <span className="timer-char">{timer1Chars.seconds2}</span>
- 128 |           <span className="timer-char separator">{timer1Chars.dot}</span>
- 129 |           <span className="timer-char centis">{timer1Chars.centis1}</span>
- 130 |           <span className="timer-char centis">{timer1Chars.centis2}</span>
- 131 |         </span>
- 132 |       </div>
- 133 |       
- 134 |       <div className={cn(
- 135 |         "timer right",
- 136 |         currentTimer === 2 && "active"
- 137 |       )}>
- 138 |         <span className="timer-text">
- 139 |           {timer2Chars.hasHours && (
- 140 |             <>
- 141 |               <span className="timer-char">{timer2Chars.hours}</span>
- 142 |               <span className="timer-char separator">{timer2Chars.colon1}</span>
- 143 |               <span className="timer-char">{timer2Chars.minutes}</span>
- 144 |               <span className="timer-char separator">{timer2Chars.colon2}</span>
- 145 |             </>
+  50 |         hasMinutes: true,
+  51 |         singleDigitSeconds: false
+  52 |       };
+  53 |     }
+  54 |     // Handle M:SS.HH format
+  55 |     else if (timeStr.includes(':') && timeStr.split(':').length === 2) {
+  56 |       const [minutesPart, secondsCentiseconds] = timeStr.split(':');
+  57 |       const [secondsPart, centiseconds] = secondsCentiseconds.split('.');
+  58 |       
+  59 |       return {
+  60 |         minutes: minutesPart || '0',
+  61 |         colon: ':',
+  62 |         seconds1: secondsPart?.[0] || '0',
+  63 |         seconds2: secondsPart?.[1] || '0',
+  64 |         dot: '.',
+  65 |         centis1: centiseconds?.[0] || '0',
+  66 |         centis2: centiseconds?.[1] || '0',
+  67 |         hasHours: false,
+  68 |         hasMinutes: true,
+  69 |         singleDigitSeconds: false
+  70 |       };
+  71 |     } 
+  72 |     // Handle SS.HH format (including single digit seconds)
+  73 |     else {
+  74 |       const [secondsPart, centiseconds] = timeStr.split('.');
+  75 |       
+  76 |       // Pour les secondes à un seul chiffre (0-9), on affiche juste le chiffre
+  77 |       if (secondsPart && secondsPart.length === 1) {
+  78 |         return {
+  79 |           seconds1: secondsPart,
+  80 |           seconds2: null,
+  81 |           dot: '.',
+  82 |           centis1: centiseconds?.[0] || '0',
+  83 |           centis2: centiseconds?.[1] || '0',
+  84 |           hasHours: false,
+  85 |           hasMinutes: false,
+  86 |           singleDigitSeconds: true
+  87 |         };
+  88 |       } else {
+  89 |         return {
+  90 |           seconds1: secondsPart?.[0] || '0',
+  91 |           seconds2: secondsPart?.[1] || '0',
+  92 |           dot: '.',
+  93 |           centis1: centiseconds?.[0] || '0',
+  94 |           centis2: centiseconds?.[1] || '0',
+  95 |           hasHours: false,
+  96 |           hasMinutes: false,
+  97 |           singleDigitSeconds: false
+  98 |         };
+  99 |       }
+ 100 |     }
+ 101 |   };
+ 102 | 
+ 103 |   const timer1Chars = formatTimerChars(timer1 || '0.00');
+ 104 |   const timer2Chars = formatTimerChars(timer2 || '0.00');
+ 105 | 
+ 106 |   return (
+ 107 |     <div className="timer-overlay">
+ 108 |       <div className="name left">
+ 109 |         <span className={cn("name-scroll", player1Scrolling && "scrolling")}>
+ 110 |           {player1Name.toUpperCase()}
+ 111 |         </span>
+ 112 |       </div>
+ 113 |       
+ 114 |       <div className="score-value">
+ 115 |         {player1Score} – {player2Score}
+ 116 |       </div>
+ 117 |       
+ 118 |       <div className="name right">
+ 119 |         <span className={cn("name-scroll", player2Scrolling && "scrolling")}>
+ 120 |           {player2Name.toUpperCase()}
+ 121 |         </span>
+ 122 |       </div>
+ 123 |       
+ 124 |       <div className={cn(
+ 125 |         "timer left",
+ 126 |         currentTimer === 1 && "active"
+ 127 |       )}>
+ 128 |         <span className="timer-text">
+ 129 |           {timer1Chars.hasHours && (
+ 130 |             <>
+ 131 |               <span className="timer-char">{timer1Chars.hours}</span>
+ 132 |               <span className="timer-char separator">{timer1Chars.colon1}</span>
+ 133 |               <span className="timer-char">{timer1Chars.minutes}</span>
+ 134 |               <span className="timer-char separator">{timer1Chars.colon2}</span>
+ 135 |             </>
+ 136 |           )}
+ 137 |           {timer1Chars.hasMinutes && !timer1Chars.hasHours && (
+ 138 |             <>
+ 139 |               <span className="timer-char">{timer1Chars.minutes}</span>
+ 140 |               <span className="timer-char separator">{timer1Chars.colon}</span>
+ 141 |             </>
+ 142 |           )}
+ 143 |           <span className="timer-char">{timer1Chars.seconds1}</span>
+ 144 |           {!timer1Chars.singleDigitSeconds && timer1Chars.seconds2 && (
+ 145 |             <span className="timer-char">{timer1Chars.seconds2}</span>
  146 |           )}
- 147 |           {timer2Chars.hasMinutes && !timer2Chars.hasHours && (
- 148 |             <>
- 149 |               <span className="timer-char">{timer2Chars.minutes}</span>
- 150 |               <span className="timer-char separator">{timer2Chars.colon}</span>
- 151 |             </>
- 152 |           )}
- 153 |           <span className="timer-char">{timer2Chars.seconds1}</span>
- 154 |           <span className="timer-char">{timer2Chars.seconds2}</span>
- 155 |           <span className="timer-char separator">{timer2Chars.dot}</span>
- 156 |           <span className="timer-char centis">{timer2Chars.centis1}</span>
- 157 |           <span className="timer-char centis">{timer2Chars.centis2}</span>
- 158 |         </span>
- 159 |       </div>
- 160 |     </div>
- 161 |   );
- 162 | };
- 163 | 
- 164 | export default DefaultStyle;
+ 147 |           <span className="timer-char separator">{timer1Chars.dot}</span>
+ 148 |           <span className="timer-char centis">{timer1Chars.centis1}</span>
+ 149 |           <span className="timer-char centis">{timer1Chars.centis2}</span>
+ 150 |         </span>
+ 151 |       </div>
+ 152 |       
+ 153 |       <div className={cn(
+ 154 |         "timer right",
+ 155 |         currentTimer === 2 && "active"
+ 156 |       )}>
+ 157 |         <span className="timer-text">
+ 158 |           {timer2Chars.hasHours && (
+ 159 |             <>
+ 160 |               <span className="timer-char">{timer2Chars.hours}</span>
+ 161 |               <span className="timer-char separator">{timer2Chars.colon1}</span>
+ 162 |               <span className="timer-char">{timer2Chars.minutes}</span>
+ 163 |               <span className="timer-char separator">{timer2Chars.colon2}</span>
+ 164 |             </>
+ 165 |           )}
+ 166 |           {timer2Chars.hasMinutes && !timer2Chars.hasHours && (
+ 167 |             <>
+ 168 |               <span className="timer-char">{timer2Chars.minutes}</span>
+ 169 |               <span className="timer-char separator">{timer2Chars.colon}</span>
+ 170 |             </>
+ 171 |           )}
+ 172 |           <span className="timer-char">{timer2Chars.seconds1}</span>
+ 173 |           {!timer2Chars.singleDigitSeconds && timer2Chars.seconds2 && (
+ 174 |             <span className="timer-char">{timer2Chars.seconds2}</span>
+ 175 |           )}
+ 176 |           <span className="timer-char separator">{timer2Chars.dot}</span>
+ 177 |           <span className="timer-char centis">{timer2Chars.centis1}</span>
+ 178 |           <span className="timer-char centis">{timer2Chars.centis2}</span>
+ 179 |         </span>
+ 180 |       </div>
+ 181 |     </div>
+ 182 |   );
+ 183 | };
+ 184 | 
+ 185 | export default DefaultStyle;
 
 ```
 
@@ -2962,158 +2998,160 @@ dbdoverlaytools-free
  119 |     }
  120 |   },
  121 | 
- 122 |   startTimer: () => {
- 123 |     const currentData = get().timerData;
- 124 |     console.log('Starting timer. Current values:', {
- 125 |       isRunning: currentData.isRunning,
- 126 |       timer1Value: currentData.timer1Value,
- 127 |       timer2Value: currentData.timer2Value,
- 128 |       currentTimer: currentData.currentTimer
- 129 |     });
- 130 |     
- 131 |     if (!currentData.isRunning) {
- 132 |       get().setTimerData({ isRunning: true });
- 133 |       get().saveToStorage();
- 134 |     }
- 135 |   },
- 136 | 
- 137 |   pauseTimer: () => {
- 138 |     const currentData = get().timerData;
- 139 |     console.log('Pausing timer. Current values:', {
- 140 |       isRunning: currentData.isRunning,
- 141 |       timer1Value: currentData.timer1Value,
- 142 |       timer2Value: currentData.timer2Value,
- 143 |       currentTimer: currentData.currentTimer
- 144 |     });
- 145 |     
- 146 |     if (currentData.isRunning) {
- 147 |       get().setTimerData({ isRunning: false });
- 148 |       get().saveToStorage();
- 149 |     }
- 150 |   },
- 151 | 
- 152 |   resetTimer: () => {
- 153 |     const { timerData } = get();
- 154 |     const currentTimer = timerData.currentTimer;
- 155 |     const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
- 156 |     
- 157 |     console.log('Resetting timer', currentTimer, 'from value:', timerData[valueKey]);
+ 122 | startTimer: () => {
+ 123 |   const currentData = get().timerData;
+ 124 |   console.log('Starting timer', currentData.currentTimer, 'Current values:', {
+ 125 |     isRunning: currentData.isRunning,
+ 126 |     timer1Value: currentData.timer1Value,
+ 127 |     timer2Value: currentData.timer2Value,
+ 128 |     currentTimer: currentData.currentTimer
+ 129 |   });
+ 130 | 
+ 131 |   if (!currentData.isRunning) {
+ 132 |     // Conserver les valeurs actuelles, juste passer en mode running
+ 133 |     get().setTimerData({ isRunning: true });
+ 134 |     get().saveToStorage();
+ 135 |   }
+ 136 | },
+ 137 | 
+ 138 |   pauseTimer: () => {
+ 139 |     const currentData = get().timerData;
+ 140 |     console.log('Pausing timer', currentData.currentTimer, 'Current values:', {
+ 141 |       isRunning: currentData.isRunning,
+ 142 |       timer1Value: currentData.timer1Value,
+ 143 |       timer2Value: currentData.timer2Value,
+ 144 |       currentTimer: currentData.currentTimer
+ 145 |     });
+ 146 |     
+ 147 |     if (currentData.isRunning) {
+ 148 |       // Mettre en pause le timer actuel SEULEMENT (pas de reset)
+ 149 |       get().setTimerData({ isRunning: false });
+ 150 |       get().saveToStorage();
+ 151 |     }
+ 152 |   },
+ 153 | 
+ 154 |   resetTimer: () => {
+ 155 |     const { timerData } = get();
+ 156 |     const currentTimer = timerData.currentTimer;
+ 157 |     const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
  158 |     
- 159 |     get().setTimerData({ 
- 160 |       [valueKey]: 0,
- 161 |       isRunning: false 
- 162 |     });
- 163 |     get().saveToStorage();
- 164 |   },
- 165 | 
- 166 |   resetAllTimers: () => {
- 167 |     console.log('Resetting all timers');
- 168 |     get().setTimerData({ 
- 169 |       timer1Value: 0,
- 170 |       timer2Value: 0,
- 171 |       isRunning: false 
- 172 |     });
- 173 |     get().saveToStorage();
- 174 |   },
- 175 | 
- 176 |   swapTimer: () => {
- 177 |     const { timerData } = get();
- 178 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
- 179 |     
- 180 |     console.log('Swapping from timer', timerData.currentTimer, 'to timer', newTimer);
- 181 |     console.log('Timer values before swap:', {
- 182 |       timer1Value: timerData.timer1Value,
- 183 |       timer2Value: timerData.timer2Value,
- 184 |       wasRunning: timerData.isRunning
- 185 |     });
- 186 |     
- 187 |     // Keep the timer running state but switch the active timer
- 188 |     get().setTimerData({ 
- 189 |       currentTimer: newTimer
- 190 |       // Don't change isRunning or timer values - preserve them!
- 191 |     });
- 192 |     get().saveToStorage();
- 193 |   },
- 194 | 
- 195 |   setTimerValue: (player, value) => {
- 196 |     const valueKey = player === 1 ? 'timer1Value' : 'timer2Value';
+ 159 |     console.log('Resetting timer', currentTimer, 'from value:', timerData[valueKey]);
+ 160 |     
+ 161 |     get().setTimerData({ 
+ 162 |       [valueKey]: 0,
+ 163 |       isRunning: false 
+ 164 |     });
+ 165 |     get().saveToStorage();
+ 166 |   },
+ 167 | 
+ 168 |   resetAllTimers: () => {
+ 169 |     console.log('Resetting all timers');
+ 170 |     get().setTimerData({ 
+ 171 |       timer1Value: 0,
+ 172 |       timer2Value: 0,
+ 173 |       isRunning: false 
+ 174 |     });
+ 175 |     get().saveToStorage();
+ 176 |   },
+ 177 | 
+ 178 | swapTimer: () => {
+ 179 |   const { timerData } = get();
+ 180 |   const currentTimer = timerData.currentTimer;
+ 181 |   const newTimer = currentTimer === 1 ? 2 : 1;
+ 182 | 
+ 183 |   // On pause le timer actuel mais on garde sa valeur telle quelle
+ 184 |   console.log('SWAP: from timer', currentTimer, 'to timer', newTimer);
+ 185 |   get().setTimerData({
+ 186 |     currentTimer: newTimer,
+ 187 |     isRunning: false // pause automatique
+ 188 |   });
+ 189 |   get().saveToStorage();
+ 190 | 
+ 191 |   console.log('SWAP COMPLETE: Timer', newTimer, 'selected and ALL TIMERS PAUSED');
+ 192 | },
+ 193 | 
+ 194 |   setTimerValue: (player, value) => {
+ 195 |     const valueKey = player === 1 ? 'timer1Value' : 'timer2Value';
+ 196 |     console.log(`Setting ${valueKey} to ${value}`);
  197 |     set((state) => ({
  198 |       timerData: { ...state.timerData, [valueKey]: value }
  199 |     }));
  200 |   },
  201 | 
  202 |   setTimerRunning: (running) => {
- 203 |     get().setTimerData({ isRunning: running });
- 204 |   },
- 205 | 
- 206 |   setCurrentTimer: (timer) => {
- 207 |     get().setTimerData({ currentTimer: timer });
- 208 |   },
- 209 | 
- 210 |   updatePlayerScore: (player, delta) => {
- 211 |     const { timerData } = get();
- 212 |     const scoreKey = player === 1 ? 'player1Score' : 'player2Score';
- 213 |     const currentScore = timerData[scoreKey];
- 214 |     
- 215 |     get().setTimerData({ 
- 216 |       [scoreKey]: Math.max(0, currentScore + delta) 
- 217 |     });
- 218 |     get().saveToStorage();
- 219 |   },
- 220 | 
- 221 |   updatePlayerName: (player, name) => {
- 222 |     const nameKey = player === 1 ? 'player1Name' : 'player2Name';
- 223 |     get().setTimerData({ [nameKey]: name });
- 224 |     get().saveToStorage();
- 225 |   },
- 226 | 
- 227 |   updateHotkeys: (hotkeys) => {
- 228 |     get().setTimerData({ 
- 229 |       startHotkey: hotkeys.start,
- 230 |       swapHotkey: hotkeys.swap,
- 231 |       hotkeys
- 232 |     });
- 233 |     get().saveToStorage();
- 234 |   },
- 235 | 
- 236 |   loadFromStorage: async () => {
- 237 |     try {
- 238 |       if (!window.electronAPI?.store) return;
- 239 | 
- 240 |       const [storedTimerData, storedOverlaySettings] = await Promise.all([
- 241 |         window.electronAPI.store.get('timerData'),
- 242 |         window.electronAPI.store.get('overlaySettings')
- 243 |       ]);
- 244 | 
- 245 |       const loadedTimerData = storedTimerData ? { ...defaultTimerData, ...storedTimerData } : defaultTimerData;
- 246 |       const loadedOverlaySettings = storedOverlaySettings ? { ...defaultOverlaySettings, ...storedOverlaySettings } : defaultOverlaySettings;
- 247 | 
- 248 |       set({
- 249 |         timerData: loadedTimerData,
- 250 |         overlaySettings: loadedOverlaySettings
- 251 |       });
- 252 | 
- 253 |       console.log('Timer store loaded from storage:', { loadedTimerData, loadedOverlaySettings });
- 254 |     } catch (error) {
- 255 |       console.error('Error loading from storage:', error);
- 256 |     }
- 257 |   },
- 258 | 
- 259 |   saveToStorage: async () => {
- 260 |     try {
- 261 |       if (!window.electronAPI?.store) return;
- 262 | 
- 263 |       const { timerData, overlaySettings } = get();
- 264 |       
- 265 |       await Promise.all([
- 266 |         window.electronAPI.store.set('timerData', timerData),
- 267 |         window.electronAPI.store.set('overlaySettings', overlaySettings)
- 268 |       ]);
- 269 |     } catch (error) {
- 270 |       console.error('Error saving to storage:', error);
- 271 |     }
- 272 |   }
- 273 | }));
+ 203 |     console.log('Setting timer running to:', running);
+ 204 |     get().setTimerData({ isRunning: running });
+ 205 |   },
+ 206 | 
+ 207 |   setCurrentTimer: (timer) => {
+ 208 |     console.log('Setting current timer to:', timer);
+ 209 |     get().setTimerData({ currentTimer: timer });
+ 210 |   },
+ 211 | 
+ 212 |   updatePlayerScore: (player, delta) => {
+ 213 |     const { timerData } = get();
+ 214 |     const scoreKey = player === 1 ? 'player1Score' : 'player2Score';
+ 215 |     const currentScore = timerData[scoreKey];
+ 216 |     
+ 217 |     get().setTimerData({ 
+ 218 |       [scoreKey]: Math.max(0, currentScore + delta) 
+ 219 |     });
+ 220 |     get().saveToStorage();
+ 221 |   },
+ 222 | 
+ 223 |   updatePlayerName: (player, name) => {
+ 224 |     const nameKey = player === 1 ? 'player1Name' : 'player2Name';
+ 225 |     get().setTimerData({ [nameKey]: name });
+ 226 |     get().saveToStorage();
+ 227 |   },
+ 228 | 
+ 229 |   updateHotkeys: (hotkeys) => {
+ 230 |     get().setTimerData({ 
+ 231 |       startHotkey: hotkeys.start,
+ 232 |       swapHotkey: hotkeys.swap,
+ 233 |       hotkeys
+ 234 |     });
+ 235 |     get().saveToStorage();
+ 236 |   },
+ 237 | 
+ 238 |   loadFromStorage: async () => {
+ 239 |     try {
+ 240 |       if (!window.electronAPI?.store) return;
+ 241 | 
+ 242 |       const [storedTimerData, storedOverlaySettings] = await Promise.all([
+ 243 |         window.electronAPI.store.get('timerData'),
+ 244 |         window.electronAPI.store.get('overlaySettings')
+ 245 |       ]);
+ 246 | 
+ 247 |       const loadedTimerData = storedTimerData ? { ...defaultTimerData, ...storedTimerData } : defaultTimerData;
+ 248 |       const loadedOverlaySettings = storedOverlaySettings ? { ...defaultOverlaySettings, ...storedOverlaySettings } : defaultOverlaySettings;
+ 249 | 
+ 250 |       set({
+ 251 |         timerData: loadedTimerData,
+ 252 |         overlaySettings: loadedOverlaySettings
+ 253 |       });
+ 254 | 
+ 255 |       console.log('Timer store loaded from storage:', { loadedTimerData, loadedOverlaySettings });
+ 256 |     } catch (error) {
+ 257 |       console.error('Error loading from storage:', error);
+ 258 |     }
+ 259 |   },
+ 260 | 
+ 261 |   saveToStorage: async () => {
+ 262 |     try {
+ 263 |       if (!window.electronAPI?.store) return;
+ 264 | 
+ 265 |       const { timerData, overlaySettings } = get();
+ 266 |       
+ 267 |       await Promise.all([
+ 268 |         window.electronAPI.store.set('timerData', timerData),
+ 269 |         window.electronAPI.store.set('overlaySettings', overlaySettings)
+ 270 |       ]);
+ 271 |     } catch (error) {
+ 272 |       console.error('Error saving to storage:', error);
+ 273 |     }
+ 274 |   }
+ 275 | }));
 
 ```
 
@@ -3276,204 +3314,205 @@ dbdoverlaytools-free
   22 |   } else if (minutes > 0) {
   23 |     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
   24 |   } else {
-  25 |     return `${remainingSeconds}.${centiseconds.toString().padStart(2, '0')}`;
-  26 |   }
-  27 | }
-  28 | 
-  29 | /**
-  30 |  * Parses a formatted time string to milliseconds
-  31 |  * Supports formats: "SS.HH", "M:SS.HH", "HH:MM:SS.HH"
-  32 |  */
-  33 | export function parseTimeToMs(timeString: string): number {
-  34 |   // Handle HH:MM:SS.HH format
-  35 |   const hoursMatch = timeString.match(/(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
-  36 |   if (hoursMatch) {
-  37 |     const hours = parseInt(hoursMatch[1]);
-  38 |     const minutes = parseInt(hoursMatch[2]);
-  39 |     const seconds = parseInt(hoursMatch[3]);
-  40 |     const centiseconds = parseInt(hoursMatch[4]);
-  41 |     return (hours * 3600 * 1000) + (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
-  42 |   }
-  43 |   
-  44 |   // Handle M:SS.HH format
-  45 |   const minutesMatch = timeString.match(/(\d+):(\d{2})\.(\d{2})/);
-  46 |   if (minutesMatch) {
-  47 |     const minutes = parseInt(minutesMatch[1]);
-  48 |     const seconds = parseInt(minutesMatch[2]);
-  49 |     const centiseconds = parseInt(minutesMatch[3]);
-  50 |     return (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
-  51 |   }
-  52 |   
-  53 |   // Handle SS.HH format
-  54 |   const secondsMatch = timeString.match(/(\d+)\.(\d{2})/);
-  55 |   if (secondsMatch) {
-  56 |     const seconds = parseInt(secondsMatch[1]);
-  57 |     const centiseconds = parseInt(secondsMatch[2]);
-  58 |     return (seconds * 1000) + (centiseconds * 10);
-  59 |   }
-  60 |   
-  61 |   return 0;
-  62 | }
-  63 | 
-  64 | /**
-  65 |  * High-precision timer class for LiveSplit-like functionality
-  66 |  */
-  67 | export class PreciseTimer {
-  68 |   private startTime: number = 0;
-  69 |   private pausedTime: number = 0;
-  70 |   private totalPausedTime: number = 0;
-  71 |   private animationId: number | null = null;
-  72 |   private intervalId: number | null = null;
-  73 |   private isRunning: boolean = false;
-  74 |   private isPaused: boolean = false;
-  75 |   private onUpdate: (value: number) => void;
-  76 |   private lastUpdateTime: number = 0;
-  77 | 
-  78 |   constructor(onUpdate: (value: number) => void) {
-  79 |     this.onUpdate = onUpdate;
-  80 |   }
-  81 | 
-  82 |   start(resumeFromValue: number = 0) {
-  83 |     if (this.isRunning && !this.isPaused) return;
-  84 |     
-  85 |     const now = Date.now();
-  86 |     
-  87 |     if (this.isPaused) {
-  88 |       // Resume from pause
-  89 |       this.totalPausedTime += now - this.pausedTime;
-  90 |       this.isPaused = false;
-  91 |     } else {
-  92 |       // Fresh start or restart
-  93 |       this.startTime = now;
-  94 |       this.totalPausedTime = 0;
-  95 |       this.pausedTime = 0;
-  96 |       
-  97 |       // If resuming from a specific value, adjust start time
-  98 |       if (resumeFromValue > 0) {
-  99 |         this.startTime = now - resumeFromValue;
- 100 |       }
- 101 |     }
- 102 |     
- 103 |     this.isRunning = true;
- 104 |     this.lastUpdateTime = 0;
- 105 | 
- 106 |     const updateTimer = () => {
- 107 |       if (!this.isRunning || this.isPaused) return;
- 108 | 
- 109 |       const now = Date.now();
- 110 |       const elapsed = now - this.startTime - this.totalPausedTime;
- 111 |       const currentValue = Math.max(0, elapsed);
- 112 | 
- 113 |       if (now - this.lastUpdateTime >= 10) {
- 114 |         this.onUpdate(currentValue);
- 115 |         this.lastUpdateTime = now;
- 116 |       }
- 117 | 
- 118 |       this.animationId = requestAnimationFrame(updateTimer);
- 119 |     };
- 120 | 
- 121 |     updateTimer();
- 122 | 
- 123 |     // Backup interval for precision
- 124 |     this.intervalId = window.setInterval(() => {
- 125 |       if (this.isRunning && !this.isPaused) {
- 126 |         const now = Date.now();
- 127 |         const elapsed = now - this.startTime - this.totalPausedTime;
- 128 |         const currentValue = Math.max(0, elapsed);
- 129 |         this.onUpdate(currentValue);
- 130 |       }
- 131 |     }, 10);
- 132 |   }
- 133 | 
- 134 |   pause(): number {
- 135 |     if (!this.isRunning || this.isPaused) return this.currentValue;
- 136 | 
- 137 |     this.isPaused = true;
- 138 |     this.pausedTime = Date.now();
- 139 |     
- 140 |     const currentValue = this.currentValue;
- 141 |     
- 142 |     if (this.animationId) {
- 143 |       cancelAnimationFrame(this.animationId);
- 144 |       this.animationId = null;
- 145 |     }
- 146 |     
- 147 |     if (this.intervalId) {
- 148 |       clearInterval(this.intervalId);
- 149 |       this.intervalId = null;
- 150 |     }
- 151 |     
- 152 |     return currentValue;
- 153 |   }
- 154 | 
- 155 |   stop() {
- 156 |     this.isRunning = false;
- 157 |     this.isPaused = false;
- 158 | 
- 159 |     if (this.animationId) {
- 160 |       cancelAnimationFrame(this.animationId);
- 161 |       this.animationId = null;
- 162 |     }
- 163 | 
- 164 |     if (this.intervalId) {
- 165 |       clearInterval(this.intervalId);
- 166 |       this.intervalId = null;
- 167 |     }
- 168 |   }
- 169 | 
- 170 |   reset() {
- 171 |     this.stop();
- 172 |     this.startTime = 0;
- 173 |     this.pausedTime = 0;
- 174 |     this.totalPausedTime = 0;
- 175 |     this.onUpdate(0);
- 176 |   }
- 177 | 
- 178 |   get running(): boolean {
- 179 |     return this.isRunning && !this.isPaused;
- 180 |   }
- 181 |   
- 182 |   get paused(): boolean {
- 183 |     return this.isPaused;
- 184 |   }
- 185 | 
- 186 |   get currentValue(): number {
- 187 |     if (!this.isRunning) return 0;
- 188 |     
- 189 |     if (this.isPaused) {
- 190 |       return Math.max(0, this.pausedTime - this.startTime - this.totalPausedTime);
- 191 |     }
- 192 |     
- 193 |     const now = Date.now();
- 194 |     const elapsed = now - this.startTime - this.totalPausedTime;
- 195 |     return Math.max(0, elapsed);
- 196 |   }
- 197 | }
- 198 | 
- 199 | /**
- 200 |  * Validates and normalizes hotkey string
- 201 |  */
- 202 | export function normalizeHotkey(hotkey: string): string {
- 203 |   const key = hotkey.trim().toLowerCase();
- 204 |   
- 205 |   if (key.startsWith('f') && key.length <= 3) {
- 206 |     const num = key.slice(1);
- 207 |     if (/^\d{1,2}$/.test(num)) {
- 208 |       return key.toUpperCase();
- 209 |     }
- 210 |   }
- 211 |   
- 212 |   if (key.length === 1 && /[a-z0-9]/.test(key)) {
- 213 |     return key.toUpperCase();
- 214 |   }
- 215 |   
- 216 |   const specialKeys = ['space', 'enter', 'tab', 'escape', 'backspace'];
- 217 |   if (specialKeys.includes(key)) {
- 218 |     return key.charAt(0).toUpperCase() + key.slice(1);
- 219 |   }
- 220 |   
- 221 |   return hotkey.toUpperCase();
- 222 | }
+  25 |     // Pour les secondes seules, on n'ajoute pas de zéro devant si c'est moins de 10
+  26 |     return `${remainingSeconds}.${centiseconds.toString().padStart(2, '0')}`;
+  27 |   }
+  28 | }
+  29 | 
+  30 | /**
+  31 |  * Parses a formatted time string to milliseconds
+  32 |  * Supports formats: "SS.HH", "M:SS.HH", "HH:MM:SS.HH"
+  33 |  */
+  34 | export function parseTimeToMs(timeString: string): number {
+  35 |   // Handle HH:MM:SS.HH format
+  36 |   const hoursMatch = timeString.match(/(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+  37 |   if (hoursMatch) {
+  38 |     const hours = parseInt(hoursMatch[1]);
+  39 |     const minutes = parseInt(hoursMatch[2]);
+  40 |     const seconds = parseInt(hoursMatch[3]);
+  41 |     const centiseconds = parseInt(hoursMatch[4]);
+  42 |     return (hours * 3600 * 1000) + (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
+  43 |   }
+  44 |   
+  45 |   // Handle M:SS.HH format
+  46 |   const minutesMatch = timeString.match(/(\d+):(\d{2})\.(\d{2})/);
+  47 |   if (minutesMatch) {
+  48 |     const minutes = parseInt(minutesMatch[1]);
+  49 |     const seconds = parseInt(minutesMatch[2]);
+  50 |     const centiseconds = parseInt(minutesMatch[3]);
+  51 |     return (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
+  52 |   }
+  53 |   
+  54 |   // Handle SS.HH format (including single digit seconds)
+  55 |   const secondsMatch = timeString.match(/(\d+)\.(\d{2})/);
+  56 |   if (secondsMatch) {
+  57 |     const seconds = parseInt(secondsMatch[1]);
+  58 |     const centiseconds = parseInt(secondsMatch[2]);
+  59 |     return (seconds * 1000) + (centiseconds * 10);
+  60 |   }
+  61 |   
+  62 |   return 0;
+  63 | }
+  64 | 
+  65 | /**
+  66 |  * High-precision timer class for LiveSplit-like functionality
+  67 |  */
+  68 | export class PreciseTimer {
+  69 |   private startTime: number = 0;
+  70 |   private pausedTime: number = 0;
+  71 |   private totalPausedTime: number = 0;
+  72 |   private animationId: number | null = null;
+  73 |   private intervalId: number | null = null;
+  74 |   private isRunning: boolean = false;
+  75 |   private isPaused: boolean = false;
+  76 |   private onUpdate: (value: number) => void;
+  77 |   private lastUpdateTime: number = 0;
+  78 | 
+  79 |   constructor(onUpdate: (value: number) => void) {
+  80 |     this.onUpdate = onUpdate;
+  81 |   }
+  82 | 
+  83 |   start(resumeFromValue: number = 0) {
+  84 |     if (this.isRunning && !this.isPaused) return;
+  85 |     
+  86 |     const now = Date.now();
+  87 |     
+  88 |     if (this.isPaused) {
+  89 |       // Resume from pause
+  90 |       this.totalPausedTime += now - this.pausedTime;
+  91 |       this.isPaused = false;
+  92 |     } else {
+  93 |       // Fresh start or restart
+  94 |       this.startTime = now;
+  95 |       this.totalPausedTime = 0;
+  96 |       this.pausedTime = 0;
+  97 |       
+  98 |       // If resuming from a specific value, adjust start time
+  99 |       if (resumeFromValue > 0) {
+ 100 |         this.startTime = now - resumeFromValue;
+ 101 |       }
+ 102 |     }
+ 103 |     
+ 104 |     this.isRunning = true;
+ 105 |     this.lastUpdateTime = 0;
+ 106 | 
+ 107 |     const updateTimer = () => {
+ 108 |       if (!this.isRunning || this.isPaused) return;
+ 109 | 
+ 110 |       const now = Date.now();
+ 111 |       const elapsed = now - this.startTime - this.totalPausedTime;
+ 112 |       const currentValue = Math.max(0, elapsed);
+ 113 | 
+ 114 |       if (now - this.lastUpdateTime >= 10) {
+ 115 |         this.onUpdate(currentValue);
+ 116 |         this.lastUpdateTime = now;
+ 117 |       }
+ 118 | 
+ 119 |       this.animationId = requestAnimationFrame(updateTimer);
+ 120 |     };
+ 121 | 
+ 122 |     updateTimer();
+ 123 | 
+ 124 |     // Backup interval for precision
+ 125 |     this.intervalId = window.setInterval(() => {
+ 126 |       if (this.isRunning && !this.isPaused) {
+ 127 |         const now = Date.now();
+ 128 |         const elapsed = now - this.startTime - this.totalPausedTime;
+ 129 |         const currentValue = Math.max(0, elapsed);
+ 130 |         this.onUpdate(currentValue);
+ 131 |       }
+ 132 |     }, 10);
+ 133 |   }
+ 134 | 
+ 135 |   pause(): number {
+ 136 |     if (!this.isRunning || this.isPaused) return this.currentValue;
+ 137 | 
+ 138 |     this.isPaused = true;
+ 139 |     this.pausedTime = Date.now();
+ 140 |     
+ 141 |     const currentValue = this.currentValue;
+ 142 |     
+ 143 |     if (this.animationId) {
+ 144 |       cancelAnimationFrame(this.animationId);
+ 145 |       this.animationId = null;
+ 146 |     }
+ 147 |     
+ 148 |     if (this.intervalId) {
+ 149 |       clearInterval(this.intervalId);
+ 150 |       this.intervalId = null;
+ 151 |     }
+ 152 |     
+ 153 |     return currentValue;
+ 154 |   }
+ 155 | 
+ 156 |   stop() {
+ 157 |     this.isRunning = false;
+ 158 |     this.isPaused = false;
+ 159 | 
+ 160 |     if (this.animationId) {
+ 161 |       cancelAnimationFrame(this.animationId);
+ 162 |       this.animationId = null;
+ 163 |     }
+ 164 | 
+ 165 |     if (this.intervalId) {
+ 166 |       clearInterval(this.intervalId);
+ 167 |       this.intervalId = null;
+ 168 |     }
+ 169 |   }
+ 170 | 
+ 171 |   reset() {
+ 172 |     this.stop();
+ 173 |     this.startTime = 0;
+ 174 |     this.pausedTime = 0;
+ 175 |     this.totalPausedTime = 0;
+ 176 |     this.onUpdate(0);
+ 177 |   }
+ 178 | 
+ 179 |   get running(): boolean {
+ 180 |     return this.isRunning && !this.isPaused;
+ 181 |   }
+ 182 |   
+ 183 |   get paused(): boolean {
+ 184 |     return this.isPaused;
+ 185 |   }
+ 186 | 
+ 187 |   get currentValue(): number {
+ 188 |     if (!this.isRunning) return 0;
+ 189 |     
+ 190 |     if (this.isPaused) {
+ 191 |       return Math.max(0, this.pausedTime - this.startTime - this.totalPausedTime);
+ 192 |     }
+ 193 |     
+ 194 |     const now = Date.now();
+ 195 |     const elapsed = now - this.startTime - this.totalPausedTime;
+ 196 |     return Math.max(0, elapsed);
+ 197 |   }
+ 198 | }
+ 199 | 
+ 200 | /**
+ 201 |  * Validates and normalizes hotkey string
+ 202 |  */
+ 203 | export function normalizeHotkey(hotkey: string): string {
+ 204 |   const key = hotkey.trim().toLowerCase();
+ 205 |   
+ 206 |   if (key.startsWith('f') && key.length <= 3) {
+ 207 |     const num = key.slice(1);
+ 208 |     if (/^\d{1,2}$/.test(num)) {
+ 209 |       return key.toUpperCase();
+ 210 |     }
+ 211 |   }
+ 212 |   
+ 213 |   if (key.length === 1 && /[a-z0-9]/.test(key)) {
+ 214 |     return key.toUpperCase();
+ 215 |   }
+ 216 |   
+ 217 |   const specialKeys = ['space', 'enter', 'tab', 'escape', 'backspace'];
+ 218 |   if (specialKeys.includes(key)) {
+ 219 |     return key.charAt(0).toUpperCase() + key.slice(1);
+ 220 |   }
+ 221 |   
+ 222 |   return hotkey.toUpperCase();
+ 223 | }
 
 ```
 

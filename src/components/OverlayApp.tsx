@@ -71,67 +71,72 @@ const OverlayApp: React.FC = () => {
       timer2Value: localTimerData.timer2Value
     };
 
+    console.log('State change detected:', {
+      lastState,
+      currentState,
+      stateChanges: {
+        runningChanged: lastState.isRunning !== currentState.isRunning,
+        timerChanged: lastState.currentTimer !== currentState.currentTimer,
+        timer1ValueChanged: lastState.timer1Value !== currentState.timer1Value,
+        timer2ValueChanged: lastState.timer2Value !== currentState.timer2Value
+      }
+    });
+
+    // Handle timer swap AVANT tout le reste
+    if (lastState.currentTimer !== currentState.currentTimer) {
+      console.log('SWAP DETECTED: from timer', lastState.currentTimer, 'to timer', currentState.currentTimer);
+
+      // Arrêter TOUS les timers lors du swap et sauvegarder leurs valeurs
+      if (timer1Ref.current?.running) {
+        const finalValue1 = timer1Ref.current.pause();
+        console.log('SWAP: Pausing timer 1 at value:', finalValue1);
+        // Utiliser setLocalTimerData pour mettre à jour l'affichage immédiatement
+        setLocalTimerData(prev => ({ ...prev, timer1Value: finalValue1 }));
+      }
+      if (timer2Ref.current?.running) {
+        const finalValue2 = timer2Ref.current.pause();
+        console.log('SWAP: Pausing timer 2 at value:', finalValue2);
+        // Utiliser setLocalTimerData pour mettre à jour l'affichage immédiatement
+        setLocalTimerData(prev => ({ ...prev, timer2Value: finalValue2 }));
+      }
+
+      console.log('SWAP: Timer', currentState.currentTimer, 'is now selected');
+    }
+
     // Handle running state changes
     if (lastState.isRunning !== currentState.isRunning) {
       if (currentState.isRunning) {
-        console.log('Starting timer in overlay, current:', currentState.currentTimer);
+        // Démarrer SEULEMENT le timer actuel
+        console.log('Starting timer', currentState.currentTimer);
         const timerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
         const resumeValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
         
+        // S'assurer que l'autre timer est arrêté
+        const otherTimerRef = currentState.currentTimer === 1 ? timer2Ref.current : timer1Ref.current;
+        if (otherTimerRef?.running) {
+          console.log('Stopping other timer before starting current one');
+          const finalValue = otherTimerRef.pause();
+          const otherValueKey = currentState.currentTimer === 1 ? 'timer2Value' : 'timer1Value';
+          setLocalTimerData(prev => ({ ...prev, [otherValueKey]: finalValue }));
+        }
+        
+        console.log('Resuming timer with value:', resumeValue);
         if (timerRef) {
           timerRef.start(resumeValue);
         }
       } else {
-        console.log('Pausing timer in overlay');
-        const currentTimer = currentState.currentTimer;
-        const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-        
-        if (timerRef && timerRef.running) {
-          const finalValue = timerRef.pause();
-          const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
-          setLocalTimerData(prev => ({ ...prev, [valueKey]: finalValue }));
+        // Pause TOUS les timers
+        console.log('Pausing all timers');
+        if (timer1Ref.current?.running) {
+          const finalValue1 = timer1Ref.current.pause();
+          console.log('Paused timer 1 at value:', finalValue1);
+          setLocalTimerData(prev => ({ ...prev, timer1Value: finalValue1 }));
         }
-      }
-    }
-
-    // Handle timer swap (don't reset values, just change active timer)
-    if (lastState.currentTimer !== currentState.currentTimer) {
-      console.log('Timer swapped in overlay from', lastState.currentTimer, 'to:', currentState.currentTimer);
-      
-      if (lastState.isRunning) {
-        // Pause the old timer and start the new one
-        const oldTimerRef = lastState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-        const newTimerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-        
-        if (oldTimerRef && oldTimerRef.running) {
-          const finalValue = oldTimerRef.pause();
-          const oldValueKey = lastState.currentTimer === 1 ? 'timer1Value' : 'timer2Value';
-          setLocalTimerData(prev => ({ ...prev, [oldValueKey]: finalValue }));
+        if (timer2Ref.current?.running) {
+          const finalValue2 = timer2Ref.current.pause();
+          console.log('Paused timer 2 at value:', finalValue2);
+          setLocalTimerData(prev => ({ ...prev, timer2Value: finalValue2 }));
         }
-        
-        if (newTimerRef && currentState.isRunning) {
-          const resumeValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
-          newTimerRef.start(resumeValue);
-        }
-      }
-    }
-
-    // Handle reset (only when value goes to 0 and not running)
-    if (lastState.timer1Value !== currentState.timer1Value && 
-        !currentState.isRunning && 
-        currentState.timer1Value === 0 && 
-        lastState.timer1Value > 0) {
-      if (timer1Ref.current) {
-        timer1Ref.current.reset();
-      }
-    }
-
-    if (lastState.timer2Value !== currentState.timer2Value && 
-        !currentState.isRunning && 
-        currentState.timer2Value === 0 && 
-        lastState.timer2Value > 0) {
-      if (timer2Ref.current) {
-        timer2Ref.current.reset();
       }
     }
 
@@ -144,7 +149,18 @@ const OverlayApp: React.FC = () => {
     const cleanupDataSync = window.electronAPI.overlay.onDataSync((data) => {
       console.log('Received timer data sync in overlay:', data);
       syncingRef.current = true;
+      
+      // Mettre à jour l'état local avec les nouvelles données
       setLocalTimerData(data);
+      
+      // Si les timers tournent, les arrêter d'abord
+      if (timer1Ref.current?.running) {
+        timer1Ref.current.stop();
+      }
+      if (timer2Ref.current?.running) {
+        timer2Ref.current.stop();
+      }
+      
       setTimeout(() => {
         syncingRef.current = false;
       }, 100);

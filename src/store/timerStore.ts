@@ -119,24 +119,25 @@ export const useTimerStore = create<TimerState>((set, get) => ({
     }
   },
 
-  startTimer: () => {
-    const currentData = get().timerData;
-    console.log('Starting timer. Current values:', {
-      isRunning: currentData.isRunning,
-      timer1Value: currentData.timer1Value,
-      timer2Value: currentData.timer2Value,
-      currentTimer: currentData.currentTimer
-    });
-    
-    if (!currentData.isRunning) {
-      get().setTimerData({ isRunning: true });
-      get().saveToStorage();
-    }
-  },
+startTimer: () => {
+  const currentData = get().timerData;
+  console.log('Starting timer', currentData.currentTimer, 'Current values:', {
+    isRunning: currentData.isRunning,
+    timer1Value: currentData.timer1Value,
+    timer2Value: currentData.timer2Value,
+    currentTimer: currentData.currentTimer
+  });
+
+  if (!currentData.isRunning) {
+    // Conserver les valeurs actuelles, juste passer en mode running
+    get().setTimerData({ isRunning: true });
+    get().saveToStorage();
+  }
+},
 
   pauseTimer: () => {
     const currentData = get().timerData;
-    console.log('Pausing timer. Current values:', {
+    console.log('Pausing timer', currentData.currentTimer, 'Current values:', {
       isRunning: currentData.isRunning,
       timer1Value: currentData.timer1Value,
       timer2Value: currentData.timer2Value,
@@ -144,6 +145,7 @@ export const useTimerStore = create<TimerState>((set, get) => ({
     });
     
     if (currentData.isRunning) {
+      // Mettre en pause le timer actuel SEULEMENT (pas de reset)
       get().setTimerData({ isRunning: false });
       get().saveToStorage();
     }
@@ -173,37 +175,37 @@ export const useTimerStore = create<TimerState>((set, get) => ({
     get().saveToStorage();
   },
 
-  swapTimer: () => {
-    const { timerData } = get();
-    const newTimer = timerData.currentTimer === 1 ? 2 : 1;
-    
-    console.log('Swapping from timer', timerData.currentTimer, 'to timer', newTimer);
-    console.log('Timer values before swap:', {
-      timer1Value: timerData.timer1Value,
-      timer2Value: timerData.timer2Value,
-      wasRunning: timerData.isRunning
-    });
-    
-    // Keep the timer running state but switch the active timer
-    get().setTimerData({ 
-      currentTimer: newTimer
-      // Don't change isRunning or timer values - preserve them!
-    });
-    get().saveToStorage();
-  },
+swapTimer: () => {
+  const { timerData } = get();
+  const currentTimer = timerData.currentTimer;
+  const newTimer = currentTimer === 1 ? 2 : 1;
+
+  // On pause le timer actuel mais on garde sa valeur telle quelle
+  console.log('SWAP: from timer', currentTimer, 'to timer', newTimer);
+  get().setTimerData({
+    currentTimer: newTimer,
+    isRunning: false // pause automatique
+  });
+  get().saveToStorage();
+
+  console.log('SWAP COMPLETE: Timer', newTimer, 'selected and ALL TIMERS PAUSED');
+},
 
   setTimerValue: (player, value) => {
     const valueKey = player === 1 ? 'timer1Value' : 'timer2Value';
+    console.log(`Setting ${valueKey} to ${value}`);
     set((state) => ({
       timerData: { ...state.timerData, [valueKey]: value }
     }));
   },
 
   setTimerRunning: (running) => {
+    console.log('Setting timer running to:', running);
     get().setTimerData({ isRunning: running });
   },
 
   setCurrentTimer: (timer) => {
+    console.log('Setting current timer to:', timer);
     get().setTimerData({ currentTimer: timer });
   },
 
