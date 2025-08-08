@@ -22,6 +22,7 @@ export function formatTime(milliseconds: number): string {
   } else if (minutes > 0) {
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
   } else {
+    // Pour les secondes seules, on n'ajoute pas de zéro devant si c'est moins de 10
     return `${remainingSeconds}.${centiseconds.toString().padStart(2, '0')}`;
   }
 }
@@ -50,7 +51,7 @@ export function parseTimeToMs(timeString: string): number {
     return (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
   }
   
-  // Handle SS.HH format
+  // Handle SS.HH format (including single digit seconds)
   const secondsMatch = timeString.match(/(\d+)\.(\d{2})/);
   if (secondsMatch) {
     const seconds = parseInt(secondsMatch[1]);

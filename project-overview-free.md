@@ -1450,126 +1450,147 @@ dbdoverlaytools-free
   71 |       timer2Value: localTimerData.timer2Value
   72 |     };
   73 | 
-  74 |     if (lastState.isRunning !== currentState.isRunning) {
-  75 |       if (currentState.isRunning) {
-  76 |         console.log('Starting timer in overlay, current:', currentState.currentTimer);
-  77 |         const timerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-  78 |         const initialValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
-  79 |         
-  80 |         timer1Ref.current?.stop();
-  81 |         timer2Ref.current?.stop();
-  82 |         
-  83 |         if (timerRef) {
-  84 |           timerRef.start(initialValue);
-  85 |         }
-  86 |       } else {
-  87 |         console.log('Pausing timer in overlay');
-  88 |         const currentTimer = currentState.currentTimer;
-  89 |         const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-  90 |         
-  91 |         if (timerRef && timerRef.running) {
-  92 |           const finalValue = timerRef.pause();
-  93 |           const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
-  94 |           setLocalTimerData(prev => ({ ...prev, [valueKey]: finalValue }));
-  95 |         }
-  96 |       }
-  97 |     }
-  98 | 
-  99 |     if (lastState.currentTimer !== currentState.currentTimer && !currentState.isRunning) {
- 100 |       console.log('Timer swapped in overlay to:', currentState.currentTimer);
- 101 |       timer1Ref.current?.stop();
- 102 |       timer2Ref.current?.stop();
- 103 |     }
- 104 | 
- 105 |     if (lastState.timer1Value !== currentState.timer1Value && !currentState.isRunning && currentState.timer1Value === 0) {
- 106 |       if (timer1Ref.current) {
- 107 |         timer1Ref.current.reset();
- 108 |       }
- 109 |     }
- 110 | 
- 111 |     if (lastState.timer2Value !== currentState.timer2Value && !currentState.isRunning && currentState.timer2Value === 0) {
- 112 |       if (timer2Ref.current) {
- 113 |         timer2Ref.current.reset();
- 114 |       }
- 115 |     }
- 116 | 
- 117 |     lastStateRef.current = currentState;
- 118 |   }, [localTimerData, isInitialized]);
- 119 | 
- 120 |   useEffect(() => {
- 121 |     if (!window.electronAPI?.overlay) return;
- 122 | 
- 123 |     const cleanupDataSync = window.electronAPI.overlay.onDataSync((data) => {
- 124 |       console.log('Received timer data sync in overlay:', data);
- 125 |       syncingRef.current = true;
- 126 |       setLocalTimerData(data);
- 127 |       setTimeout(() => {
- 128 |         syncingRef.current = false;
- 129 |       }, 100);
- 130 |     });
- 131 | 
- 132 |     return cleanupDataSync;
- 133 |   }, []);
- 134 | 
- 135 |   useEffect(() => {
- 136 |     const forceTransparency = () => {
- 137 |       const elements = [
- 138 |         document.body,
- 139 |         document.documentElement,
- 140 |         document.getElementById('overlay-root')
- 141 |       ].filter(Boolean);
- 142 | 
- 143 |       elements.forEach(el => {
- 144 |         if (el) {
- 145 |           el.style.background = 'transparent';
- 146 |           el.style.backgroundColor = 'transparent';
- 147 |           el.style.margin = '0';
- 148 |           el.style.padding = '0';
- 149 |           el.style.overflow = 'hidden';
- 150 |           el.style.border = 'none';
- 151 |           el.style.outline = 'none';
- 152 |         }
- 153 |       });
- 154 |     };
+  74 |     // Handle running state changes
+  75 |     if (lastState.isRunning !== currentState.isRunning) {
+  76 |       if (currentState.isRunning) {
+  77 |         console.log('Starting timer in overlay, current:', currentState.currentTimer);
+  78 |         const timerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+  79 |         const resumeValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
+  80 |         
+  81 |         if (timerRef) {
+  82 |           timerRef.start(resumeValue);
+  83 |         }
+  84 |       } else {
+  85 |         console.log('Pausing timer in overlay');
+  86 |         const currentTimer = currentState.currentTimer;
+  87 |         const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+  88 |         
+  89 |         if (timerRef && timerRef.running) {
+  90 |           const finalValue = timerRef.pause();
+  91 |           const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
+  92 |           setLocalTimerData(prev => ({ ...prev, [valueKey]: finalValue }));
+  93 |         }
+  94 |       }
+  95 |     }
+  96 | 
+  97 |     // Handle timer swap (don't reset values, just change active timer)
+  98 |     if (lastState.currentTimer !== currentState.currentTimer) {
+  99 |       console.log('Timer swapped in overlay from', lastState.currentTimer, 'to:', currentState.currentTimer);
+ 100 |       
+ 101 |       if (lastState.isRunning) {
+ 102 |         // Pause the old timer and start the new one
+ 103 |         const oldTimerRef = lastState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+ 104 |         const newTimerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
+ 105 |         
+ 106 |         if (oldTimerRef && oldTimerRef.running) {
+ 107 |           const finalValue = oldTimerRef.pause();
+ 108 |           const oldValueKey = lastState.currentTimer === 1 ? 'timer1Value' : 'timer2Value';
+ 109 |           setLocalTimerData(prev => ({ ...prev, [oldValueKey]: finalValue }));
+ 110 |         }
+ 111 |         
+ 112 |         if (newTimerRef && currentState.isRunning) {
+ 113 |           const resumeValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
+ 114 |           newTimerRef.start(resumeValue);
+ 115 |         }
+ 116 |       }
+ 117 |     }
+ 118 | 
+ 119 |     // Handle reset (only when value goes to 0 and not running)
+ 120 |     if (lastState.timer1Value !== currentState.timer1Value && 
+ 121 |         !currentState.isRunning && 
+ 122 |         currentState.timer1Value === 0 && 
+ 123 |         lastState.timer1Value > 0) {
+ 124 |       if (timer1Ref.current) {
+ 125 |         timer1Ref.current.reset();
+ 126 |       }
+ 127 |     }
+ 128 | 
+ 129 |     if (lastState.timer2Value !== currentState.timer2Value && 
+ 130 |         !currentState.isRunning && 
+ 131 |         currentState.timer2Value === 0 && 
+ 132 |         lastState.timer2Value > 0) {
+ 133 |       if (timer2Ref.current) {
+ 134 |         timer2Ref.current.reset();
+ 135 |       }
+ 136 |     }
+ 137 | 
+ 138 |     lastStateRef.current = currentState;
+ 139 |   }, [localTimerData, isInitialized]);
+ 140 | 
+ 141 |   useEffect(() => {
+ 142 |     if (!window.electronAPI?.overlay) return;
+ 143 | 
+ 144 |     const cleanupDataSync = window.electronAPI.overlay.onDataSync((data) => {
+ 145 |       console.log('Received timer data sync in overlay:', data);
+ 146 |       syncingRef.current = true;
+ 147 |       setLocalTimerData(data);
+ 148 |       setTimeout(() => {
+ 149 |         syncingRef.current = false;
+ 150 |       }, 100);
+ 151 |     });
+ 152 | 
+ 153 |     return cleanupDataSync;
+ 154 |   }, []);
  155 | 
- 156 |     forceTransparency();
- 157 |     const interval = setInterval(forceTransparency, 500);
- 158 | 
- 159 |     return () => clearInterval(interval);
- 160 |   }, []);
- 161 | 
- 162 |   if (!isInitialized) {
- 163 |     return (
- 164 |       <div style={{ 
- 165 |         background: 'transparent', 
- 166 |         color: 'white', 
- 167 |         padding: '20px',
- 168 |         fontFamily: 'monospace'
- 169 |       }}>
- 170 |         Loading overlay...
- 171 |       </div>
- 172 |     );
- 173 |   }
- 174 | 
- 175 |   return (
- 176 |     <div 
- 177 |       className="w-full h-full"
- 178 |       style={{ 
- 179 |         background: 'transparent',
- 180 |         backgroundColor: 'transparent',
- 181 |         margin: 0,
- 182 |         padding: 0,
- 183 |         overflow: 'hidden',
- 184 |         border: 'none',
- 185 |         outline: 'none'
- 186 |       }}
- 187 |     >
- 188 |       <TimerOverlay timerData={localTimerData} />
- 189 |     </div>
- 190 |   );
- 191 | };
- 192 | 
- 193 | export default OverlayApp;
+ 156 |   useEffect(() => {
+ 157 |     const forceTransparency = () => {
+ 158 |       const elements = [
+ 159 |         document.body,
+ 160 |         document.documentElement,
+ 161 |         document.getElementById('overlay-root')
+ 162 |       ].filter(Boolean);
+ 163 | 
+ 164 |       elements.forEach(el => {
+ 165 |         if (el) {
+ 166 |           el.style.background = 'transparent';
+ 167 |           el.style.backgroundColor = 'transparent';
+ 168 |           el.style.margin = '0';
+ 169 |           el.style.padding = '0';
+ 170 |           el.style.overflow = 'hidden';
+ 171 |           el.style.border = 'none';
+ 172 |           el.style.outline = 'none';
+ 173 |         }
+ 174 |       });
+ 175 |     };
+ 176 | 
+ 177 |     forceTransparency();
+ 178 |     const interval = setInterval(forceTransparency, 1000);
+ 179 | 
+ 180 |     return () => clearInterval(interval);
+ 181 |   }, []);
+ 182 | 
+ 183 |   if (!isInitialized) {
+ 184 |     return (
+ 185 |       <div style={{ 
+ 186 |         background: 'transparent', 
+ 187 |         color: 'white', 
+ 188 |         padding: '20px',
+ 189 |         fontFamily: 'monospace'
+ 190 |       }}>
+ 191 |         Loading overlay...
+ 192 |       </div>
+ 193 |     );
+ 194 |   }
+ 195 | 
+ 196 |   return (
+ 197 |     <div 
+ 198 |       className="w-full h-full"
+ 199 |       style={{ 
+ 200 |         background: 'transparent',
+ 201 |         backgroundColor: 'transparent',
+ 202 |         margin: 0,
+ 203 |         padding: 0,
+ 204 |         overflow: 'hidden',
+ 205 |         border: 'none',
+ 206 |         outline: 'none'
+ 207 |       }}
+ 208 |     >
+ 209 |       <TimerOverlay timerData={localTimerData} />
+ 210 |     </div>
+ 211 |   );
+ 212 | };
+ 213 | 
+ 214 | export default OverlayApp;
 
 ```
 
@@ -2173,91 +2194,137 @@ dbdoverlaytools-free
   31 |   }, [player1Name, player2Name]);
   32 | 
   33 |   const formatTimerChars = (timeStr: string) => {
-  34 |     if (timeStr.includes(':')) {
-  35 |       const [minutesPart, secondsCentiseconds] = timeStr.split(':');
-  36 |       const [secondsPart, centiseconds] = secondsCentiseconds.split('.');
-  37 |       
-  38 |       return {
-  39 |         minutes: minutesPart || '0',
-  40 |         colon: ':',
-  41 |         seconds1: secondsPart?.[0] || '0',
-  42 |         seconds2: secondsPart?.[1] || '0',
-  43 |         dot: '.',
-  44 |         centis1: centiseconds?.[0] || '0',
-  45 |         centis2: centiseconds?.[1] || '0',
-  46 |         hasMinutes: true
-  47 |       };
-  48 |     } else {
-  49 |       const [secondsPart, centiseconds] = timeStr.split('.');
-  50 |       
-  51 |       return {
-  52 |         seconds1: secondsPart?.[0] || '0',
-  53 |         seconds2: secondsPart?.[1] || '0',
-  54 |         dot: '.',
-  55 |         centis1: centiseconds?.[0] || '0',
-  56 |         centis2: centiseconds?.[1] || '0',
-  57 |         hasMinutes: false
-  58 |       };
-  59 |     }
-  60 |   };
-  61 | 
-  62 |   const timer1Chars = formatTimerChars(timer1 || '0.00');
-  63 |   const timer2Chars = formatTimerChars(timer2 || '0.00');
-  64 | 
-  65 |   return (
-  66 |     <div className="timer-overlay">
-  67 |       <div className="name left">
-  68 |         <span className={cn("name-scroll", player1Scrolling && "scrolling")}>
-  69 |           {player1Name.toUpperCase()}
-  70 |         </span>
-  71 |       </div>
-  72 |       
-  73 |       <div className="score-value">
-  74 |         {player1Score} – {player2Score}
-  75 |       </div>
-  76 |       
-  77 |       <div className="name right">
-  78 |         <span className={cn("name-scroll", player2Scrolling && "scrolling")}>
-  79 |           {player2Name.toUpperCase()}
-  80 |         </span>
-  81 |       </div>
-  82 |       
-  83 |       <div className={cn("timer left", currentTimer === 1 && isRunning && "active")}>
-  84 |         <span className="timer-text">
-  85 |           {timer1Chars.hasMinutes && (
-  86 |             <>
-  87 |               <span className="timer-char">{timer1Chars.minutes}</span>
-  88 |               <span className="timer-char separator">{timer1Chars.colon}</span>
-  89 |             </>
-  90 |           )}
-  91 |           <span className="timer-char">{timer1Chars.seconds1}</span>
-  92 |           <span className="timer-char">{timer1Chars.seconds2}</span>
-  93 |           <span className="timer-char separator">{timer1Chars.dot}</span>
-  94 |           <span className="timer-char">{timer1Chars.centis1}</span>
-  95 |           <span className="timer-char">{timer1Chars.centis2}</span>
-  96 |         </span>
-  97 |       </div>
-  98 |       
-  99 |       <div className={cn("timer right", currentTimer === 2 && isRunning && "active")}>
- 100 |         <span className="timer-text">
- 101 |           {timer2Chars.hasMinutes && (
- 102 |             <>
- 103 |               <span className="timer-char">{timer2Chars.minutes}</span>
- 104 |               <span className="timer-char separator">{timer2Chars.colon}</span>
- 105 |             </>
- 106 |           )}
- 107 |           <span className="timer-char">{timer2Chars.seconds1}</span>
- 108 |           <span className="timer-char">{timer2Chars.seconds2}</span>
- 109 |           <span className="timer-char separator">{timer2Chars.dot}</span>
- 110 |           <span className="timer-char">{timer2Chars.centis1}</span>
- 111 |           <span className="timer-char">{timer2Chars.centis2}</span>
- 112 |         </span>
- 113 |       </div>
- 114 |     </div>
- 115 |   );
- 116 | };
- 117 | 
- 118 | export default DefaultStyle;
+  34 |     // Handle HH:MM:SS.HH format
+  35 |     if (timeStr.includes(':') && timeStr.split(':').length === 3) {
+  36 |       const [hoursPart, minutesPart, secondsCentiseconds] = timeStr.split(':');
+  37 |       const [secondsPart, centiseconds] = secondsCentiseconds.split('.');
+  38 |       
+  39 |       return {
+  40 |         hours: hoursPart || '00',
+  41 |         colon1: ':',
+  42 |         minutes: minutesPart || '00',
+  43 |         colon2: ':',
+  44 |         seconds1: secondsPart?.[0] || '0',
+  45 |         seconds2: secondsPart?.[1] || '0',
+  46 |         dot: '.',
+  47 |         centis1: centiseconds?.[0] || '0',
+  48 |         centis2: centiseconds?.[1] || '0',
+  49 |         hasHours: true,
+  50 |         hasMinutes: true
+  51 |       };
+  52 |     }
+  53 |     // Handle M:SS.HH format
+  54 |     else if (timeStr.includes(':') && timeStr.split(':').length === 2) {
+  55 |       const [minutesPart, secondsCentiseconds] = timeStr.split(':');
+  56 |       const [secondsPart, centiseconds] = secondsCentiseconds.split('.');
+  57 |       
+  58 |       return {
+  59 |         minutes: minutesPart || '0',
+  60 |         colon: ':',
+  61 |         seconds1: secondsPart?.[0] || '0',
+  62 |         seconds2: secondsPart?.[1] || '0',
+  63 |         dot: '.',
+  64 |         centis1: centiseconds?.[0] || '0',
+  65 |         centis2: centiseconds?.[1] || '0',
+  66 |         hasHours: false,
+  67 |         hasMinutes: true
+  68 |       };
+  69 |     } 
+  70 |     // Handle SS.HH format
+  71 |     else {
+  72 |       const [secondsPart, centiseconds] = timeStr.split('.');
+  73 |       
+  74 |       return {
+  75 |         seconds1: secondsPart?.[0] || '0',
+  76 |         seconds2: secondsPart?.[1] || '0',
+  77 |         dot: '.',
+  78 |         centis1: centiseconds?.[0] || '0',
+  79 |         centis2: centiseconds?.[1] || '0',
+  80 |         hasHours: false,
+  81 |         hasMinutes: false
+  82 |       };
+  83 |     }
+  84 |   };
+  85 | 
+  86 |   const timer1Chars = formatTimerChars(timer1 || '0.00');
+  87 |   const timer2Chars = formatTimerChars(timer2 || '0.00');
+  88 | 
+  89 |   return (
+  90 |     <div className="timer-overlay">
+  91 |       <div className="name left">
+  92 |         <span className={cn("name-scroll", player1Scrolling && "scrolling")}>
+  93 |           {player1Name.toUpperCase()}
+  94 |         </span>
+  95 |       </div>
+  96 |       
+  97 |       <div className="score-value">
+  98 |         {player1Score} – {player2Score}
+  99 |       </div>
+ 100 |       
+ 101 |       <div className="name right">
+ 102 |         <span className={cn("name-scroll", player2Scrolling && "scrolling")}>
+ 103 |           {player2Name.toUpperCase()}
+ 104 |         </span>
+ 105 |       </div>
+ 106 |       
+ 107 |       <div className={cn(
+ 108 |         "timer left",
+ 109 |         currentTimer === 1 && "active"
+ 110 |       )}>
+ 111 |         <span className="timer-text">
+ 112 |           {timer1Chars.hasHours && (
+ 113 |             <>
+ 114 |               <span className="timer-char">{timer1Chars.hours}</span>
+ 115 |               <span className="timer-char separator">{timer1Chars.colon1}</span>
+ 116 |               <span className="timer-char">{timer1Chars.minutes}</span>
+ 117 |               <span className="timer-char separator">{timer1Chars.colon2}</span>
+ 118 |             </>
+ 119 |           )}
+ 120 |           {timer1Chars.hasMinutes && !timer1Chars.hasHours && (
+ 121 |             <>
+ 122 |               <span className="timer-char">{timer1Chars.minutes}</span>
+ 123 |               <span className="timer-char separator">{timer1Chars.colon}</span>
+ 124 |             </>
+ 125 |           )}
+ 126 |           <span className="timer-char">{timer1Chars.seconds1}</span>
+ 127 |           <span className="timer-char">{timer1Chars.seconds2}</span>
+ 128 |           <span className="timer-char separator">{timer1Chars.dot}</span>
+ 129 |           <span className="timer-char centis">{timer1Chars.centis1}</span>
+ 130 |           <span className="timer-char centis">{timer1Chars.centis2}</span>
+ 131 |         </span>
+ 132 |       </div>
+ 133 |       
+ 134 |       <div className={cn(
+ 135 |         "timer right",
+ 136 |         currentTimer === 2 && "active"
+ 137 |       )}>
+ 138 |         <span className="timer-text">
+ 139 |           {timer2Chars.hasHours && (
+ 140 |             <>
+ 141 |               <span className="timer-char">{timer2Chars.hours}</span>
+ 142 |               <span className="timer-char separator">{timer2Chars.colon1}</span>
+ 143 |               <span className="timer-char">{timer2Chars.minutes}</span>
+ 144 |               <span className="timer-char separator">{timer2Chars.colon2}</span>
+ 145 |             </>
+ 146 |           )}
+ 147 |           {timer2Chars.hasMinutes && !timer2Chars.hasHours && (
+ 148 |             <>
+ 149 |               <span className="timer-char">{timer2Chars.minutes}</span>
+ 150 |               <span className="timer-char separator">{timer2Chars.colon}</span>
+ 151 |             </>
+ 152 |           )}
+ 153 |           <span className="timer-char">{timer2Chars.seconds1}</span>
+ 154 |           <span className="timer-char">{timer2Chars.seconds2}</span>
+ 155 |           <span className="timer-char separator">{timer2Chars.dot}</span>
+ 156 |           <span className="timer-char centis">{timer2Chars.centis1}</span>
+ 157 |           <span className="timer-char centis">{timer2Chars.centis2}</span>
+ 158 |         </span>
+ 159 |       </div>
+ 160 |     </div>
+ 161 |   );
+ 162 | };
+ 163 | 
+ 164 | export default DefaultStyle;
 
 ```
 
@@ -2647,7 +2714,7 @@ dbdoverlaytools-free
  242 |   align-items: center;
  243 |   justify-content: center;
  244 |   font-family: "Consolas", "Monaco", "Courier New", monospace;
- 245 |   font-size: 32px;
+ 245 |   font-size: 28px;
  246 |   font-weight: 400;
  247 |   text-shadow: 0 0 6px rgba(190,190,190,0.50);
  248 |   position: relative;
@@ -2677,7 +2744,7 @@ dbdoverlaytools-free
  272 | 
  273 | .timer-char {
  274 |   display: inline-block;
- 275 |   width: 22px;
+ 275 |   width: 20px;
  276 |   text-align: center;
  277 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
  278 |   -webkit-background-clip: text;
@@ -2686,24 +2753,43 @@ dbdoverlaytools-free
  281 | }
  282 | 
  283 | .timer-char.separator {
- 284 |   width: 11px;
+ 284 |   width: 10px;
  285 | }
  286 | 
- 287 | .timer.active::before {
- 288 |   content: '';
- 289 |   position: absolute;
- 290 |   bottom: 0;
- 291 |   left: 0;
- 292 |   right: 0;
- 293 |   height: 3px;
- 294 |   background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
- 295 |   animation: pulseBar 1s ease-in-out infinite;
- 296 | }
- 297 | 
- 298 | @keyframes pulseBar {
- 299 |   0%, 100% { opacity: 0.5; }
- 300 |   50% { opacity: 1; }
- 301 | }
+ 287 | .timer-char.centis {
+ 288 |   width: 18px;
+ 289 |   font-size: 24px;
+ 290 |   opacity: 0.9;
+ 291 | }
+ 292 | 
+ 293 | /* Active timer indicator - ALWAYS show the current timer position */
+ 294 | .timer::after {
+ 295 |   content: '';
+ 296 |   position: absolute;
+ 297 |   bottom: 0;
+ 298 |   left: 0;
+ 299 |   right: 0;
+ 300 |   height: 3px;
+ 301 |   background: linear-gradient(90deg, #666 0%, #444 50%, #666 100%);
+ 302 |   opacity: 0.5;
+ 303 | }
+ 304 | 
+ 305 | .timer.active::after {
+ 306 |   background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
+ 307 |   opacity: 1;
+ 308 |   animation: pulseBar 1.5s ease-in-out infinite;
+ 309 | }
+ 310 | 
+ 311 | @keyframes pulseBar {
+ 312 |   0%, 100% { 
+ 313 |     opacity: 0.8;
+ 314 |     transform: scaleY(1);
+ 315 |   }
+ 316 |   50% { 
+ 317 |     opacity: 1;
+ 318 |     transform: scaleY(1.5);
+ 319 |   }
+ 320 | }
 
 ```
 
@@ -2878,131 +2964,156 @@ dbdoverlaytools-free
  121 | 
  122 |   startTimer: () => {
  123 |     const currentData = get().timerData;
- 124 |     if (!currentData.isRunning) {
- 125 |       get().setTimerData({ isRunning: true });
- 126 |       get().saveToStorage();
- 127 |     }
- 128 |   },
- 129 | 
- 130 |   pauseTimer: () => {
- 131 |     const currentData = get().timerData;
- 132 |     if (currentData.isRunning) {
- 133 |       get().setTimerData({ isRunning: false });
- 134 |       get().saveToStorage();
- 135 |     }
- 136 |   },
- 137 | 
- 138 |   resetTimer: () => {
- 139 |     const { timerData } = get();
- 140 |     const currentTimer = timerData.currentTimer;
- 141 |     const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
- 142 |     
- 143 |     get().setTimerData({ 
- 144 |       [valueKey]: 0,
- 145 |       isRunning: false 
- 146 |     });
- 147 |     get().saveToStorage();
- 148 |   },
- 149 | 
- 150 |   resetAllTimers: () => {
- 151 |     get().setTimerData({ 
- 152 |       timer1Value: 0,
- 153 |       timer2Value: 0,
- 154 |       isRunning: false 
- 155 |     });
- 156 |     get().saveToStorage();
- 157 |   },
- 158 | 
- 159 |   swapTimer: () => {
- 160 |     const { timerData } = get();
- 161 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
- 162 |     
- 163 |     get().setTimerData({ 
- 164 |       currentTimer: newTimer,
- 165 |       isRunning: false 
- 166 |     });
- 167 |     get().saveToStorage();
- 168 |   },
- 169 | 
- 170 |   setTimerValue: (player, value) => {
- 171 |     const valueKey = player === 1 ? 'timer1Value' : 'timer2Value';
- 172 |     set((state) => ({
- 173 |       timerData: { ...state.timerData, [valueKey]: value }
- 174 |     }));
- 175 |   },
- 176 | 
- 177 |   setTimerRunning: (running) => {
- 178 |     get().setTimerData({ isRunning: running });
- 179 |   },
- 180 | 
- 181 |   setCurrentTimer: (timer) => {
- 182 |     get().setTimerData({ currentTimer: timer });
- 183 |   },
- 184 | 
- 185 |   updatePlayerScore: (player, delta) => {
- 186 |     const { timerData } = get();
- 187 |     const scoreKey = player === 1 ? 'player1Score' : 'player2Score';
- 188 |     const currentScore = timerData[scoreKey];
- 189 |     
- 190 |     get().setTimerData({ 
- 191 |       [scoreKey]: Math.max(0, currentScore + delta) 
- 192 |     });
- 193 |     get().saveToStorage();
- 194 |   },
- 195 | 
- 196 |   updatePlayerName: (player, name) => {
- 197 |     const nameKey = player === 1 ? 'player1Name' : 'player2Name';
- 198 |     get().setTimerData({ [nameKey]: name });
- 199 |     get().saveToStorage();
+ 124 |     console.log('Starting timer. Current values:', {
+ 125 |       isRunning: currentData.isRunning,
+ 126 |       timer1Value: currentData.timer1Value,
+ 127 |       timer2Value: currentData.timer2Value,
+ 128 |       currentTimer: currentData.currentTimer
+ 129 |     });
+ 130 |     
+ 131 |     if (!currentData.isRunning) {
+ 132 |       get().setTimerData({ isRunning: true });
+ 133 |       get().saveToStorage();
+ 134 |     }
+ 135 |   },
+ 136 | 
+ 137 |   pauseTimer: () => {
+ 138 |     const currentData = get().timerData;
+ 139 |     console.log('Pausing timer. Current values:', {
+ 140 |       isRunning: currentData.isRunning,
+ 141 |       timer1Value: currentData.timer1Value,
+ 142 |       timer2Value: currentData.timer2Value,
+ 143 |       currentTimer: currentData.currentTimer
+ 144 |     });
+ 145 |     
+ 146 |     if (currentData.isRunning) {
+ 147 |       get().setTimerData({ isRunning: false });
+ 148 |       get().saveToStorage();
+ 149 |     }
+ 150 |   },
+ 151 | 
+ 152 |   resetTimer: () => {
+ 153 |     const { timerData } = get();
+ 154 |     const currentTimer = timerData.currentTimer;
+ 155 |     const valueKey = currentTimer === 1 ? 'timer1Value' : 'timer2Value';
+ 156 |     
+ 157 |     console.log('Resetting timer', currentTimer, 'from value:', timerData[valueKey]);
+ 158 |     
+ 159 |     get().setTimerData({ 
+ 160 |       [valueKey]: 0,
+ 161 |       isRunning: false 
+ 162 |     });
+ 163 |     get().saveToStorage();
+ 164 |   },
+ 165 | 
+ 166 |   resetAllTimers: () => {
+ 167 |     console.log('Resetting all timers');
+ 168 |     get().setTimerData({ 
+ 169 |       timer1Value: 0,
+ 170 |       timer2Value: 0,
+ 171 |       isRunning: false 
+ 172 |     });
+ 173 |     get().saveToStorage();
+ 174 |   },
+ 175 | 
+ 176 |   swapTimer: () => {
+ 177 |     const { timerData } = get();
+ 178 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
+ 179 |     
+ 180 |     console.log('Swapping from timer', timerData.currentTimer, 'to timer', newTimer);
+ 181 |     console.log('Timer values before swap:', {
+ 182 |       timer1Value: timerData.timer1Value,
+ 183 |       timer2Value: timerData.timer2Value,
+ 184 |       wasRunning: timerData.isRunning
+ 185 |     });
+ 186 |     
+ 187 |     // Keep the timer running state but switch the active timer
+ 188 |     get().setTimerData({ 
+ 189 |       currentTimer: newTimer
+ 190 |       // Don't change isRunning or timer values - preserve them!
+ 191 |     });
+ 192 |     get().saveToStorage();
+ 193 |   },
+ 194 | 
+ 195 |   setTimerValue: (player, value) => {
+ 196 |     const valueKey = player === 1 ? 'timer1Value' : 'timer2Value';
+ 197 |     set((state) => ({
+ 198 |       timerData: { ...state.timerData, [valueKey]: value }
+ 199 |     }));
  200 |   },
  201 | 
- 202 |   updateHotkeys: (hotkeys) => {
- 203 |     get().setTimerData({ 
- 204 |       startHotkey: hotkeys.start,
- 205 |       swapHotkey: hotkeys.swap,
- 206 |       hotkeys
- 207 |     });
- 208 |     get().saveToStorage();
- 209 |   },
- 210 | 
- 211 |   loadFromStorage: async () => {
- 212 |     try {
- 213 |       if (!window.electronAPI?.store) return;
- 214 | 
- 215 |       const [storedTimerData, storedOverlaySettings] = await Promise.all([
- 216 |         window.electronAPI.store.get('timerData'),
- 217 |         window.electronAPI.store.get('overlaySettings')
- 218 |       ]);
- 219 | 
- 220 |       const loadedTimerData = storedTimerData ? { ...defaultTimerData, ...storedTimerData } : defaultTimerData;
- 221 |       const loadedOverlaySettings = storedOverlaySettings ? { ...defaultOverlaySettings, ...storedOverlaySettings } : defaultOverlaySettings;
- 222 | 
- 223 |       set({
- 224 |         timerData: loadedTimerData,
- 225 |         overlaySettings: loadedOverlaySettings
- 226 |       });
- 227 | 
- 228 |       console.log('Timer store loaded from storage:', { loadedTimerData, loadedOverlaySettings });
- 229 |     } catch (error) {
- 230 |       console.error('Error loading from storage:', error);
- 231 |     }
- 232 |   },
- 233 | 
- 234 |   saveToStorage: async () => {
- 235 |     try {
- 236 |       if (!window.electronAPI?.store) return;
- 237 | 
- 238 |       const { timerData, overlaySettings } = get();
- 239 |       
- 240 |       await Promise.all([
- 241 |         window.electronAPI.store.set('timerData', timerData),
- 242 |         window.electronAPI.store.set('overlaySettings', overlaySettings)
+ 202 |   setTimerRunning: (running) => {
+ 203 |     get().setTimerData({ isRunning: running });
+ 204 |   },
+ 205 | 
+ 206 |   setCurrentTimer: (timer) => {
+ 207 |     get().setTimerData({ currentTimer: timer });
+ 208 |   },
+ 209 | 
+ 210 |   updatePlayerScore: (player, delta) => {
+ 211 |     const { timerData } = get();
+ 212 |     const scoreKey = player === 1 ? 'player1Score' : 'player2Score';
+ 213 |     const currentScore = timerData[scoreKey];
+ 214 |     
+ 215 |     get().setTimerData({ 
+ 216 |       [scoreKey]: Math.max(0, currentScore + delta) 
+ 217 |     });
+ 218 |     get().saveToStorage();
+ 219 |   },
+ 220 | 
+ 221 |   updatePlayerName: (player, name) => {
+ 222 |     const nameKey = player === 1 ? 'player1Name' : 'player2Name';
+ 223 |     get().setTimerData({ [nameKey]: name });
+ 224 |     get().saveToStorage();
+ 225 |   },
+ 226 | 
+ 227 |   updateHotkeys: (hotkeys) => {
+ 228 |     get().setTimerData({ 
+ 229 |       startHotkey: hotkeys.start,
+ 230 |       swapHotkey: hotkeys.swap,
+ 231 |       hotkeys
+ 232 |     });
+ 233 |     get().saveToStorage();
+ 234 |   },
+ 235 | 
+ 236 |   loadFromStorage: async () => {
+ 237 |     try {
+ 238 |       if (!window.electronAPI?.store) return;
+ 239 | 
+ 240 |       const [storedTimerData, storedOverlaySettings] = await Promise.all([
+ 241 |         window.electronAPI.store.get('timerData'),
+ 242 |         window.electronAPI.store.get('overlaySettings')
  243 |       ]);
- 244 |     } catch (error) {
- 245 |       console.error('Error saving to storage:', error);
- 246 |     }
- 247 |   }
- 248 | }));
+ 244 | 
+ 245 |       const loadedTimerData = storedTimerData ? { ...defaultTimerData, ...storedTimerData } : defaultTimerData;
+ 246 |       const loadedOverlaySettings = storedOverlaySettings ? { ...defaultOverlaySettings, ...storedOverlaySettings } : defaultOverlaySettings;
+ 247 | 
+ 248 |       set({
+ 249 |         timerData: loadedTimerData,
+ 250 |         overlaySettings: loadedOverlaySettings
+ 251 |       });
+ 252 | 
+ 253 |       console.log('Timer store loaded from storage:', { loadedTimerData, loadedOverlaySettings });
+ 254 |     } catch (error) {
+ 255 |       console.error('Error loading from storage:', error);
+ 256 |     }
+ 257 |   },
+ 258 | 
+ 259 |   saveToStorage: async () => {
+ 260 |     try {
+ 261 |       if (!window.electronAPI?.store) return;
+ 262 | 
+ 263 |       const { timerData, overlaySettings } = get();
+ 264 |       
+ 265 |       await Promise.all([
+ 266 |         window.electronAPI.store.set('timerData', timerData),
+ 267 |         window.electronAPI.store.set('overlaySettings', overlaySettings)
+ 268 |       ]);
+ 269 |     } catch (error) {
+ 270 |       console.error('Error saving to storage:', error);
+ 271 |     }
+ 272 |   }
+ 273 | }));
 
 ```
 
@@ -3142,173 +3253,227 @@ dbdoverlaytools-free
 
 ```ts
    1 | /**
-   2 |  * Formats milliseconds to M:SS.HH format or SS.HH format for times under 1 minute
-   3 |  * @param milliseconds - Time in milliseconds
-   4 |  * @returns Formatted time string (e.g., "2:24.39" or "35.21")
-   5 |  */
-   6 | export function formatTime(milliseconds: number): string {
-   7 |   if (milliseconds < 0) return "0.00";
-   8 |   
-   9 |   const totalMs = Math.floor(milliseconds);
-  10 |   const totalSeconds = Math.floor(totalMs / 1000);
-  11 |   const minutes = Math.floor(totalSeconds / 60);
-  12 |   const seconds = totalSeconds % 60;
-  13 |   const centiseconds = Math.floor((totalMs % 1000) / 10);
-  14 |   
-  15 |   if (minutes === 0) {
-  16 |     return `${seconds}.${centiseconds.toString().padStart(2, '0')}`;
-  17 |   }
-  18 |   
-  19 |   return `${minutes}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
-  20 | }
-  21 | 
-  22 | /**
-  23 |  * Parses a formatted time string to milliseconds
-  24 |  * @param timeString - Time string in M:SS.HH or SS.HH format
-  25 |  * @returns Time in milliseconds
-  26 |  */
-  27 | export function parseTimeToMs(timeString: string): number {
-  28 |   // Handle M:SS.HH format
-  29 |   const minutesMatch = timeString.match(/(\d+):(\d{2})\.(\d{2})/);
-  30 |   if (minutesMatch) {
-  31 |     const minutes = parseInt(minutesMatch[1]);
-  32 |     const seconds = parseInt(minutesMatch[2]);
-  33 |     const centiseconds = parseInt(minutesMatch[3]);
-  34 |     return (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
-  35 |   }
-  36 |   
-  37 |   // Handle SS.HH format
-  38 |   const secondsMatch = timeString.match(/(\d+)\.(\d{2})/);
-  39 |   if (secondsMatch) {
-  40 |     const seconds = parseInt(secondsMatch[1]);
-  41 |     const centiseconds = parseInt(secondsMatch[2]);
-  42 |     return (seconds * 1000) + (centiseconds * 10);
-  43 |   }
-  44 |   
-  45 |   return 0;
-  46 | }
-  47 | 
-  48 | /**
-  49 |  * Timer hook for managing precise timing with requestAnimationFrame
-  50 |  */
-  51 | export class PreciseTimer {
-  52 |   private startTime: number = 0;
-  53 |   private initialValue: number = 0;
-  54 |   private animationId: number | null = null;
-  55 |   private intervalId: number | null = null;
-  56 |   private isRunning: boolean = false;
-  57 |   private onUpdate: (value: number) => void;
-  58 |   private lastUpdateTime: number = 0;
-  59 | 
-  60 |   constructor(onUpdate: (value: number) => void) {
-  61 |     this.onUpdate = onUpdate;
-  62 |   }
+   2 |  * Formats milliseconds to LiveSplit format with centiseconds
+   3 |  * Examples:
+   4 |  * - 0ms -> "0.00"
+   5 |  * - 30110ms -> "30.11" 
+   6 |  * - 80220ms -> "1:20.22"
+   7 |  * - 5428450ms -> "01:30:28.45"
+   8 |  */
+   9 | export function formatTime(milliseconds: number): string {
+  10 |   if (milliseconds < 0) return "0.00";
+  11 |   
+  12 |   const totalMs = Math.floor(milliseconds);
+  13 |   const totalSeconds = Math.floor(totalMs / 1000);
+  14 |   const minutes = Math.floor(totalSeconds / 60);
+  15 |   const hours = Math.floor(minutes / 60);
+  16 |   const remainingMinutes = minutes % 60;
+  17 |   const remainingSeconds = totalSeconds % 60;
+  18 |   const centiseconds = Math.floor((totalMs % 1000) / 10);
+  19 |   
+  20 |   if (hours > 0) {
+  21 |     return `${hours.toString().padStart(2, '0')}:${remainingMinutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
+  22 |   } else if (minutes > 0) {
+  23 |     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
+  24 |   } else {
+  25 |     return `${remainingSeconds}.${centiseconds.toString().padStart(2, '0')}`;
+  26 |   }
+  27 | }
+  28 | 
+  29 | /**
+  30 |  * Parses a formatted time string to milliseconds
+  31 |  * Supports formats: "SS.HH", "M:SS.HH", "HH:MM:SS.HH"
+  32 |  */
+  33 | export function parseTimeToMs(timeString: string): number {
+  34 |   // Handle HH:MM:SS.HH format
+  35 |   const hoursMatch = timeString.match(/(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+  36 |   if (hoursMatch) {
+  37 |     const hours = parseInt(hoursMatch[1]);
+  38 |     const minutes = parseInt(hoursMatch[2]);
+  39 |     const seconds = parseInt(hoursMatch[3]);
+  40 |     const centiseconds = parseInt(hoursMatch[4]);
+  41 |     return (hours * 3600 * 1000) + (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
+  42 |   }
+  43 |   
+  44 |   // Handle M:SS.HH format
+  45 |   const minutesMatch = timeString.match(/(\d+):(\d{2})\.(\d{2})/);
+  46 |   if (minutesMatch) {
+  47 |     const minutes = parseInt(minutesMatch[1]);
+  48 |     const seconds = parseInt(minutesMatch[2]);
+  49 |     const centiseconds = parseInt(minutesMatch[3]);
+  50 |     return (minutes * 60 * 1000) + (seconds * 1000) + (centiseconds * 10);
+  51 |   }
+  52 |   
+  53 |   // Handle SS.HH format
+  54 |   const secondsMatch = timeString.match(/(\d+)\.(\d{2})/);
+  55 |   if (secondsMatch) {
+  56 |     const seconds = parseInt(secondsMatch[1]);
+  57 |     const centiseconds = parseInt(secondsMatch[2]);
+  58 |     return (seconds * 1000) + (centiseconds * 10);
+  59 |   }
+  60 |   
+  61 |   return 0;
+  62 | }
   63 | 
-  64 |   start(initialValue: number = 0) {
-  65 |     if (this.isRunning) return;
-  66 |     
-  67 |     this.startTime = Date.now();
-  68 |     this.initialValue = initialValue;
-  69 |     this.isRunning = true;
-  70 |     this.lastUpdateTime = 0;
-  71 | 
-  72 |     const updateTimer = () => {
-  73 |       if (!this.isRunning) return;
-  74 | 
-  75 |       const now = Date.now();
-  76 |       const elapsed = now - this.startTime;
-  77 |       const currentValue = this.initialValue + elapsed;
-  78 | 
-  79 |       if (now - this.lastUpdateTime >= 10) {
-  80 |         this.onUpdate(currentValue);
-  81 |         this.lastUpdateTime = now;
-  82 |       }
-  83 | 
-  84 |       this.animationId = requestAnimationFrame(updateTimer);
-  85 |     };
-  86 | 
-  87 |     updateTimer();
-  88 | 
-  89 |     this.intervalId = window.setInterval(() => {
-  90 |       if (this.isRunning) {
-  91 |         const now = Date.now();
-  92 |         const elapsed = now - this.startTime;
-  93 |         const currentValue = this.initialValue + elapsed;
-  94 |         this.onUpdate(currentValue);
-  95 |       }
-  96 |     }, 10);
-  97 |   }
-  98 | 
-  99 |   pause(): number {
- 100 |     if (!this.isRunning) return this.initialValue;
- 101 | 
- 102 |     const now = Date.now();
- 103 |     const elapsed = now - this.startTime;
- 104 |     const finalValue = this.initialValue + elapsed;
+  64 | /**
+  65 |  * High-precision timer class for LiveSplit-like functionality
+  66 |  */
+  67 | export class PreciseTimer {
+  68 |   private startTime: number = 0;
+  69 |   private pausedTime: number = 0;
+  70 |   private totalPausedTime: number = 0;
+  71 |   private animationId: number | null = null;
+  72 |   private intervalId: number | null = null;
+  73 |   private isRunning: boolean = false;
+  74 |   private isPaused: boolean = false;
+  75 |   private onUpdate: (value: number) => void;
+  76 |   private lastUpdateTime: number = 0;
+  77 | 
+  78 |   constructor(onUpdate: (value: number) => void) {
+  79 |     this.onUpdate = onUpdate;
+  80 |   }
+  81 | 
+  82 |   start(resumeFromValue: number = 0) {
+  83 |     if (this.isRunning && !this.isPaused) return;
+  84 |     
+  85 |     const now = Date.now();
+  86 |     
+  87 |     if (this.isPaused) {
+  88 |       // Resume from pause
+  89 |       this.totalPausedTime += now - this.pausedTime;
+  90 |       this.isPaused = false;
+  91 |     } else {
+  92 |       // Fresh start or restart
+  93 |       this.startTime = now;
+  94 |       this.totalPausedTime = 0;
+  95 |       this.pausedTime = 0;
+  96 |       
+  97 |       // If resuming from a specific value, adjust start time
+  98 |       if (resumeFromValue > 0) {
+  99 |         this.startTime = now - resumeFromValue;
+ 100 |       }
+ 101 |     }
+ 102 |     
+ 103 |     this.isRunning = true;
+ 104 |     this.lastUpdateTime = 0;
  105 | 
- 106 |     this.stop();
- 107 |     return finalValue;
- 108 |   }
- 109 | 
- 110 |   stop() {
- 111 |     this.isRunning = false;
+ 106 |     const updateTimer = () => {
+ 107 |       if (!this.isRunning || this.isPaused) return;
+ 108 | 
+ 109 |       const now = Date.now();
+ 110 |       const elapsed = now - this.startTime - this.totalPausedTime;
+ 111 |       const currentValue = Math.max(0, elapsed);
  112 | 
- 113 |     if (this.animationId) {
- 114 |       cancelAnimationFrame(this.animationId);
- 115 |       this.animationId = null;
- 116 |     }
+ 113 |       if (now - this.lastUpdateTime >= 10) {
+ 114 |         this.onUpdate(currentValue);
+ 115 |         this.lastUpdateTime = now;
+ 116 |       }
  117 | 
- 118 |     if (this.intervalId) {
- 119 |       clearInterval(this.intervalId);
- 120 |       this.intervalId = null;
- 121 |     }
- 122 |   }
- 123 | 
- 124 |   reset() {
- 125 |     this.stop();
- 126 |     this.initialValue = 0;
- 127 |     this.onUpdate(0);
- 128 |   }
- 129 | 
- 130 |   get running(): boolean {
- 131 |     return this.isRunning;
+ 118 |       this.animationId = requestAnimationFrame(updateTimer);
+ 119 |     };
+ 120 | 
+ 121 |     updateTimer();
+ 122 | 
+ 123 |     // Backup interval for precision
+ 124 |     this.intervalId = window.setInterval(() => {
+ 125 |       if (this.isRunning && !this.isPaused) {
+ 126 |         const now = Date.now();
+ 127 |         const elapsed = now - this.startTime - this.totalPausedTime;
+ 128 |         const currentValue = Math.max(0, elapsed);
+ 129 |         this.onUpdate(currentValue);
+ 130 |       }
+ 131 |     }, 10);
  132 |   }
  133 | 
- 134 |   get currentValue(): number {
- 135 |     if (!this.isRunning) return this.initialValue;
- 136 |     
- 137 |     const now = Date.now();
- 138 |     const elapsed = now - this.startTime;
- 139 |     return this.initialValue + elapsed;
- 140 |   }
- 141 | }
- 142 | 
- 143 | /**
- 144 |  * Validates and normalizes hotkey string
- 145 |  * @param hotkey - Raw hotkey string
- 146 |  * @returns Normalized hotkey string
- 147 |  */
- 148 | export function normalizeHotkey(hotkey: string): string {
- 149 |   const key = hotkey.trim().toLowerCase();
- 150 |   
- 151 |   if (key.startsWith('f') && key.length <= 3) {
- 152 |     const num = key.slice(1);
- 153 |     if (/^\d{1,2}$/.test(num)) {
- 154 |       return key.toUpperCase();
- 155 |     }
- 156 |   }
- 157 |   
- 158 |   if (key.length === 1 && /[a-z0-9]/.test(key)) {
- 159 |     return key.toUpperCase();
- 160 |   }
- 161 |   
- 162 |   const specialKeys = ['space', 'enter', 'tab', 'escape', 'backspace'];
- 163 |   if (specialKeys.includes(key)) {
- 164 |     return key.charAt(0).toUpperCase() + key.slice(1);
- 165 |   }
- 166 |   
- 167 |   return hotkey.toUpperCase();
- 168 | }
+ 134 |   pause(): number {
+ 135 |     if (!this.isRunning || this.isPaused) return this.currentValue;
+ 136 | 
+ 137 |     this.isPaused = true;
+ 138 |     this.pausedTime = Date.now();
+ 139 |     
+ 140 |     const currentValue = this.currentValue;
+ 141 |     
+ 142 |     if (this.animationId) {
+ 143 |       cancelAnimationFrame(this.animationId);
+ 144 |       this.animationId = null;
+ 145 |     }
+ 146 |     
+ 147 |     if (this.intervalId) {
+ 148 |       clearInterval(this.intervalId);
+ 149 |       this.intervalId = null;
+ 150 |     }
+ 151 |     
+ 152 |     return currentValue;
+ 153 |   }
+ 154 | 
+ 155 |   stop() {
+ 156 |     this.isRunning = false;
+ 157 |     this.isPaused = false;
+ 158 | 
+ 159 |     if (this.animationId) {
+ 160 |       cancelAnimationFrame(this.animationId);
+ 161 |       this.animationId = null;
+ 162 |     }
+ 163 | 
+ 164 |     if (this.intervalId) {
+ 165 |       clearInterval(this.intervalId);
+ 166 |       this.intervalId = null;
+ 167 |     }
+ 168 |   }
+ 169 | 
+ 170 |   reset() {
+ 171 |     this.stop();
+ 172 |     this.startTime = 0;
+ 173 |     this.pausedTime = 0;
+ 174 |     this.totalPausedTime = 0;
+ 175 |     this.onUpdate(0);
+ 176 |   }
+ 177 | 
+ 178 |   get running(): boolean {
+ 179 |     return this.isRunning && !this.isPaused;
+ 180 |   }
+ 181 |   
+ 182 |   get paused(): boolean {
+ 183 |     return this.isPaused;
+ 184 |   }
+ 185 | 
+ 186 |   get currentValue(): number {
+ 187 |     if (!this.isRunning) return 0;
+ 188 |     
+ 189 |     if (this.isPaused) {
+ 190 |       return Math.max(0, this.pausedTime - this.startTime - this.totalPausedTime);
+ 191 |     }
+ 192 |     
+ 193 |     const now = Date.now();
+ 194 |     const elapsed = now - this.startTime - this.totalPausedTime;
+ 195 |     return Math.max(0, elapsed);
+ 196 |   }
+ 197 | }
+ 198 | 
+ 199 | /**
+ 200 |  * Validates and normalizes hotkey string
+ 201 |  */
+ 202 | export function normalizeHotkey(hotkey: string): string {
+ 203 |   const key = hotkey.trim().toLowerCase();
+ 204 |   
+ 205 |   if (key.startsWith('f') && key.length <= 3) {
+ 206 |     const num = key.slice(1);
+ 207 |     if (/^\d{1,2}$/.test(num)) {
+ 208 |       return key.toUpperCase();
+ 209 |     }
+ 210 |   }
+ 211 |   
+ 212 |   if (key.length === 1 && /[a-z0-9]/.test(key)) {
+ 213 |     return key.toUpperCase();
+ 214 |   }
+ 215 |   
+ 216 |   const specialKeys = ['space', 'enter', 'tab', 'escape', 'backspace'];
+ 217 |   if (specialKeys.includes(key)) {
+ 218 |     return key.charAt(0).toUpperCase() + key.slice(1);
+ 219 |   }
+ 220 |   
+ 221 |   return hotkey.toUpperCase();
+ 222 | }
 
 ```
 

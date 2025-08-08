@@ -47,7 +47,8 @@ const DefaultStyle: React.FC<DefaultStyleProps> = ({
         centis1: centiseconds?.[0] || '0',
         centis2: centiseconds?.[1] || '0',
         hasHours: true,
-        hasMinutes: true
+        hasMinutes: true,
+        singleDigitSeconds: false
       };
     }
     // Handle M:SS.HH format
@@ -64,22 +65,38 @@ const DefaultStyle: React.FC<DefaultStyleProps> = ({
         centis1: centiseconds?.[0] || '0',
         centis2: centiseconds?.[1] || '0',
         hasHours: false,
-        hasMinutes: true
+        hasMinutes: true,
+        singleDigitSeconds: false
       };
     } 
-    // Handle SS.HH format
+    // Handle SS.HH format (including single digit seconds)
     else {
       const [secondsPart, centiseconds] = timeStr.split('.');
       
-      return {
-        seconds1: secondsPart?.[0] || '0',
-        seconds2: secondsPart?.[1] || '0',
-        dot: '.',
-        centis1: centiseconds?.[0] || '0',
-        centis2: centiseconds?.[1] || '0',
-        hasHours: false,
-        hasMinutes: false
-      };
+      // Pour les secondes à un seul chiffre (0-9), on affiche juste le chiffre
+      if (secondsPart && secondsPart.length === 1) {
+        return {
+          seconds1: secondsPart,
+          seconds2: null,
+          dot: '.',
+          centis1: centiseconds?.[0] || '0',
+          centis2: centiseconds?.[1] || '0',
+          hasHours: false,
+          hasMinutes: false,
+          singleDigitSeconds: true
+        };
+      } else {
+        return {
+          seconds1: secondsPart?.[0] || '0',
+          seconds2: secondsPart?.[1] || '0',
+          dot: '.',
+          centis1: centiseconds?.[0] || '0',
+          centis2: centiseconds?.[1] || '0',
+          hasHours: false,
+          hasMinutes: false,
+          singleDigitSeconds: false
+        };
+      }
     }
   };
 
@@ -124,7 +141,9 @@ const DefaultStyle: React.FC<DefaultStyleProps> = ({
             </>
           )}
           <span className="timer-char">{timer1Chars.seconds1}</span>
-          <span className="timer-char">{timer1Chars.seconds2}</span>
+          {!timer1Chars.singleDigitSeconds && timer1Chars.seconds2 && (
+            <span className="timer-char">{timer1Chars.seconds2}</span>
+          )}
           <span className="timer-char separator">{timer1Chars.dot}</span>
           <span className="timer-char centis">{timer1Chars.centis1}</span>
           <span className="timer-char centis">{timer1Chars.centis2}</span>
@@ -151,7 +170,9 @@ const DefaultStyle: React.FC<DefaultStyleProps> = ({
             </>
           )}
           <span className="timer-char">{timer2Chars.seconds1}</span>
-          <span className="timer-char">{timer2Chars.seconds2}</span>
+          {!timer2Chars.singleDigitSeconds && timer2Chars.seconds2 && (
+            <span className="timer-char">{timer2Chars.seconds2}</span>
+          )}
           <span className="timer-char separator">{timer2Chars.dot}</span>
           <span className="timer-char centis">{timer2Chars.centis1}</span>
           <span className="timer-char centis">{timer2Chars.centis2}</span>
