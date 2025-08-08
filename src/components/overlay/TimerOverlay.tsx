@@ -1,303 +1,91 @@
-import React, { useEffect, useState } from 'react';
-import { useTimerStore } from '../../store/timerStore';
-import DragHandle from './DragHandle';
-import { formatTime } from '../../utils/timer';
-import type { TimerData } from '../../types';
+import React from 'react'
+import { useTimerStore } from '@/store/timerStore'
+import { formatMillis } from '@/utils/timer'
 
-interface TimerOverlayProps {
-  timerData?: TimerData;
-}
+type TD = { player1:{name:string,score:number}, player2:{name:string,score:number} }
 
-function parseTimeForDisplay(timeString: string) {
-  const [main, centis = '00'] = timeString.split('.');
-  const parts = main.split(':');
-  const hasHours = parts.length === 3;
-  const hasMinutes = parts.length >= 2;
-  
-  if (hasHours) {
-    return {
-      hasHours: true,
-      hours: parts[0].padStart(2, '0'),
-      minutes: parts[1].padStart(2, '0'),
-      seconds: parts[2].padStart(2, '0'),
-      centis: centis.padStart(2, '0')
-    };
-  } else if (hasMinutes) {
-    return {
-      hasHours: false,
-      hasMinutes: true,
-      minutes: parts[0],
-      seconds: parts[1].padStart(2, '0'),
-      centis: centis.padStart(2, '0')
-    };
-  } else {
-    return {
-      hasHours: false,
-      hasMinutes: false,
-      seconds: main.padStart(2, '0'),
-      centis: centis.padStart(2, '0')
-    };
-  }
-}
+export default function TimerOverlay() {
+  const [players, setPlayers] = React.useState<TD>({player1:{name:'Player 1',score:0}, player2:{name:'Player 2',score:0}})
+  const active = useTimerStore(s=>s.active)
+  const select = useTimerStore(s=>s.select)
+  const toggle = useTimerStore(s=>s.toggle)
+  const elapsed = useTimerStore(s=>s.elapsed)
+  const status = useTimerStore(s=>s.status)
 
-const TimerOverlay: React.FC<TimerOverlayProps> = ({ timerData: propTimerData }) => {
-  const { timerData: storeTimerData, overlaySettings } = useTimerStore();
-  const [formattedTime1, setFormattedTime1] = useState('0.00');
-  const [formattedTime2, setFormattedTime2] = useState('0.00');
+  // IPC: names/scores sync (only)
+  React.useEffect(() => {
+    (async () => setPlayers(await window.api.timer.get()))()
+    window.api.timer.onSync((d:any)=>setPlayers(d))
+  }, [])
 
-  const timerData = propTimerData || storeTimerData;
+  // Hotkeys: F1/F2 from main
+  React.useEffect(() => {
+    window.api.hotkeys.on((p:any) => {
+      if (p?.type === 'toggle') toggle()
+      else if (p?.type === 'swap') select(active === 1 ? 2 : 1)
+    })
+  }, [toggle, select, active])
 
-  useEffect(() => {
-    setFormattedTime1(formatTime(timerData.timer1Value || 0));
-    setFormattedTime2(formatTime(timerData.timer2Value || 0));
-  }, [timerData.timer1Value, timerData.timer2Value]);
+  // rAF tick for display refresh
+  const [, setTick] = React.useState(0)
+  React.useEffect(() => {
+    let raf = 0
+    const loop = () => { setTick(t => (t+1)&1023); raf = requestAnimationFrame(loop) }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [])
 
-  const t1 = parseTimeForDisplay(formattedTime1);
-  const t2 = parseTimeForDisplay(formattedTime2);
-
-  const scaleFactor = overlaySettings.scale / 100;
-  const dragHandleHeight = overlaySettings.locked ? 0 : 30;
+  const t1 = formatMillis(elapsed(1))
+  const t2 = formatMillis(elapsed(2))
 
   return (
-    <div
-      style={{
-        width: '520px',
-        height: `${120 + dragHandleHeight}px`,
-        transform: `scale(${scaleFactor})`,
-        transformOrigin: 'top left',
-        background: 'transparent',
-        position: 'relative',
-        userSelect: 'none',
-        WebkitUserSelect: 'none',
-        margin: 0,
-        padding: 0,
-        overflow: 'hidden',
-        fontFamily: 'Poppins, sans-serif'
-      }}
-    >
-      <DragHandle 
-        isVisible={!overlaySettings.locked} 
-        className={overlaySettings.locked ? 'opacity-0 pointer-events-none h-0' : ''}
-      />
-      
-      <div 
-        style={{
-          width: '520px',
-          height: '120px',
-          position: 'absolute',
-          top: overlaySettings.locked ? '0px' : '30px',
-          left: '0px',
-          pointerEvents: overlaySettings.locked ? 'none' : 'auto',
-          background: 'transparent',
-          margin: 0,
-          padding: 0
-        }}
-      >
-        <div className="timer-overlay" style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(160px, 1fr) auto minmax(160px, 1fr)',
-          gridTemplateRows: '50px 1fr',
-          width: '520px',
-          height: '120px',
-          position: 'relative'
-        }}>
-          <div className="name left" style={{
-            gridRow: 1,
-            gridColumn: 1,
-            borderBottom: '1px solid rgba(255,255,255,0.32)',
-            background: 'linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '24px',
-            fontWeight: 500,
-            color: '#FFF',
-            textTransform: 'uppercase',
-            textShadow: '0 0 6px rgba(255,255,255,0.50)',
-            overflow: 'hidden',
-            position: 'relative'
-          }}>
-            <span style={{ 
-              whiteSpace: 'nowrap', 
-              padding: '0 15px',
-              display: 'inline-block'
-            }}>
-              {timerData.player1Name}
-            </span>
-          </div>
+    <div className="pointer-events-none select-none" style={{ width: 520 }}>
+      {/* Drag handle (visible only when unlocked; handled by main through ignoreMouseEvents) */}
+      <div className="h-[30px]"></div>
 
-          <div className="score-value" style={{
-            gridRow: 1,
-            gridColumn: 2,
-            borderBottom: '1px solid rgba(255,255,255,0.32)',
-            background: 'linear-gradient(90deg, #274B90 0.06%, #09327E 40.01%, #04296F 79.97%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '24px',
-            fontWeight: 500,
-            color: '#FFF',
-            padding: '0 15px',
-            textTransform: 'uppercase',
-            minWidth: '90px',
-            maxWidth: '120px'
-          }}>
-            {timerData.player1Score} – {timerData.player2Score}
-          </div>
-
-          <div className="name right" style={{
-            gridRow: 1,
-            gridColumn: 3,
-            borderBottom: '1px solid rgba(255,255,255,0.32)',
-            background: 'linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '24px',
-            fontWeight: 500,
-            color: '#FFF',
-            textTransform: 'uppercase',
-            textShadow: '0 0 6px rgba(255,255,255,0.50)',
-            overflow: 'hidden',
-            position: 'relative'
-          }}>
-            <span style={{ 
-              whiteSpace: 'nowrap', 
-              padding: '0 15px',
-              display: 'inline-block'
-            }}>
-              {timerData.player2Name}
-            </span>
-          </div>
-
-          <div className={`timer left ${timerData.selectedTimer === 1 ? 'active' : ''}`} style={{
-            gridRow: 2,
-            gridColumn: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-            fontSize: '32px',
-            fontWeight: 400,
-            textShadow: '0 0 6px rgba(190,190,190,0.50)',
-            position: 'relative',
-            height: '100%',
-            textAlign: 'center',
-            minWidth: '160px'
-          }}>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              background: 'linear-gradient(180deg, #FFF 0%, #FFF 100%)',
-              WebkitBackgroundClip: 'text',
-              backgroundClip: 'text',
-              WebkitTextFillColor: 'transparent'
-            }}>
-              {t1.hasHours && (
-                <>
-                  <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t1.hours}</span>
-                  <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
-                  <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t1.minutes}</span>
-                  <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
-                </>
-              )}
-              {t1.hasMinutes && !t1.hasHours && (
-                <>
-                  <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t1.minutes}</span>
-                  <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
-                </>
-              )}
-              <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t1.seconds}</span>
-              <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>.</span>
-              <span style={{ display: 'inline-block', width: '18px', textAlign: 'center', fontSize: '28px' }}>{t1.centis}</span>
-            </span>
-            {timerData.selectedTimer === 1 && (
-              <div style={{
-                content: '',
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: '3px',
-                background: 'linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%)',
-                animation: 'pulseBar 1.5s ease-in-out infinite'
-              }} />
-            )}
-          </div>
-
-          <div className={`timer right ${timerData.selectedTimer === 2 ? 'active' : ''}`} style={{
-            gridRow: 2,
-            gridColumn: 3,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-            fontSize: '32px',
-            fontWeight: 400,
-            textShadow: '0 0 6px rgba(190,190,190,0.50)',
-            position: 'relative',
-            height: '100%',
-            textAlign: 'center',
-            minWidth: '160px'
-          }}>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              background: 'linear-gradient(180deg, #FFF 0%, #FFF 100%)',
-              WebkitBackgroundClip: 'text',
-              backgroundClip: 'text',
-              WebkitTextFillColor: 'transparent'
-            }}>
-              {t2.hasHours && (
-                <>
-                  <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t2.hours}</span>
-                  <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
-                  <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t2.minutes}</span>
-                  <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
-                </>
-              )}
-              {t2.hasMinutes && !t2.hasHours && (
-                <>
-                  <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t2.minutes}</span>
-                  <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>:</span>
-                </>
-              )}
-              <span style={{ display: 'inline-block', width: '22px', textAlign: 'center' }}>{t2.seconds}</span>
-              <span style={{ display: 'inline-block', width: '11px', textAlign: 'center' }}>.</span>
-              <span style={{ display: 'inline-block', width: '18px', textAlign: 'center', fontSize: '28px' }}>{t2.centis}</span>
-            </span>
-            {timerData.selectedTimer === 2 && (
-              <div style={{
-                content: '',
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: '3px',
-                background: 'linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%)',
-                animation: 'pulseBar 1.5s ease-in-out infinite'
-              }} />
-            )}
-          </div>
+      <div className="rounded-2xl bg-black/45 backdrop-blur-md border border-white/10 overflow-hidden">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 pt-3">
+          <div className="text-lg font-semibold truncate">{players.player1.name}</div>
+          <div className="px-3 py-1 text-xl font-bold rounded bg-white/10 mx-3">{players.player1.score} - {players.player2.score}</div>
+          <div className="text-lg font-semibold text-right truncate">{players.player2.name}</div>
         </div>
 
-        <style>
-          {`
-            @keyframes pulseBar {
-              0%, 100% { 
-                opacity: 0.8;
-                transform: scaleY(1);
-              }
-              50% { 
-                opacity: 1;
-                transform: scaleY(1.5);
-              }
-            }
-          `}
-        </style>
+        <div className="grid grid-cols-2 gap-0 px-4 py-2">
+          <TimerBlock
+            label="P1"
+            time={t1}
+            active={active===1}
+            state={status[1]}
+          />
+          <TimerBlock
+            label="P2"
+            time={t2}
+            active={active===2}
+            state={status[2]}
+          />
+        </div>
+
+        {/* Swap bar */}
+        <div className="h-1 w-full bg-white/10 relative">
+          <div className="absolute top-0 h-1 bg-violet-500 transition-[left,width] duration-150"
+               style={{ left: active===1 ? 8 : 'calc(50% + 4px)', width: 'calc(50% - 12px)' }} />
+        </div>
+
+        <div className="px-4 py-2 text-xs text-white/60">
+          F2: swap • F1: start → pause → reset (timer actif uniquement)
+        </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default TimerOverlay;
+function TimerBlock({label, time, active, state}:{label:string,time:string,active:boolean,state:'stopped'|'running'|'paused'}) {
+  return (
+    <div className={`rounded-xl px-3 py-2 ${active ? 'bg-white/8 ring-1 ring-violet-500/40' : 'bg-white/5'}`}>
+      <div className="text-xs uppercase tracking-wider mb-1 text-white/60">{label} {state === 'running' ? '• running' : state === 'paused' ? '• paused' : ''}</div>
+      <div className="dbd-digits font-mono text-4xl leading-none">
+        {time}
+      </div>
+    </div>
+  )
+}

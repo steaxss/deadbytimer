@@ -3,6 +3,14 @@
 @tailwind components;
 @tailwind utilities;
 
+.dbd-digits {
+  font-variant-numeric: tabular-nums;
+  -moz-font-feature-settings: "tnum";
+  -webkit-font-feature-settings: "tnum";
+  font-feature-settings: "tnum";
+  letter-spacing: 0.02em;
+}
+
 .drag-handle {
   -webkit-app-region: drag;
   cursor: move;

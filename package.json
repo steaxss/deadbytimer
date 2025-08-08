@@ -1,35 +1,38 @@
 {
-  "name": "dbd-timer-overlay",
+  "name": "dbdoverlaytools-free",
   "version": "1.0.0",
-  "description": "Dead by Daylight 1v1 Timer Overlay",
-  "main": "electron/main.cjs",
-  "type": "module",
+  "private": true,
+  "description": "DBD 1v1 Timer Overlay (Free)",
+  "main": "electron/main.mjs",
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "electron:dev": "node scripts/start.js",
-    "electron:build": "npm run build && electron-builder",
-    "clean": "rimraf dist dist-electron release"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.0",
-    "@types/react": "^18.2.43",
-    "@types/react-dom": "^18.2.17",
-    "@vitejs/plugin-react": "^4.2.1",
-    "autoprefixer": "^10.4.16",
-    "cross-env": "^7.0.3",
-    "electron": "^28.1.0",
-    "electron-builder": "^24.9.1",
-    "postcss": "^8.4.32",
-    "rimraf": "^5.0.5",
-    "tailwindcss": "^3.3.6",
-    "typescript": "^5.2.2",
-    "vite": "^5.0.8"
+    "dev": "concurrently -k -n VITE,ELECTRON \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:dev": "npm run dev",
+    "build": "vite build && electron-builder",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "electron-store": "^8.2.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "zustand": "^4.4.7"
+    "electron-store": "^9.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "^30.0.9",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.7",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.19",
+    "@vitejs/plugin-react": "^4.3.1",
+    "wait-on": "^7.2.0"
   }
 }

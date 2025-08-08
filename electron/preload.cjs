@@ -1,52 +1,18 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const api = {
-  store: {
-    get: (key) => ipcRenderer.invoke('store-get', key),
-    set: (key, value) => ipcRenderer.invoke('store-set', key, value),
-  },
-  
+contextBridge.exposeInMainWorld('api', {
   overlay: {
     show: () => ipcRenderer.invoke('overlay-show'),
     hide: () => ipcRenderer.invoke('overlay-hide'),
-    updateSettings: (settings) => ipcRenderer.invoke('overlay-settings-update', settings),
-    styleChange: (style) => ipcRenderer.invoke('overlay-style-change', style),
-    
-    onDataSync: (callback) => {
-      ipcRenderer.on('timer-data-sync', (_, data) => callback(data));
-      return () => ipcRenderer.removeAllListeners('timer-data-sync');
-    },
-    
-    onStyleChange: (callback) => {
-      ipcRenderer.on('overlay-style-change', (_, style) => callback(style));
-      return () => ipcRenderer.removeAllListeners('overlay-style-change');
-    },
-    
-    onReady: (callback) => {
-      ipcRenderer.on('overlay-ready', (_, isReady) => callback(isReady));
-      return () => ipcRenderer.removeAllListeners('overlay-ready');
-    },
+    updateSettings: (s) => ipcRenderer.invoke('overlay-settings-update', s),
+    onReady: (cb) => ipcRenderer.on('overlay-ready', (_, v) => cb(v))
   },
-  
   timer: {
-    syncData: (data) => ipcRenderer.invoke('timer-data-sync', data),
+    get: () => ipcRenderer.invoke('timer-data-get'),
+    set: (data) => ipcRenderer.invoke('timer-data-set', data),
+    onSync: (cb) => ipcRenderer.on('timer-data-sync', (_, d) => cb(d))
   },
-  
   hotkeys: {
-    register: (hotkeys) => ipcRenderer.invoke('hotkey-register', hotkeys),
-    
-    onPressed: (callback) => {
-      ipcRenderer.on('hotkey-pressed', (_, action) => callback(action));
-      return () => ipcRenderer.removeAllListeners('hotkey-pressed');
-    },
-  },
-  
-  removeAllListeners: () => {
-    ipcRenderer.removeAllListeners('timer-data-sync');
-    ipcRenderer.removeAllListeners('overlay-style-change');
-    ipcRenderer.removeAllListeners('hotkey-pressed');
-    ipcRenderer.removeAllListeners('overlay-ready');
-  },
-};
-
-contextBridge.exposeInMainWorld('electronAPI', api);
+    on: (cb) => ipcRenderer.on('global-hotkey', (_, payload) => cb(payload))
+  }
+});
