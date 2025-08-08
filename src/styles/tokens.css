@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Palette d'accents inspirée du mockup Figma */
+:root{
+  --violet:#B579FF; /* titres/outlines */ /* figma */
+  --pink:#FF6BCB;   /* sur-titres */      /* figma */
+  --green:#44FF41;  /* ON / valid */       /* figma */
+  --cyan:#5AC8FF;   /* valeurs */          /* figma */
+  --red:#FF4141;    /* reset / danger */   /* figma */
+}
+
+/* Fond app + radiaux (optionnels) */
+@layer utilities {
+  .bg-app { @apply bg-[#0A0A0A]; }
+  .card     { @apply rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)]; }
+  .subcard  { @apply rounded-xl border border-white/5  bg-white/5; }
+  .tag      { @apply text-[13px] uppercase tracking-wide font-semibold text-[color:var(--violet)]; }
+  .overtag  { @apply text-[13px] uppercase tracking-wider font-bold text-[color:var(--pink)]; }
+  .pill     { @apply rounded-lg px-3 py-2 border; }
+  .pill-on  { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10 text-[color:var(--green)]; }
+  .pill-off { @apply border-white/20 bg-white/10 text-zinc-400; }
+
+  .btn-primary { @apply rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium px-4 py-2 transition; }
+  .btn-ghost   { @apply rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2; }
+  .btn-reset   { @apply rounded-lg border border-[color:var(--red)]/30 bg-[color:var(--red)]/15 text-[color:var(--red)] font-bold uppercase tracking-wide px-5 py-2; }
+
+  .field      { @apply w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-[color:var(--violet)]; }
+  .keybtn     { @apply w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition; }
+  .keybtn-idle{ @apply bg-zinc-800 hover:bg-zinc-700; }
+  .keybtn-cap { @apply bg-violet-600; }
+
+  /* Interrupteurs façon Figma */
+  .switch      { @apply relative inline-flex h-6 w-12 items-center rounded-full border transition; }
+  .switch-dot  { @apply absolute h-5 w-5 rounded-full transition; }
+  .switch-on   { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10; }
+  .switch-on .switch-dot  { @apply translate-x-6 bg-[color:var(--green)]; }
+  .switch-off  { @apply border-white/20 bg-white/10; }
+  .switch-off .switch-dot { @apply translate-x-1 bg-zinc-500; }
+}

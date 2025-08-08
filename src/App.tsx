@@ -1,57 +1,32 @@
-import React, { useEffect, useState } from 'react';
-import { useTimerStore } from './store/timerStore';
+import React from 'react';
 import ControlPanel from './components/ControlPanel';
-import useGlobalHotkeys from './hooks/useGlobalHotkeys';
 
+/** App shell — layout responsive + footer réparé (pas d'absolu) */
 const App: React.FC = () => {
-  const { loadFromStorage } = useTimerStore();
-  const [isInitialized, setIsInitialized] = useState(false);
-
-  useGlobalHotkeys();
-
-  useEffect(() => {
-    const initializeApp = async () => {
-      try {
-        await loadFromStorage();
-        setIsInitialized(true);
-        console.log('App initialized successfully');
-      } catch (error) {
-        console.error('Failed to initialize app:', error);
-        setIsInitialized(true);
-      }
-    };
-
-    initializeApp();
-  }, [loadFromStorage]);
-
-  if (!isInitialized) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-lg">Loading...</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      <div className="container mx-auto p-6">
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary-400 mb-2">
-            DBD Timer Overlay
-          </h1>
-          <p className="text-gray-400">
-            Professional timer overlay for Dead by Daylight 1v1 matches
-          </p>
-        </header>
+    <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
+      <main className="flex-1">
+        <div className="mx-auto max-w-6xl p-6">
+          <header className="mb-6 text-center">
+            <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">You are not logged in</div>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#B579FF]">DBD OVERLAY TOOLS</h1>
+          </header>
 
-        <main>
           <ControlPanel />
-        </main>
+        </div>
+      </main>
 
-        <footer className="text-center mt-8 text-gray-500 text-sm">
-          <p>Press your configured hotkeys to control timers globally</p>
-        </footer>
-      </div>
+      {/* Footer fixe et propre */}
+      <footer className="mt-8">
+        <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-400">
+          <div className="uppercase tracking-wider">
+            © by <b>DOC</b> &amp; <b>STEAXS</b> — 2025
+          </div>
+          <div className="text-xs mt-1 text-zinc-500">
+            Hotkeys: <b>F1</b> start/pause/reset — <b>F2</b> swap active timer
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };
