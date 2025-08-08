@@ -8,6 +8,15 @@ const require = createRequire(import.meta.url);
 let uIOhook = null;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === "development";
+
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.steaxs.dbdtimer.free");
+}
+
+const iconPath = isDev
+  ? join(__dirname, "../build/icon.ico")
+  : join(process.resourcesPath, "icon.ico");
+
 const store = new Store();
 
 let mainWindow = null;
@@ -193,6 +202,7 @@ function createMainWindow() {
     minWidth: 980,
     minHeight: 720,
     show: false,
+    icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
@@ -618,11 +628,14 @@ function setupUiohook() {
 }
 
 /* -------------------- lifecycle -------------------- */
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+
 app.whenReady().then(() => {
   createMainWindow();
   setupIPC();
   setupUiohook();
-  if (isDev) setTimeout(createOverlayWindow, 800);
+  setTimeout(createOverlayWindow, 800);
 });
 app.on("will-quit", () => {
   try {
