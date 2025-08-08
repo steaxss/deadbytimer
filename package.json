@@ -13,6 +13,19 @@
     "build": "vite build && electron-builder",
     "typecheck": "tsc --noEmit"
   },
+  "build": {
+    "appId": "com.steaxs.dbdoverlay.free",
+    "productName": "DBD Overlay Tools - Timer 1v1 FREE",
+    "directories": { "buildResources": "build", "output": "release" },
+    "files": [ "dist/**", "electron/**", "package.json" ],
+    "asar": true,
+    "asarUnpack": ["**/node_modules/uiohook-napi/**"],
+    "win": {
+      "target": [{"target":"portable","arch":"x64"}],
+      "icon": "build/icon.ico",
+      "artifactName": "1v1-Timer.exe"
+    }
+  },
   "dependencies": {
     "electron-store": "^9.0.0",
     "lucide-react": "^0.539.0",
@@ -35,6 +48,7 @@
     "tailwindcss": "^3.4.7",
     "typescript": "^5.5.4",
     "vite": "^5.4.19",
+    "vite-plugin-javascript-obfuscator": "^3.1.0",
     "wait-on": "^7.2.0"
   }
 }

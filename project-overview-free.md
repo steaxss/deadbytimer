@@ -5,6 +5,7 @@ Source Tree:
 ```txt
 dbdoverlaytools-free
 ├── README.md
+├── build
 ├── electron
 │   ├── main.mjs
 │   ├── preload.cjs
@@ -204,18 +205,18 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/electron\main.mjs`:
 
 ```mjs
-   1 | import { app, BrowserWindow, ipcMain, screen, globalShortcut } from "electron";
+   1 | import { app, BrowserWindow, ipcMain, screen, globalShortcut, session } from "electron";
    2 | import { join, dirname } from "node:path";
    3 | import { fileURLToPath } from "node:url";
    4 | import Store from "electron-store";
    5 | import { createRequire } from "node:module";
    6 | 
-   7 | const require = createRequire(import.meta.url);
-   8 | let uIOhook = null;
+   7 | const isDev = process.env.NODE_ENV === "development";
+   8 | const require = createRequire(import.meta.url);
    9 | const __dirname = dirname(fileURLToPath(import.meta.url));
-  10 | const isDev = process.env.NODE_ENV === "development";
-  11 | const store = new Store();
-  12 | 
+  10 | const store = new Store();
+  11 | 
+  12 | let uIOhook = null;
   13 | let mainWindow = null;
   14 | let overlayWindow = null;
   15 | let usingUiohook = false;
@@ -375,419 +376,441 @@ dbdoverlaytools-free
  169 |     },
  170 |   });
  171 | 
- 172 |   if (isDev) {
- 173 |     mainWindow.loadURL("http://localhost:5173");
- 174 |     mainWindow.webContents.openDevTools({ mode: "detach" });
- 175 |   } else {
- 176 |     mainWindow.loadFile(join(__dirname, "../dist/index.html"));
- 177 |     mainWindow.webContents.on("before-input-event", (e, input) => {
- 178 |       const combo =
- 179 |         (input.control || input.meta) &&
- 180 |         input.shift &&
- 181 |         input.key?.toLowerCase() === "i";
- 182 |       if (combo || input.key === "F12") e.preventDefault();
- 183 |     });
- 184 |   }
- 185 | 
- 186 |   mainWindow.once("ready-to-show", () => mainWindow.show());
- 187 |   mainWindow.on("close", () => {
- 188 |     const b = mainWindow.getBounds();
- 189 |     store.set("windowState", b);
- 190 |   });
- 191 |   mainWindow.on("closed", () => {
- 192 |     mainWindow = null;
- 193 |     if (overlayWindow) overlayWindow.close();
- 194 |   });
- 195 | }
- 196 | 
- 197 | function createOverlayWindow() {
- 198 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
- 199 |     overlayWindow.show();
- 200 |     overlayWindow.focus();
- 201 |     return;
- 202 |   }
- 203 |   const display = screen.getPrimaryDisplay().workAreaSize;
- 204 |   const s = store.get("overlaySettings", {
- 205 |     x: Math.floor(display.width / 2 - 260),
- 206 |     y: 100,
- 207 |     scale: 100,
- 208 |     locked: true,
- 209 |     alwaysOnTop: true,
- 210 |   });
- 211 |   const dragH = s.locked ? 0 : 30;
- 212 |   const scale = (s.scale || 100) / 100;
- 213 | 
- 214 |   overlayWindow = new BrowserWindow({
- 215 |     width: Math.ceil(baseDims.width * scale),
- 216 |     height: Math.ceil((baseDims.height + dragH) * scale),
- 217 |     x: s.x,
- 218 |     y: s.y,
- 219 |     frame: false,
- 220 |     transparent: true,
- 221 |     resizable: false,
- 222 |     hasShadow: false,
- 223 |     skipTaskbar: false,
- 224 |     focusable: true,
- 225 |     title: "DBD Timer Overlay",
- 226 |     acceptFirstMouse: true,
- 227 |     backgroundColor: "#00000000",
- 228 |     useContentSize: true,
- 229 |     webPreferences: {
- 230 |       nodeIntegration: false,
- 231 |       contextIsolation: true,
- 232 |       preload: join(__dirname, "preload.cjs"),
- 233 |       backgroundThrottling: false,
- 234 |     },
- 235 |   });
- 236 | 
- 237 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
- 238 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
+ 172 |   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+ 173 |   mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+ 174 | 
+ 175 |   if (isDev) {
+ 176 |     mainWindow.loadURL("http://localhost:5173");
+ 177 |     mainWindow.webContents.openDevTools({ mode: "detach" });
+ 178 |   } else {
+ 179 |     mainWindow.loadFile(join(__dirname, "../dist/index.html"));
+ 180 |     mainWindow.webContents.on("before-input-event", (e, input) => {
+ 181 |       const combo =
+ 182 |         (input.control || input.meta) &&
+ 183 |         input.shift &&
+ 184 |         input.key?.toLowerCase() === "i";
+ 185 |       if (combo || input.key === "F12") e.preventDefault();
+ 186 |     });
+ 187 |   }
+ 188 | 
+ 189 |   mainWindow.once("ready-to-show", () => mainWindow.show());
+ 190 |   mainWindow.on("close", () => {
+ 191 |     const b = mainWindow.getBounds();
+ 192 |     store.set("windowState", b);
+ 193 |   });
+ 194 |   mainWindow.on("closed", () => {
+ 195 |     mainWindow = null;
+ 196 |     if (overlayWindow) overlayWindow.close();
+ 197 |   });
+ 198 | }
+ 199 | 
+ 200 | function createOverlayWindow() {
+ 201 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
+ 202 |     overlayWindow.show();
+ 203 |     overlayWindow.focus();
+ 204 |     return;
+ 205 |   }
+ 206 |   const display = screen.getPrimaryDisplay().workAreaSize;
+ 207 |   const s = store.get("overlaySettings", {
+ 208 |     x: Math.floor(display.width / 2 - 260),
+ 209 |     y: 100,
+ 210 |     scale: 100,
+ 211 |     locked: true,
+ 212 |     alwaysOnTop: true,
+ 213 |   });
+ 214 |   const dragH = s.locked ? 0 : 30;
+ 215 |   const scale = (s.scale || 100) / 100;
+ 216 | 
+ 217 |   overlayWindow = new BrowserWindow({
+ 218 |     width: Math.ceil(baseDims.width * scale),
+ 219 |     height: Math.ceil((baseDims.height + dragH) * scale),
+ 220 |     x: s.x,
+ 221 |     y: s.y,
+ 222 |     frame: false,
+ 223 |     transparent: true,
+ 224 |     resizable: false,
+ 225 |     hasShadow: false,
+ 226 |     skipTaskbar: false,
+ 227 |     focusable: true,
+ 228 |     title: "DBD Timer Overlay",
+ 229 |     acceptFirstMouse: true,
+ 230 |     backgroundColor: "#00000000",
+ 231 |     useContentSize: true,
+ 232 |     webPreferences: {
+ 233 |       nodeIntegration: false,
+ 234 |       contextIsolation: true,
+ 235 |       preload: join(__dirname, "preload.cjs"),
+ 236 |       backgroundThrottling: false,
+ 237 |     },
+ 238 |   });
  239 | 
- 240 |   const url = isDev
- 241 |     ? "http://localhost:5173/overlay.html"
- 242 |     : join(__dirname, "../dist/overlay.html");
- 243 |   if (isDev) overlayWindow.loadURL(url);
- 244 |   else overlayWindow.loadFile(url);
- 245 | 
- 246 |   overlayWindow.on("closed", () => {
- 247 |     overlayWindow = null;
- 248 |     if (mainWindow && !mainWindow.isDestroyed())
- 249 |       mainWindow.webContents.send("overlay-ready", false);
- 250 |   });
- 251 |   overlayWindow.on("move", () => {
- 252 |     const b = overlayWindow.getBounds();
- 253 |     store.set("overlaySettings.x", b.x);
- 254 |     store.set("overlaySettings.y", b.y);
- 255 |   });
- 256 | 
- 257 |   overlayWindow.webContents.on("did-finish-load", () => {
- 258 |     const data = store.get("timerData") || {
- 259 |       player1: { name: "Player 1", score: 0 },
- 260 |       player2: { name: "Player 2", score: 0 },
- 261 |     };
- 262 |     overlayWindow.webContents.send("timer-data-sync", data);
- 263 |     sendOverlaySettings();
- 264 |     if (mainWindow) mainWindow.webContents.send("overlay-ready", true);
- 265 |     setTimeout(() => recomputeOverlaySize(), 50);
- 266 |   });
- 267 | }
- 268 | 
- 269 | /* -------------------- IPC -------------------- */
- 270 | function setupIPC() {
- 271 |   ipcMain.handle("overlay-show", () => {
- 272 |     createOverlayWindow();
- 273 |     return true;
- 274 |   });
- 275 |   ipcMain.handle("overlay-hide", () => {
- 276 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
- 277 |     overlayWindow = null;
- 278 |     if (mainWindow && !mainWindow.isDestroyed())
- 279 |       mainWindow.webContents.send("overlay-ready", false);
- 280 |     return true;
- 281 |   });
- 282 | 
- 283 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
- 284 |     const current = store.get("overlaySettings", {});
- 285 |     const next = { ...current, ...settings };
- 286 |     store.set("overlaySettings", next);
- 287 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
- 288 | 
- 289 |     if (settings.locked !== undefined) {
- 290 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
- 291 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
- 292 |     }
- 293 |     if (settings.alwaysOnTop !== undefined)
- 294 |       applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
- 295 |     if (settings.x !== undefined || settings.y !== undefined) {
- 296 |       const b = overlayWindow.getBounds();
- 297 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
- 298 |     }
- 299 |     if (settings.scale !== undefined || settings.locked !== undefined)
- 300 |       recomputeOverlaySize();
- 301 |     sendOverlaySettings();
- 302 |     return true;
- 303 |   });
- 304 | 
- 305 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
- 306 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
- 307 |       return false;
- 308 |     baseDims = {
- 309 |       width: Math.max(1, Math.floor(dims.width)),
- 310 |       height: Math.max(1, Math.floor(dims.height)),
- 311 |     };
- 312 |     recomputeOverlaySize();
- 313 |     return true;
- 314 |   });
- 315 | 
- 316 |   // Timer data
- 317 |   ipcMain.handle(
- 318 |     "timer-data-get",
- 319 |     () =>
- 320 |       store.get("timerData") || {
- 321 |         player1: { name: "Player 1", score: 0 },
- 322 |         player2: { name: "Player 2", score: 0 },
- 323 |       }
- 324 |   );
- 325 |   ipcMain.handle("timer-data-set", (_evt, data) => {
- 326 |     store.set("timerData", data);
- 327 |     if (overlayWindow && !overlayWindow.isDestroyed())
- 328 |       overlayWindow.webContents.send("timer-data-sync", data);
- 329 |     return true;
- 330 |   });
- 331 | 
- 332 |   // Hotkeys API
- 333 |   ipcMain.handle("hotkeys-get", () => ({
- 334 |     start: hotkeys.start,
- 335 |     swap: hotkeys.swap,
- 336 |     startLabel: hotkeysLabel.start,
- 337 |     swapLabel: hotkeysLabel.swap,
- 338 |     mode: usingUiohook ? "pass-through" : "fallback",
- 339 |   }));
- 340 | 
- 341 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
- 342 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
- 343 |     store.set("hotkeys", hotkeys);
- 344 |     refreshHotkeyEngine();
- 345 |     return true;
- 346 |   });
- 347 | 
- 348 |   // 🚀 capture 100% main-process, transactionnelle (pas de timeout tant qu'aucune touche n'a été frappée)
- 349 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
- 350 |     if (!(type === "start" || type === "swap")) {
- 351 |       finalizeCapture("cancel");
- 352 |       return true;
- 353 |     }
- 354 | 
- 355 |     logHK("CAPTURE BEGIN", {
- 356 |       type,
- 357 |       mode: usingUiohook ? "pass-through" : "fallback",
- 358 |     });
- 359 | 
- 360 |     // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
- 361 |     captureWaitUntil = Date.now() + 15000;
- 362 | 
- 363 |     // Reset/annule capture précédente si elle existe
- 364 |     if (captureState) {
- 365 |       clearCaptureTimers();
- 366 |       captureState = null;
- 367 |     }
+ 240 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
+ 241 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
+ 242 | 
+ 243 |   const url = isDev
+ 244 |     ? "http://localhost:5173/overlay.html"
+ 245 |     : join(__dirname, "../dist/overlay.html");
+ 246 |   if (isDev) overlayWindow.loadURL(url);
+ 247 |   else overlayWindow.loadFile(url);
+ 248 | 
+ 249 |   overlayWindow.on("closed", () => {
+ 250 |     overlayWindow = null;
+ 251 |     if (mainWindow && !mainWindow.isDestroyed())
+ 252 |       mainWindow.webContents.send("overlay-ready", false);
+ 253 |   });
+ 254 |   overlayWindow.on("move", () => {
+ 255 |     const b = overlayWindow.getBounds();
+ 256 |     store.set("overlaySettings.x", b.x);
+ 257 |     store.set("overlaySettings.y", b.y);
+ 258 |   });
+ 259 | 
+ 260 |   overlayWindow.webContents.on("did-finish-load", () => {
+ 261 |     const data = store.get("timerData") || {
+ 262 |       player1: { name: "Player 1", score: 0 },
+ 263 |       player2: { name: "Player 2", score: 0 },
+ 264 |     };
+ 265 |     overlayWindow.webContents.send("timer-data-sync", data);
+ 266 |     sendOverlaySettings();
+ 267 |     if (mainWindow) mainWindow.webContents.send("overlay-ready", true);
+ 268 |     setTimeout(() => recomputeOverlaySize(), 50);
+ 269 |   });
+ 270 | }
+ 271 | 
+ 272 | /* -------------------- IPC -------------------- */
+ 273 | function setupIPC() {
+ 274 |   ipcMain.handle("overlay-show", () => {
+ 275 |     createOverlayWindow();
+ 276 |     return true;
+ 277 |   });
+ 278 |   ipcMain.handle("overlay-hide", () => {
+ 279 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
+ 280 |     overlayWindow = null;
+ 281 |     if (mainWindow && !mainWindow.isDestroyed())
+ 282 |       mainWindow.webContents.send("overlay-ready", false);
+ 283 |     return true;
+ 284 |   });
+ 285 | 
+ 286 | ipcMain.handle("overlay-settings-update", (_evt, s = {}) => {
+ 287 |   const allow = {};
+ 288 |   if (typeof s.x === "number")   allow.x = Math.round(s.x);
+ 289 |   if (typeof s.y === "number")   allow.y = Math.round(s.y);
+ 290 |   if (typeof s.locked === "boolean") allow.locked = s.locked;
+ 291 |   if (typeof s.alwaysOnTop === "boolean") allow.alwaysOnTop = s.alwaysOnTop;
+ 292 |   if (typeof s.scale === "number") allow.scale = Math.min(200, Math.max(50, Math.round(s.scale)));
+ 293 | 
+ 294 |   const current = store.get("overlaySettings", {});
+ 295 |   const next = { ...current, ...allow };
+ 296 |   store.set("overlaySettings", next);
+ 297 | 
+ 298 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
+ 299 |     if ("locked" in allow) overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
+ 300 |     if ("alwaysOnTop" in allow) applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
+ 301 |     if ("x" in allow || "y" in allow) {
+ 302 |       const b = overlayWindow.getBounds();
+ 303 |       overlayWindow.setPosition(allow.x ?? b.x, allow.y ?? b.y);
+ 304 |     }
+ 305 |     if ("scale" in allow || "locked" in allow) recomputeOverlaySize();
+ 306 |     sendOverlaySettings();
+ 307 |   }
+ 308 |   return true;
+ 309 | });
+ 310 | 
+ 311 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
+ 312 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
+ 313 |       return false;
+ 314 |     baseDims = {
+ 315 |       width: Math.max(1, Math.floor(dims.width)),
+ 316 |       height: Math.max(1, Math.floor(dims.height)),
+ 317 |     };
+ 318 |     recomputeOverlaySize();
+ 319 |     return true;
+ 320 |   });
+ 321 | 
+ 322 |   // Timer data
+ 323 |   ipcMain.handle(
+ 324 |     "timer-data-get",
+ 325 |     () =>
+ 326 |       store.get("timerData") || {
+ 327 |         player1: { name: "Player 1", score: 0 },
+ 328 |         player2: { name: "Player 2", score: 0 },
+ 329 |       }
+ 330 |   );
+ 331 |   ipcMain.handle("timer-data-set", (_evt, data) => {
+ 332 |     store.set("timerData", data);
+ 333 |     if (overlayWindow && !overlayWindow.isDestroyed())
+ 334 |       overlayWindow.webContents.send("timer-data-sync", data);
+ 335 |     return true;
+ 336 |   });
+ 337 | 
+ 338 |   // Hotkeys API
+ 339 |   ipcMain.handle("hotkeys-get", () => ({
+ 340 |     start: hotkeys.start,
+ 341 |     swap: hotkeys.swap,
+ 342 |     startLabel: hotkeysLabel.start,
+ 343 |     swapLabel: hotkeysLabel.swap,
+ 344 |     mode: usingUiohook ? "pass-through" : "fallback",
+ 345 |   }));
+ 346 | 
+ 347 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
+ 348 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
+ 349 |     store.set("hotkeys", hotkeys);
+ 350 |     refreshHotkeyEngine();
+ 351 |     return true;
+ 352 |   });
+ 353 | 
+ 354 |   // 🚀 capture 100% main-process, transactionnelle (pas de timeout tant qu'aucune touche n'a été frappée)
+ 355 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
+ 356 |     if (!(type === "start" || type === "swap")) {
+ 357 |       finalizeCapture("cancel");
+ 358 |       return true;
+ 359 |     }
+ 360 | 
+ 361 |     logHK("CAPTURE BEGIN", {
+ 362 |       type,
+ 363 |       mode: usingUiohook ? "pass-through" : "fallback",
+ 364 |     });
+ 365 | 
+ 366 |     // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
+ 367 |     captureWaitUntil = Date.now() + 15000;
  368 | 
- 369 |     // État de capture : pas de timer court au début; on attend la première frappe
- 370 |     captureState = {
- 371 |       type,
- 372 |       label: null,
- 373 |       code: null,
- 374 |       primaryTimer: setTimeout(() => {
- 375 |         // Annule la capture si l'utilisateur oublie (15s)
- 376 |         logHK("CAPTURE PRIMARY TIMEOUT — cancel");
- 377 |         finalizeCapture("primary-timeout");
- 378 |       }, 15000),
- 379 |       secondaryTimer: null,
- 380 |     };
- 381 | 
- 382 |     // focus le panneau
- 383 |     try {
- 384 |       mainWindow?.focus();
- 385 |       logHK("focused mainWindow?", mainWindow?.isFocused());
- 386 |     } catch (e) {
- 387 |       logHK("focus error", e?.message || e);
- 388 |     }
- 389 | 
- 390 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
- 391 |     if (!usingUiohook) {
- 392 |       try {
- 393 |         globalShortcut.unregisterAll();
- 394 |         logHK("fallback: unregistered to let key through");
- 395 |       } catch {}
- 396 |     }
- 397 | 
- 398 |     // écouter une fois la prochaine touche (pour le label layout-aware)
- 399 |     const once = (event, input) => {
- 400 |       if (!captureState) return;
- 401 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
- 402 |       logHK("before-input-event keyDown", { key: input.key, code: input.code });
- 403 |       const label = makeLabelFromBeforeInput(input);
- 404 | 
- 405 |       captureState.label = label;
- 406 |       hotkeysLabel = { ...hotkeysLabel, [type]: label };
- 407 |       store.set("hotkeysLabel", hotkeysLabel);
- 408 | 
- 409 |       // notifie instantanément le panel (affichage immédiat)
- 410 |       mainWindow?.webContents.send("hotkeys-captured", { type, label });
- 411 |       logHK("label captured (instant)", { type, label });
- 412 | 
- 413 |       // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
- 414 |       if (typeof captureState.code === "number") {
- 415 |         finalizeCapture("have both");
- 416 |       } else {
- 417 |         if (captureState.secondaryTimer)
- 418 |           clearTimeout(captureState.secondaryTimer);
- 419 |         captureState.secondaryTimer = setTimeout(
- 420 |           () => finalizeCapture("after-label-wait"),
- 421 |           500
- 422 |         );
- 423 |       }
- 424 | 
- 425 |       mainWindow?.webContents.removeListener("before-input-event", once);
- 426 |     };
- 427 |     mainWindow?.webContents.on("before-input-event", once);
- 428 |     logHK("before-input-event listener ARMED");
- 429 | 
- 430 |     return true;
- 431 |   });
- 432 | }
- 433 | 
- 434 | /* -------------------- Hotkeys engines -------------------- */
- 435 | function refreshHotkeyEngine() {
- 436 |   if (usingUiohook) {
- 437 |     logHK("refreshHotkeyEngine: pass-through (no globalShortcut)");
- 438 |     return;
- 439 |   }
- 440 |   try {
- 441 |     globalShortcut.unregisterAll();
- 442 |     logHK("globalShortcut: unregistered all");
- 443 |   } catch {}
- 444 |   const RATE = 180;
- 445 |   let lastT = 0,
- 446 |     lastS = 0;
- 447 | 
- 448 |   const sKey = hotkeysLabel.start || "F1";
- 449 |   const wKey = hotkeysLabel.swap || "F2";
- 450 |   logHK("globalShortcut: registering", { start: sKey, swap: wKey });
- 451 | 
- 452 |   try {
- 453 |     globalShortcut.register(sKey, () => {
- 454 |       if (Date.now() < captureWaitUntil) {
- 455 |         logHK("fallback toggle skipped (capturing)");
- 456 |         return;
- 457 |       }
- 458 |       const now = Date.now();
- 459 |       if (now - lastT < RATE) return;
- 460 |       lastT = now;
- 461 |       logHK("DISPATCH toggle via globalShortcut");
- 462 |       overlayWindow?.webContents.send("global-hotkey", { type: "toggle" });
- 463 |     });
- 464 |   } catch (e) {
- 465 |     logHK("register start failed", e?.message || e);
- 466 |   }
- 467 | 
- 468 |   try {
- 469 |     globalShortcut.register(wKey, () => {
- 470 |       if (Date.now() < captureWaitUntil) {
- 471 |         logHK("fallback swap skipped (capturing)");
- 472 |         return;
- 473 |       }
- 474 |       const now = Date.now();
- 475 |       if (now - lastS < RATE) return;
- 476 |       lastS = now;
- 477 |       logHK("DISPATCH swap via globalShortcut");
- 478 |       overlayWindow?.webContents.send("global-hotkey", { type: "swap" });
- 479 |     });
- 480 |   } catch (e) {
- 481 |     logHK("register swap failed", e?.message || e);
- 482 |   }
- 483 | }
- 484 | 
- 485 | // uiohook global (pass-through)
- 486 | function setupUiohook() {
- 487 |   try {
- 488 |     logHK("Trying to load uiohook-napi…");
- 489 |     const lib = require("uiohook-napi");
- 490 |     uIOhook = lib.uIOhook;
- 491 |     logHK("uiohook loaded OK");
- 492 |   } catch (e) {
- 493 |     logHK("uiohook FAILED to load -> fallback", e?.message || e);
- 494 |     usingUiohook = false;
- 495 |     sendHotkeysMode();
- 496 |     refreshHotkeyEngine();
- 497 |     return;
- 498 |   }
- 499 | 
- 500 |   usingUiohook = true;
- 501 |   sendHotkeysMode();
- 502 | 
- 503 |   let lastToggle = 0;
- 504 |   let lastSwap = 0;
- 505 |   const RATE = 180;
- 506 | 
- 507 |   uIOhook.on("keydown", (e) => {
- 508 |     logHK("uiohook keydown", {
- 509 |       keycode: e.keycode,
- 510 |       captureState: !!captureState,
- 511 |       now: Date.now(),
- 512 |       blockUntil: captureWaitUntil,
- 513 |     });
- 514 | 
- 515 |     // si on est en capture : stocker le code; finaliser si label déjà là, sinon attendre un chouïa
- 516 |     if (captureState) {
- 517 |       captureState.code = e.keycode;
- 518 |       logHK("code captured (uiohook)", {
- 519 |         type: captureState.type,
- 520 |         code: e.keycode,
- 521 |       });
- 522 |       if (captureState.label) {
- 523 |         finalizeCapture("have both");
- 524 |       } else {
- 525 |         if (captureState.secondaryTimer)
- 526 |           clearTimeout(captureState.secondaryTimer);
- 527 |         captureState.secondaryTimer = setTimeout(
- 528 |           () => finalizeCapture("after-code-wait"),
- 529 |           600
- 530 |         );
- 531 |       }
- 532 |       return;
- 533 |     }
- 534 | 
- 535 |     // normal: déclenchement (pass-through)
- 536 |     if (!overlayWindow || overlayWindow.isDestroyed()) return;
- 537 |     if (Date.now() < captureWaitUntil) {
- 538 |       logHK("DISPATCH BLOCKED (capturing)");
- 539 |       return;
- 540 |     }
- 541 | 
- 542 |     const now = Date.now();
- 543 |     if (hotkeys.start && e.keycode === hotkeys.start) {
- 544 |       if (now - lastToggle < RATE) return;
- 545 |       lastToggle = now;
- 546 |       logHK("DISPATCH toggle via uiohook");
- 547 |       overlayWindow.webContents.send("global-hotkey", { type: "toggle" });
- 548 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
- 549 |       if (now - lastSwap < RATE) return;
- 550 |       lastSwap = now;
- 551 |       logHK("DISPATCH swap via uiohook");
- 552 |       overlayWindow.webContents.send("global-hotkey", { type: "swap" });
- 553 |     }
- 554 |   });
- 555 | 
- 556 |   try {
- 557 |     uIOhook.start();
- 558 |     logHK("uiohook started");
- 559 |   } catch (e) {
- 560 |     logHK("uiohook START failed -> fallback", e?.message || e);
- 561 |     usingUiohook = false;
- 562 |     sendHotkeysMode();
- 563 |     refreshHotkeyEngine();
- 564 |   }
- 565 | }
- 566 | 
- 567 | /* -------------------- lifecycle -------------------- */
- 568 | app.whenReady().then(() => {
- 569 |   createMainWindow();
- 570 |   setupIPC();
- 571 |   setupUiohook();
- 572 |   if (isDev) setTimeout(createOverlayWindow, 800);
- 573 | });
- 574 | app.on("will-quit", () => {
- 575 |   try {
- 576 |     if (usingUiohook) uIOhook.stop();
- 577 |   } catch {}
- 578 |   try {
- 579 |     globalShortcut.unregisterAll();
- 580 |   } catch {}
- 581 | });
- 582 | app.on("window-all-closed", () => {
- 583 |   app.quit();
- 584 | });
+ 369 |     // Reset/annule capture précédente si elle existe
+ 370 |     if (captureState) {
+ 371 |       clearCaptureTimers();
+ 372 |       captureState = null;
+ 373 |     }
+ 374 | 
+ 375 |     // État de capture : pas de timer court au début; on attend la première frappe
+ 376 |     captureState = {
+ 377 |       type,
+ 378 |       label: null,
+ 379 |       code: null,
+ 380 |       primaryTimer: setTimeout(() => {
+ 381 |         // Annule la capture si l'utilisateur oublie (15s)
+ 382 |         logHK("CAPTURE PRIMARY TIMEOUT — cancel");
+ 383 |         finalizeCapture("primary-timeout");
+ 384 |       }, 15000),
+ 385 |       secondaryTimer: null,
+ 386 |     };
+ 387 | 
+ 388 |     // focus le panneau
+ 389 |     try {
+ 390 |       mainWindow?.focus();
+ 391 |       logHK("focused mainWindow?", mainWindow?.isFocused());
+ 392 |     } catch (e) {
+ 393 |       logHK("focus error", e?.message || e);
+ 394 |     }
+ 395 | 
+ 396 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
+ 397 |     if (!usingUiohook) {
+ 398 |       try {
+ 399 |         globalShortcut.unregisterAll();
+ 400 |         logHK("fallback: unregistered to let key through");
+ 401 |       } catch {}
+ 402 |     }
+ 403 | 
+ 404 |     // écouter une fois la prochaine touche (pour le label layout-aware)
+ 405 |     const once = (event, input) => {
+ 406 |       if (!captureState) return;
+ 407 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
+ 408 |       logHK("before-input-event keyDown", { key: input.key, code: input.code });
+ 409 |       const label = makeLabelFromBeforeInput(input);
+ 410 | 
+ 411 |       captureState.label = label;
+ 412 |       hotkeysLabel = { ...hotkeysLabel, [type]: label };
+ 413 |       store.set("hotkeysLabel", hotkeysLabel);
+ 414 | 
+ 415 |       // notifie instantanément le panel (affichage immédiat)
+ 416 |       mainWindow?.webContents.send("hotkeys-captured", { type, label });
+ 417 |       logHK("label captured (instant)", { type, label });
+ 418 | 
+ 419 |       // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
+ 420 |       if (typeof captureState.code === "number") {
+ 421 |         finalizeCapture("have both");
+ 422 |       } else {
+ 423 |         if (captureState.secondaryTimer)
+ 424 |           clearTimeout(captureState.secondaryTimer);
+ 425 |         captureState.secondaryTimer = setTimeout(
+ 426 |           () => finalizeCapture("after-label-wait"),
+ 427 |           500
+ 428 |         );
+ 429 |       }
+ 430 | 
+ 431 |       mainWindow?.webContents.removeListener("before-input-event", once);
+ 432 |     };
+ 433 |     mainWindow?.webContents.on("before-input-event", once);
+ 434 |     logHK("before-input-event listener ARMED");
+ 435 | 
+ 436 |     return true;
+ 437 |   });
+ 438 | }
+ 439 | 
+ 440 | /* -------------------- Hotkeys engines -------------------- */
+ 441 | function refreshHotkeyEngine() {
+ 442 |   if (usingUiohook) {
+ 443 |     logHK("refreshHotkeyEngine: pass-through (no globalShortcut)");
+ 444 |     return;
+ 445 |   }
+ 446 |   try {
+ 447 |     globalShortcut.unregisterAll();
+ 448 |     logHK("globalShortcut: unregistered all");
+ 449 |   } catch {}
+ 450 |   const RATE = 180;
+ 451 |   let lastT = 0,
+ 452 |     lastS = 0;
+ 453 | 
+ 454 |   const sKey = hotkeysLabel.start || "F1";
+ 455 |   const wKey = hotkeysLabel.swap || "F2";
+ 456 |   logHK("globalShortcut: registering", { start: sKey, swap: wKey });
+ 457 | 
+ 458 |   try {
+ 459 |     globalShortcut.register(sKey, () => {
+ 460 |       if (Date.now() < captureWaitUntil) {
+ 461 |         logHK("fallback toggle skipped (capturing)");
+ 462 |         return;
+ 463 |       }
+ 464 |       const now = Date.now();
+ 465 |       if (now - lastT < RATE) return;
+ 466 |       lastT = now;
+ 467 |       logHK("DISPATCH toggle via globalShortcut");
+ 468 |       overlayWindow?.webContents.send("global-hotkey", { type: "toggle" });
+ 469 |     });
+ 470 |   } catch (e) {
+ 471 |     logHK("register start failed", e?.message || e);
+ 472 |   }
+ 473 | 
+ 474 |   try {
+ 475 |     globalShortcut.register(wKey, () => {
+ 476 |       if (Date.now() < captureWaitUntil) {
+ 477 |         logHK("fallback swap skipped (capturing)");
+ 478 |         return;
+ 479 |       }
+ 480 |       const now = Date.now();
+ 481 |       if (now - lastS < RATE) return;
+ 482 |       lastS = now;
+ 483 |       logHK("DISPATCH swap via globalShortcut");
+ 484 |       overlayWindow?.webContents.send("global-hotkey", { type: "swap" });
+ 485 |     });
+ 486 |   } catch (e) {
+ 487 |     logHK("register swap failed", e?.message || e);
+ 488 |   }
+ 489 | }
+ 490 | 
+ 491 | // uiohook global (pass-through)
+ 492 | function setupUiohook() {
+ 493 |   try {
+ 494 |     logHK("Trying to load uiohook-napi…");
+ 495 |     const lib = require("uiohook-napi");
+ 496 |     uIOhook = lib.uIOhook;
+ 497 |     logHK("uiohook loaded OK");
+ 498 |   } catch (e) {
+ 499 |     logHK("uiohook FAILED to load -> fallback", e?.message || e);
+ 500 |     usingUiohook = false;
+ 501 |     sendHotkeysMode();
+ 502 |     refreshHotkeyEngine();
+ 503 |     return;
+ 504 |   }
+ 505 | 
+ 506 |   usingUiohook = true;
+ 507 |   sendHotkeysMode();
+ 508 | 
+ 509 |   let lastToggle = 0;
+ 510 |   let lastSwap = 0;
+ 511 |   const RATE = 180;
+ 512 | 
+ 513 |   uIOhook.on("keydown", (e) => {
+ 514 |     logHK("uiohook keydown", {
+ 515 |       keycode: e.keycode,
+ 516 |       captureState: !!captureState,
+ 517 |       now: Date.now(),
+ 518 |       blockUntil: captureWaitUntil,
+ 519 |     });
+ 520 | 
+ 521 |     // si on est en capture : stocker le code; finaliser si label déjà là, sinon attendre un chouïa
+ 522 |     if (captureState) {
+ 523 |       captureState.code = e.keycode;
+ 524 |       logHK("code captured (uiohook)", {
+ 525 |         type: captureState.type,
+ 526 |         code: e.keycode,
+ 527 |       });
+ 528 |       if (captureState.label) {
+ 529 |         finalizeCapture("have both");
+ 530 |       } else {
+ 531 |         if (captureState.secondaryTimer)
+ 532 |           clearTimeout(captureState.secondaryTimer);
+ 533 |         captureState.secondaryTimer = setTimeout(
+ 534 |           () => finalizeCapture("after-code-wait"),
+ 535 |           600
+ 536 |         );
+ 537 |       }
+ 538 |       return;
+ 539 |     }
+ 540 | 
+ 541 |     // normal: déclenchement (pass-through)
+ 542 |     if (!overlayWindow || overlayWindow.isDestroyed()) return;
+ 543 |     if (Date.now() < captureWaitUntil) {
+ 544 |       logHK("DISPATCH BLOCKED (capturing)");
+ 545 |       return;
+ 546 |     }
+ 547 | 
+ 548 |     const now = Date.now();
+ 549 |     if (hotkeys.start && e.keycode === hotkeys.start) {
+ 550 |       if (now - lastToggle < RATE) return;
+ 551 |       lastToggle = now;
+ 552 |       logHK("DISPATCH toggle via uiohook");
+ 553 |       overlayWindow.webContents.send("global-hotkey", { type: "toggle" });
+ 554 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
+ 555 |       if (now - lastSwap < RATE) return;
+ 556 |       lastSwap = now;
+ 557 |       logHK("DISPATCH swap via uiohook");
+ 558 |       overlayWindow.webContents.send("global-hotkey", { type: "swap" });
+ 559 |     }
+ 560 |   });
+ 561 | 
+ 562 |   try {
+ 563 |     uIOhook.start();
+ 564 |     logHK("uiohook started");
+ 565 |   } catch (e) {
+ 566 |     logHK("uiohook START failed -> fallback", e?.message || e);
+ 567 |     usingUiohook = false;
+ 568 |     sendHotkeysMode();
+ 569 |     refreshHotkeyEngine();
+ 570 |   }
+ 571 | }
+ 572 | 
+ 573 | if (!app.requestSingleInstanceLock()) { app.quit(); } 
+ 574 | else {
+ 575 |   app.on('second-instance', () => {
+ 576 |     if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); }
+ 577 |   });
+ 578 | }
+ 579 | 
+ 580 | function applyProdCSP(){
+ 581 |   if (isDev) return;
+ 582 |   session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+ 583 |     const csp = "default-src 'self' data: blob:; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';";
+ 584 |     cb({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [csp] } });
+ 585 |   });
+ 586 | }
+ 587 | 
+ 588 | /* -------------------- lifecycle -------------------- */
+ 589 | app.whenReady().then(() => {
+ 590 |   applyProdCSP();
+ 591 |   createMainWindow();
+ 592 |   setupIPC();
+ 593 |   setupUiohook();
+ 594 |   if (isDev) setTimeout(createOverlayWindow, 800);
+ 595 | });
+ 596 | app.on("will-quit", () => {
+ 597 |   try {
+ 598 |     if (usingUiohook) uIOhook.stop();
+ 599 |   } catch {}
+ 600 |   try {
+ 601 |     globalShortcut.unregisterAll();
+ 602 |   } catch {}
+ 603 | });
+ 604 | app.on("window-all-closed", () => {
+ 605 |   app.quit();
+ 606 | });
 
 ```
 
@@ -899,31 +922,42 @@ dbdoverlaytools-free
   13 |     "build": "vite build && electron-builder",
   14 |     "typecheck": "tsc --noEmit"
   15 |   },
-  16 |   "dependencies": {
-  17 |     "electron-store": "^9.0.0",
-  18 |     "lucide-react": "^0.539.0",
-  19 |     "react": "^18.3.1",
-  20 |     "react-dom": "^18.3.1",
-  21 |     "uiohook-napi": "^1.5.4",
-  22 |     "zustand": "^4.5.2"
-  23 |   },
-  24 |   "devDependencies": {
-  25 |     "@types/node": "^20.12.12",
-  26 |     "@types/react": "^18.3.3",
-  27 |     "@types/react-dom": "^18.3.0",
-  28 |     "@vitejs/plugin-react": "^4.3.1",
-  29 |     "autoprefixer": "^10.4.19",
-  30 |     "concurrently": "^9.0.1",
-  31 |     "cross-env": "^7.0.3",
-  32 |     "electron": "^30.0.9",
-  33 |     "electron-builder": "^24.13.3",
-  34 |     "postcss": "^8.4.38",
-  35 |     "tailwindcss": "^3.4.7",
-  36 |     "typescript": "^5.5.4",
-  37 |     "vite": "^5.4.19",
-  38 |     "wait-on": "^7.2.0"
-  39 |   }
-  40 | }
+  16 |   "build": {
+  17 |     "appId": "com.steaxs.dbdoverlay.free",
+  18 |     "productName": "DBD Overlay Tools - Timer 1v1 FREE",
+  19 |     "directories": { "buildResources": "build", "output": "release" },
+  20 |     "files": [ "dist/**", "electron/**", "package.json" ],
+  21 |     "asar": true,
+  22 |     "asarUnpack": ["**/node_modules/uiohook-napi/**"],
+  23 |     "win": { "target": ["nsis"], "icon": "build/icon.ico" },
+  24 |     "nsis": { "oneClick": true, "perMachine": false, "allowElevation": false, "allowToChangeInstallationDirectory": false }
+  25 |   },
+  26 |   "dependencies": {
+  27 |     "electron-store": "^9.0.0",
+  28 |     "lucide-react": "^0.539.0",
+  29 |     "react": "^18.3.1",
+  30 |     "react-dom": "^18.3.1",
+  31 |     "uiohook-napi": "^1.5.4",
+  32 |     "zustand": "^4.5.2"
+  33 |   },
+  34 |   "devDependencies": {
+  35 |     "@types/node": "^20.12.12",
+  36 |     "@types/react": "^18.3.3",
+  37 |     "@types/react-dom": "^18.3.0",
+  38 |     "@vitejs/plugin-react": "^4.3.1",
+  39 |     "autoprefixer": "^10.4.19",
+  40 |     "concurrently": "^9.0.1",
+  41 |     "cross-env": "^7.0.3",
+  42 |     "electron": "^30.0.9",
+  43 |     "electron-builder": "^24.13.3",
+  44 |     "postcss": "^8.4.38",
+  45 |     "tailwindcss": "^3.4.7",
+  46 |     "typescript": "^5.5.4",
+  47 |     "vite": "^5.4.19",
+  48 |     "vite-plugin-javascript-obfuscator": "^3.1.0",
+  49 |     "wait-on": "^7.2.0"
+  50 |   }
+  51 | }
 
 ```
 
@@ -2513,20 +2547,30 @@ dbdoverlaytools-free
 ```mts
    1 | import { defineConfig } from 'vite'
    2 | import react from '@vitejs/plugin-react'
-   3 | import { fileURLToPath, URL } from 'node:url'
+   3 | import obfuscatorPlugin from 'vite-plugin-javascript-obfuscator'
    4 | 
-   5 | export default defineConfig({
-   6 |   plugins: [react()],
-   7 |   server: { port: 5173, strictPort: true },
-   8 |   resolve: {
-   9 |     alias: {
-  10 |       '@': fileURLToPath(new URL('./src', import.meta.url))
-  11 |     }
-  12 |   },
-  13 |   build: {
-  14 |     outDir: 'dist',
-  15 |     sourcemap: true
-  16 |   }
-  17 | })
+   5 | export default defineConfig(({ mode }) => ({
+   6 |   plugins: [
+   7 |     react(),
+   8 |     mode === 'production' && obfuscatorPlugin({
+   9 |       apply: 'build',
+  10 |       exclude: [/node_modules/],
+  11 |       options: {
+  12 |         compact: true,
+  13 |         selfDefending: false,
+  14 |         debugProtection: false,
+  15 |         identifierNamesGenerator: 'hexadecimal',
+  16 |         transformObjectKeys: true,
+  17 |         stringArray: true,
+  18 |         rotateStringArray: true,
+  19 |         stringArrayThreshold: 0.6,
+  20 |         stringArrayEncoding: [],
+  21 |         disableConsoleOutput: true,
+  22 |         simplify: true,
+  23 |       }
+  24 |     })
+  25 |   ].filter(Boolean),
+  26 |   build: { sourcemap: false }
+  27 | }))
 
 ```
