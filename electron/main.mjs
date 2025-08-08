@@ -23,7 +23,7 @@ let hotkeys = store.get('hotkeys') || { start: null, swap: null }
 let hotkeysLabel = store.get('hotkeysLabel') || { start: 'F1', swap: 'F2' }
 
 // état de capture transactionnelle
-let captureState = null // { type:'start'|'swap', label:string|null, code:number|null, timer:any }
+let captureState = null // { type:'start'|'swap', label:null|string, code:null|number, primaryTimer:any, secondaryTimer:any }
 let captureWaitUntil = 0 // time (ms) jusqu’auquel on ne dispatch pas aux timers (évite side-effects pendant capture)
 
 // ===== debug =====
@@ -76,14 +76,21 @@ function makeLabelFromBeforeInput(input) {
   if (/^Digit\d$/.test(code)) return code.slice(5)
   return (k && k.length <= 6) ? k.toUpperCase() : (code || 'KEY')
 }
+
+function clearCaptureTimers() {
+  if (!captureState) return
+  if (captureState.primaryTimer) { clearTimeout(captureState.primaryTimer); captureState.primaryTimer = null }
+  if (captureState.secondaryTimer) { clearTimeout(captureState.secondaryTimer); captureState.secondaryTimer = null }
+}
+
 function finalizeCapture(reason='done') {
   if (!captureState) return
-  const { type, label, code, timer } = captureState
-  if (timer) clearTimeout(timer)
+  const { type, label, code } = captureState
+  clearCaptureTimers()
 
   logHK('CAPTURE FINALIZE', { reason, type, label, code })
 
-  // Persistance
+  // Persistance si on a reçu des infos
   if (label) {
     hotkeysLabel = { ...hotkeysLabel, [type]: label }
     store.set('hotkeysLabel', hotkeysLabel)
@@ -93,8 +100,8 @@ function finalizeCapture(reason='done') {
     store.set('hotkeys', hotkeys)
   }
 
-  // Dernier envoi au panel (si besoin)
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  // Notifie le panel uniquement si on a reçu label ou code (sinon on ne change rien à l’UI)
+  if (mainWindow && !mainWindow.isDestroyed() && (label || typeof code === 'number')) {
     const payload = { type }
     if (label) payload.label = label
     if (typeof code === 'number') payload.keycode = code
@@ -255,20 +262,29 @@ function setupIPC() {
     return true
   })
 
-  // 🚀 capture 100% main-process, transactionnelle
+  // 🚀 capture 100% main-process, transactionnelle (pas de timeout tant qu'aucune touche n'a été frappée)
   ipcMain.handle('hotkeys-capture', (_evt, type) => {
-    if (!(type === 'start' || type === 'swap')) { captureState = null; return true }
+    if (!(type === 'start' || type === 'swap')) { finalizeCapture('cancel'); return true }
 
     logHK('CAPTURE BEGIN', { type, mode: usingUiohook ? 'pass-through' : 'fallback' })
 
-    // Bloquer le dispatch vers les timers
-    captureWaitUntil = Date.now() + 800
+    // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
+    captureWaitUntil = Date.now() + 15000
 
-    // État de capture (on attend les DEUX, ou timeout)
-    if (captureState?.timer) clearTimeout(captureState.timer)
+    // Reset/annule capture précédente si elle existe
+    if (captureState) { clearCaptureTimers(); captureState = null }
+
+    // État de capture : pas de timer court au début; on attend la première frappe
     captureState = {
-      type, label: null, code: null,
-      timer: setTimeout(() => finalizeCapture('timeout'), 300)
+      type,
+      label: null,
+      code: null,
+      primaryTimer: setTimeout(() => {
+        // Annule la capture si l'utilisateur oublie (15s)
+        logHK('CAPTURE PRIMARY TIMEOUT — cancel')
+        finalizeCapture('primary-timeout')
+      }, 15000),
+      secondaryTimer: null
     }
 
     // focus le panneau
@@ -279,24 +295,27 @@ function setupIPC() {
       try { globalShortcut.unregisterAll(); logHK('fallback: unregistered to let key through') } catch {}
     }
 
-    // écouter UNE SEULE fois la prochaine touche (pour le label layout-aware)
+    // écouter une fois la prochaine touche (pour le label layout-aware)
     const once = (event, input) => {
+      if (!captureState) return
       if (input.type !== 'keyDown' || input.isAutoRepeat) return
       logHK('before-input-event keyDown', { key: input.key, code: input.code })
       const label = makeLabelFromBeforeInput(input)
 
-      // stocke & notifie instantanément le panel
-      if (captureState && captureState.type === type) {
-        captureState.label = label
-        hotkeysLabel = { ...hotkeysLabel, [type]: label }
-        store.set('hotkeysLabel', hotkeysLabel)
-        mainWindow?.webContents.send('hotkeys-captured', { type, label })
-        logHK('label captured (instant)', { type, label })
+      captureState.label = label
+      hotkeysLabel = { ...hotkeysLabel, [type]: label }
+      store.set('hotkeysLabel', hotkeysLabel)
 
-        // si on a déjà le code, on peut finaliser tout de suite
-        if (typeof captureState.code === 'number') {
-          finalizeCapture('have both')
-        }
+      // notifie instantanément le panel (affichage immédiat)
+      mainWindow?.webContents.send('hotkeys-captured', { type, label })
+      logHK('label captured (instant)', { type, label })
+
+      // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
+      if (typeof captureState.code === 'number') {
+        finalizeCapture('have both')
+      } else {
+        if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer)
+        captureState.secondaryTimer = setTimeout(() => finalizeCapture('after-label-wait'), 500)
       }
 
       mainWindow?.webContents.removeListener('before-input-event', once)
@@ -363,12 +382,15 @@ function setupUiohook() {
   uIOhook.on('keydown', (e) => {
     logHK('uiohook keydown', { keycode: e.keycode, captureState: !!captureState, now: Date.now(), blockUntil: captureWaitUntil })
 
-    // si on est en capture : stocker le code; finaliser si label déjà là
+    // si on est en capture : stocker le code; finaliser si label déjà là, sinon attendre un chouïa
     if (captureState) {
       captureState.code = e.keycode
       logHK('code captured (uiohook)', { type: captureState.type, code: e.keycode })
       if (captureState.label) {
         finalizeCapture('have both')
+      } else {
+        if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer)
+        captureState.secondaryTimer = setTimeout(() => finalizeCapture('after-code-wait'), 600)
       }
       return
     }
