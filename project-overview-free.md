@@ -6,52 +6,43 @@ Source Tree:
 dbdoverlaytools-free
 ├── README.md
 ├── electron
-│   ├── main.cjs
+│   ├── main.mjs
 │   ├── preload.cjs
 │   └── tsconfig.json
 ├── index.html
 ├── overlay.html
 ├── package.json
-├── postcss.config.js
+├── postcss.config.cjs
 ├── scripts
 │   └── start.js
 ├── src
 │   ├── App.tsx
 │   ├── components
 │   │   ├── ControlPanel.tsx
-│   │   ├── HotkeySettings.tsx
 │   │   ├── OverlayApp.tsx
-│   │   ├── OverlaySettings.tsx
-│   │   ├── PlayerSettings.tsx
-│   │   ├── TimerControls.tsx
 │   │   └── overlay
 │   │       ├── DragHandle.tsx
-│   │       ├── PlayerName.tsx
-│   │       ├── ScoreDisplay.tsx
-│   │       ├── Timer.tsx
-│   │       ├── TimerOverlay.tsx
-│   │       └── styles
-│   │           ├── CircularStyle.tsx
-│   │           ├── DefaultStyle.tsx
-│   │           ├── MinimalStyle.tsx
-│   │           └── NostalgiaStyle.tsx
+│   │       └── TimerOverlay.tsx
 │   ├── hooks
-│   │   ├── useGlobalHotkeys.ts
 │   │   └── useTimer.ts
 │   ├── index.css
 │   ├── main.tsx
 │   ├── overlay.tsx
 │   ├── store
 │   │   └── timerStore.ts
+│   ├── themes
+│   │   └── default.css
 │   ├── types
-│   │   └── index.ts
+│   │   ├── global.d.ts
+│   │   ├── index.ts
+│   │   └── preload.d.ts
 │   └── utils
 │       ├── cn.ts
 │       └── timer.ts
-├── tailwind.config.js
+├── tailwind.config.cjs
 ├── tsconfig.json
 ├── tsconfig.node.json
-└── vite.config.ts
+└── vite.config.mts
 
 ```
 
@@ -207,268 +198,349 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/electron\main.cjs`:
+`dbdoverlaytools-free/electron\main.mjs`:
 
-```cjs
-   1 | const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
-   2 | const { join } = require('path');
-   3 | const Store = require('electron-store');
-   4 | 
-   5 | class TimerOverlayApp {
-   6 |   constructor() {
-   7 |     this.mainWindow = null;
-   8 |     this.overlayWindow = null;
-   9 |     this.store = new Store();
-  10 |     this.isDev = process.env.NODE_ENV === 'development';
-  11 |     this.initializeApp();
-  12 |   }
+```mjs
+   1 | import { app, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
+   2 | import { join, dirname } from 'node:path'
+   3 | import { fileURLToPath } from 'node:url'
+   4 | import Store from 'electron-store'
+   5 | import { createRequire } from 'node:module'
+   6 | const require = createRequire(import.meta.url)
+   7 | 
+   8 | let uIOhook = null
+   9 | 
+  10 | const __dirname = dirname(fileURLToPath(import.meta.url))
+  11 | const isDev = process.env.NODE_ENV === 'development'
+  12 | const store = new Store()
   13 | 
-  14 |   initializeApp() {
-  15 |     app.whenReady().then(() => {
-  16 |       this.createMainWindow();
-  17 |       this.setupIPC();
-  18 |       this.setupGlobalShortcuts();
-  19 |     });
+  14 | let mainWindow = null
+  15 | let overlayWindow = null
+  16 | let usingUiohook = false
+  17 | 
+  18 | // dimensions non-scalées du contenu (hors drag bar)
+  19 | let baseDims = { width: 520, height: 120 }
   20 | 
-  21 |     app.on('window-all-closed', () => {
-  22 |       globalShortcut.unregisterAll();
-  23 |       app.quit();
-  24 |     });
-  25 | 
-  26 |     app.on('activate', () => {
-  27 |       if (BrowserWindow.getAllWindows().length === 0) {
-  28 |         this.createMainWindow();
-  29 |       }
-  30 |     });
-  31 |   }
-  32 | 
-  33 |   createMainWindow() {
-  34 |     const savedState = this.store.get('windowState') || {};
-  35 | 
-  36 |     this.mainWindow = new BrowserWindow({
-  37 |       width: savedState.width || 800,
-  38 |       height: savedState.height || 600,
-  39 |       x: savedState.x,
-  40 |       y: savedState.y,
-  41 |       minWidth: 600,
-  42 |       minHeight: 400,
-  43 |       show: false,
-  44 |       autoHideMenuBar: true,
-  45 |       webPreferences: {
-  46 |         nodeIntegration: false,
-  47 |         contextIsolation: true,
-  48 |         preload: join(__dirname, 'preload.cjs'),
-  49 |         webSecurity: false
-  50 |       }
-  51 |     });
-  52 | 
-  53 |     if (this.isDev) {
-  54 |       this.mainWindow.loadURL('http://localhost:5173');
-  55 |       this.mainWindow.webContents.openDevTools();
-  56 |     } else {
-  57 |       this.mainWindow.loadFile(join(__dirname, '../dist/index.html'));
-  58 |     }
-  59 | 
-  60 |     this.mainWindow.once('ready-to-show', () => {
-  61 |       this.mainWindow.show();
-  62 |       this.mainWindow.focus();
-  63 |       setTimeout(() => this.createOverlayWindow(), 1000);
-  64 |     });
-  65 | 
-  66 |     this.mainWindow.on('close', () => {
-  67 |       const bounds = this.mainWindow.getBounds();
-  68 |       if (bounds) {
-  69 |         this.store.set('windowState', bounds);
-  70 |       }
-  71 |     });
-  72 | 
-  73 |     this.mainWindow.on('closed', () => {
-  74 |       if (this.overlayWindow) {
-  75 |         this.overlayWindow.close();
-  76 |       }
-  77 |       app.quit();
-  78 |     });
-  79 |   }
-  80 | 
-  81 |   createOverlayWindow() {
-  82 |     if (this.overlayWindow) {
-  83 |       this.overlayWindow.show();
-  84 |       return;
-  85 |     }
-  86 | 
-  87 |     const overlaySettings = this.store.get('overlaySettings', {
-  88 |       x: 100,
-  89 |       y: 100,
-  90 |       scale: 100,
-  91 |       locked: false,
-  92 |       alwaysOnTop: true
-  93 |     });
-  94 | 
-  95 |     this.overlayWindow = new BrowserWindow({
-  96 |       width: 520,
-  97 |       height: 120,
-  98 |       x: overlaySettings.x,
-  99 |       y: overlaySettings.y,
- 100 |       frame: false,
- 101 |       transparent: true,
- 102 |       alwaysOnTop: overlaySettings.alwaysOnTop,
- 103 |       skipTaskbar: true,
- 104 |       resizable: false,
- 105 |       focusable: !overlaySettings.locked,
- 106 |       show: false,
- 107 |       webPreferences: {
- 108 |         nodeIntegration: false,
- 109 |         contextIsolation: true,
- 110 |         preload: join(__dirname, 'preload.cjs'),
- 111 |         webSecurity: false
- 112 |       }
- 113 |     });
- 114 | 
- 115 |     if (overlaySettings.locked) {
- 116 |       this.overlayWindow.setIgnoreMouseEvents(true, { forward: true });
- 117 |     }
- 118 | 
- 119 |     const overlayUrl = this.isDev 
- 120 |       ? 'http://localhost:5173/overlay.html' 
- 121 |       : join(__dirname, '../dist/overlay.html');
- 122 | 
- 123 |     if (this.isDev) {
- 124 |       this.overlayWindow.loadURL(overlayUrl);
- 125 |       this.overlayWindow.webContents.openDevTools();
- 126 |     } else {
- 127 |       this.overlayWindow.loadFile(overlayUrl);
- 128 |     }
- 129 | 
- 130 |     this.overlayWindow.webContents.on('did-finish-load', () => {
- 131 |       this.overlayWindow.show();
- 132 |       
- 133 |       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 134 |         this.mainWindow.webContents.send('overlay-ready', true);
- 135 |       }
- 136 |       
- 137 |       const timerData = this.store.get('timerData');
- 138 |       if (timerData && this.overlayWindow) {
- 139 |         setTimeout(() => {
- 140 |           this.overlayWindow.webContents.send('timer-data-sync', timerData);
- 141 |         }, 100);
- 142 |       }
- 143 |     });
- 144 | 
- 145 |     this.overlayWindow.on('closed', () => {
- 146 |       this.overlayWindow = null;
- 147 |       
- 148 |       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
- 149 |         this.mainWindow.webContents.send('overlay-ready', false);
- 150 |       }
- 151 |     });
- 152 | 
- 153 |     this.overlayWindow.on('move', () => {
- 154 |       const bounds = this.overlayWindow.getBounds();
- 155 |       if (bounds) {
- 156 |         this.store.set('overlaySettings.x', bounds.x);
- 157 |         this.store.set('overlaySettings.y', bounds.y);
- 158 |       }
- 159 |     });
- 160 |   }
- 161 | 
- 162 |   setupIPC() {
- 163 |     ipcMain.handle('store-get', (_, key) => this.store.get(key));
- 164 |     
- 165 |     ipcMain.handle('store-set', (_, key, value) => {
- 166 |       this.store.set(key, value);
- 167 |       
- 168 |       if (key === 'timerData' && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 169 |         this.overlayWindow.webContents.send('timer-data-sync', value);
- 170 |       }
- 171 |     });
- 172 | 
- 173 |     ipcMain.handle('overlay-show', async () => {
- 174 |       try {
- 175 |         this.createOverlayWindow();
- 176 |         return { success: true };
- 177 |       } catch (error) {
- 178 |         return { success: false, error: error.message };
- 179 |       }
- 180 |     });
- 181 | 
- 182 |     ipcMain.handle('overlay-hide', async () => {
- 183 |       if (this.overlayWindow) {
- 184 |         this.overlayWindow.close();
- 185 |         this.overlayWindow = null;
- 186 |         return { success: true };
- 187 |       }
- 188 |       return { success: false, error: 'No overlay window to hide' };
- 189 |     });
- 190 | 
- 191 |     ipcMain.handle('overlay-settings-update', async (_, settings) => {
- 192 |       if (!this.overlayWindow) return;
- 193 | 
- 194 |       try {
- 195 |         if (settings.locked !== undefined) {
- 196 |           this.overlayWindow.setIgnoreMouseEvents(settings.locked, { forward: true });
- 197 |           this.overlayWindow.setFocusable(!settings.locked);
- 198 |         }
+  21 | // hotkeys: codes (uiohook) + labels (affichage & fallback)
+  22 | let hotkeys = store.get('hotkeys') || { start: null, swap: null }
+  23 | let hotkeysLabel = store.get('hotkeysLabel') || { start: 'F1', swap: 'F2' }
+  24 | 
+  25 | // capture en cours
+  26 | let capturing = null // 'start' | 'swap' | null
+  27 | let pendingTimer = null // timer pour la fenêtre où on attend uiohook (200ms)
+  28 | 
+  29 | function applyAlwaysOnTop(win, on) {
+  30 |   try {
+  31 |     win.setAlwaysOnTop(!!on, 'screen-saver')
+  32 |     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  33 |     win.setFullScreenable(false)
+  34 |   } catch {}
+  35 | }
+  36 | 
+  37 | function sendOverlaySettings() {
+  38 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
+  39 |     const s = store.get('overlaySettings', { x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true })
+  40 |     overlayWindow.webContents.send('overlay-settings', s)
+  41 |   }
+  42 | }
+  43 | 
+  44 | function recomputeOverlaySize() {
+  45 |   if (!overlayWindow || overlayWindow.isDestroyed()) return
+  46 |   const s = store.get('overlaySettings', { scale: 100, locked: true })
+  47 |   const dragH = s.locked ? 0 : 30
+  48 |   const scale = (s.scale || 100) / 100
+  49 |   const w = Math.ceil(baseDims.width * scale)
+  50 |   const h = Math.ceil((baseDims.height + dragH) * scale)
+  51 |   overlayWindow.setContentSize(w, h)
+  52 |   sendOverlaySettings()
+  53 | }
+  54 | 
+  55 | function sendHotkeysMode() {
+  56 |   if (mainWindow && !mainWindow.isDestroyed()) {
+  57 |     mainWindow.webContents.send('hotkeys-mode', usingUiohook ? 'pass-through' : 'fallback')
+  58 |   }
+  59 | }
+  60 | 
+  61 | function createMainWindow() {
+  62 |   const saved = store.get('windowState') || {}
+  63 |   mainWindow = new BrowserWindow({
+  64 |     width: saved.width || 900,
+  65 |     height: saved.height || 640,
+  66 |     x: saved.x, y: saved.y,
+  67 |     minWidth: 700, minHeight: 480,
+  68 |     show: false,
+  69 |     autoHideMenuBar: true,
+  70 |     webPreferences: {
+  71 |       nodeIntegration: false,
+  72 |       contextIsolation: true,
+  73 |       preload: join(__dirname, 'preload.cjs'),
+  74 |     }
+  75 |   })
+  76 | 
+  77 |   if (isDev) {
+  78 |     mainWindow.loadURL('http://localhost:5173')
+  79 |     mainWindow.webContents.openDevTools({ mode: 'detach' })
+  80 |   } else {
+  81 |     mainWindow.loadFile(join(__dirname, '../dist/index.html'))
+  82 |   }
+  83 | 
+  84 |   mainWindow.once('ready-to-show', () => mainWindow.show())
+  85 |   mainWindow.on('close', () => {
+  86 |     const b = mainWindow.getBounds()
+  87 |     store.set('windowState', b)
+  88 |   })
+  89 |   mainWindow.on('closed', () => { mainWindow = null; if (overlayWindow) overlayWindow.close() })
+  90 | }
+  91 | 
+  92 | function createOverlayWindow() {
+  93 |   if (overlayWindow && !overlayWindow.isDestroyed()) { overlayWindow.show(); overlayWindow.focus(); return }
+  94 |   const display = screen.getPrimaryDisplay().workAreaSize
+  95 |   const s = store.get('overlaySettings', {
+  96 |     x: Math.floor(display.width/2-260), y: 100, scale: 100, locked: true, alwaysOnTop: true
+  97 |   })
+  98 |   const dragH = s.locked ? 0 : 30
+  99 |   const scale = (s.scale || 100) / 100
+ 100 | 
+ 101 |   overlayWindow = new BrowserWindow({
+ 102 |     width: Math.ceil(baseDims.width * scale),
+ 103 |     height: Math.ceil((baseDims.height + dragH) * scale),
+ 104 |     x: s.x, y: s.y,
+ 105 |     frame: false, transparent: true, resizable: false,
+ 106 |     hasShadow: false,
+ 107 |     skipTaskbar: false,
+ 108 |     focusable: true,
+ 109 |     title: 'DBD Timer Overlay',
+ 110 |     acceptFirstMouse: true,
+ 111 |     backgroundColor: '#00000000',
+ 112 |     useContentSize: true,
+ 113 |     webPreferences: {
+ 114 |       nodeIntegration: false,
+ 115 |       contextIsolation: true,
+ 116 |       preload: join(__dirname, 'preload.cjs'),
+ 117 |       backgroundThrottling: false
+ 118 |     }
+ 119 |   })
+ 120 | 
+ 121 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true })
+ 122 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop)
+ 123 | 
+ 124 |   const url = isDev ? 'http://localhost:5173/overlay.html' : join(__dirname, '../dist/overlay.html')
+ 125 |   if (isDev) overlayWindow.loadURL(url); else overlayWindow.loadFile(url)
+ 126 | 
+ 127 |   overlayWindow.on('closed', () => {
+ 128 |     overlayWindow = null
+ 129 |     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('overlay-ready', false)
+ 130 |   })
+ 131 |   overlayWindow.on('move', () => {
+ 132 |     const b = overlayWindow.getBounds()
+ 133 |     store.set('overlaySettings.x', b.x)
+ 134 |     store.set('overlaySettings.y', b.y)
+ 135 |   })
+ 136 | 
+ 137 |   overlayWindow.webContents.on('did-finish-load', () => {
+ 138 |     const data = store.get('timerData') || {
+ 139 |       player1: { name: 'Player 1', score: 0 },
+ 140 |       player2: { name: 'Player 2', score: 0 }
+ 141 |     }
+ 142 |     overlayWindow.webContents.send('timer-data-sync', data)
+ 143 |     sendOverlaySettings()
+ 144 |     if (mainWindow) mainWindow.webContents.send('overlay-ready', true)
+ 145 |     setTimeout(() => recomputeOverlaySize(), 50)
+ 146 |   })
+ 147 | }
+ 148 | 
+ 149 | function setupIPC() {
+ 150 |   ipcMain.handle('overlay-show', () => { createOverlayWindow(); return true })
+ 151 |   ipcMain.handle('overlay-hide', () => {
+ 152 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close()
+ 153 |     overlayWindow = null
+ 154 |     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('overlay-ready', false)
+ 155 |     return true
+ 156 |   })
+ 157 | 
+ 158 |   ipcMain.handle('overlay-settings-update', (_evt, settings) => {
+ 159 |     const current = store.get('overlaySettings', {})
+ 160 |     const next = { ...current, ...settings }
+ 161 |     store.set('overlaySettings', next)
+ 162 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true
+ 163 | 
+ 164 |     if (settings.locked !== undefined) {
+ 165 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true })
+ 166 |       overlayWindow.setFocusable(true)
+ 167 |     }
+ 168 |     if (settings.alwaysOnTop !== undefined) applyAlwaysOnTop(overlayWindow, next.alwaysOnTop)
+ 169 |     if (settings.x !== undefined || settings.y !== undefined) {
+ 170 |       const b = overlayWindow.getBounds()
+ 171 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y)
+ 172 |     }
+ 173 |     if (settings.scale !== undefined || settings.locked !== undefined) recomputeOverlaySize()
+ 174 |     sendOverlaySettings()
+ 175 |     return true
+ 176 |   })
+ 177 | 
+ 178 |   ipcMain.handle('overlay-measure', (_evt, dims) => {
+ 179 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height)) return false
+ 180 |     baseDims = { width: Math.max(1, Math.floor(dims.width)), height: Math.max(1, Math.floor(dims.height)) }
+ 181 |     recomputeOverlaySize()
+ 182 |     return true
+ 183 |   })
+ 184 | 
+ 185 |   // Timer data
+ 186 |   ipcMain.handle('timer-data-get', () => store.get('timerData') || { player1: { name: 'Player 1', score: 0 }, player2: { name: 'Player 2', score: 0 } })
+ 187 |   ipcMain.handle('timer-data-set', (_evt, data) => {
+ 188 |     store.set('timerData', data)
+ 189 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.webContents.send('timer-data-sync', data)
+ 190 |     return true
+ 191 |   })
+ 192 | 
+ 193 |   // Hotkeys API
+ 194 |   ipcMain.handle('hotkeys-get', () => ({
+ 195 |     start: hotkeys.start, swap: hotkeys.swap,
+ 196 |     startLabel: hotkeysLabel.start, swapLabel: hotkeysLabel.swap,
+ 197 |     mode: usingUiohook ? 'pass-through' : 'fallback'
+ 198 |   }))
  199 | 
- 200 |         if (settings.alwaysOnTop !== undefined) {
- 201 |           this.overlayWindow.setAlwaysOnTop(settings.alwaysOnTop);
- 202 |         }
- 203 | 
- 204 |         if (settings.x !== undefined || settings.y !== undefined) {
- 205 |           this.overlayWindow.setPosition(settings.x || 0, settings.y || 0);
- 206 |         }
- 207 | 
- 208 |         this.store.set('overlaySettings', {
- 209 |           ...this.store.get('overlaySettings', {}),
- 210 |           ...settings
- 211 |         });
- 212 |       } catch (error) {
- 213 |         console.error('Error updating overlay settings:', error);
- 214 |       }
- 215 |     });
+ 200 |   ipcMain.handle('hotkeys-set', (_evt, hk) => {
+ 201 |     hotkeys = { ...hotkeys, ...hk } // codes uiohook si fournis
+ 202 |     store.set('hotkeys', hotkeys)
+ 203 |     refreshHotkeyEngine()
+ 204 |     return true
+ 205 |   })
+ 206 | 
+ 207 |   ipcMain.handle('hotkeys-capture', (_evt, type) => {
+ 208 |     if (!(type === 'start' || type === 'swap')) { capturing = null; return true }
+ 209 |     // démarre une capture UNIQUE, avec fenêtre d’attente uiohook 200ms
+ 210 |     capturing = type
+ 211 | 
+ 212 |     // 1) Label lisible via before-input-event (layout correct). Une seule pression suffit.
+ 213 |     if (mainWindow && !mainWindow.isDestroyed()) {
+ 214 |       const once = (event, input) => {
+ 215 |         if (input.type !== 'keyDown' || input.isAutoRepeat) return
  216 | 
- 217 |     ipcMain.handle('timer-data-sync', async (_, data) => {
- 218 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 219 |         this.overlayWindow.webContents.send('timer-data-sync', data);
- 220 |       }
- 221 |       this.store.set('timerData', data);
- 222 |     });
- 223 | 
- 224 |     ipcMain.handle('overlay-style-change', async (_, style) => {
- 225 |       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
- 226 |         this.overlayWindow.webContents.send('overlay-style-change', style);
- 227 |       }
- 228 |     });
- 229 |   }
- 230 | 
- 231 |   setupGlobalShortcuts() {
- 232 |     const registerShortcut = (key, action) => {
- 233 |       try {
- 234 |         globalShortcut.register(key, () => {
- 235 |           this.mainWindow.webContents.send('hotkey-pressed', action);
- 236 |         });
- 237 |       } catch (error) {
- 238 |         console.warn(`Failed to register shortcut ${key}:`, error);
- 239 |       }
- 240 |     };
- 241 | 
- 242 |     const savedHotkeys = this.store.get('timerData.hotkeys', {
- 243 |       start: 'F1',
- 244 |       swap: 'F2'
- 245 |     });
- 246 | 
- 247 |     registerShortcut(savedHotkeys.start, 'start');
- 248 |     registerShortcut(savedHotkeys.swap, 'swap');
- 249 | 
- 250 |     ipcMain.handle('hotkey-register', async (_, hotkeys) => {
- 251 |       globalShortcut.unregisterAll();
- 252 |       registerShortcut(hotkeys.start, 'start');
- 253 |       registerShortcut(hotkeys.swap, 'swap');
- 254 |       this.store.set('timerData.hotkeys', hotkeys);
- 255 |     });
- 256 |   }
- 257 | }
- 258 | 
- 259 | new TimerOverlayApp();
+ 217 |         let label = input.key || ''
+ 218 |         if (/^[a-z]$/.test(label)) label = label.toUpperCase()
+ 219 |         if (!label || label.length > 3) {
+ 220 |           const code = input.code || ''
+ 221 |           if (/^Key[A-Z]$/.test(code)) label = code.slice(3,4)
+ 222 |           else if (/^Digit\d$/.test(code)) label = code.slice(5)
+ 223 |           else if (/^F\d{1,2}$/.test(input.key)) label = input.key
+ 224 |           else if (!label) label = code || 'Key'
+ 225 |         }
+ 226 | 
+ 227 |         hotkeysLabel = { ...hotkeysLabel, [capturing]: label }
+ 228 |         store.set('hotkeysLabel', hotkeysLabel)
+ 229 | 
+ 230 |         // notifier immédiatement l’UI (affiche la bonne touche)
+ 231 |         mainWindow.webContents.send('hotkeys-captured', { type: capturing, label })
+ 232 | 
+ 233 |         // 2) si uiohook est actif, on attend le code numérique de CE même appui
+ 234 |         if (usingUiohook) {
+ 235 |           if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null }
+ 236 |           // fenêtre courte pour laisser uiohook recevoir le même keydown
+ 237 |           pendingTimer = setTimeout(() => {
+ 238 |             // si on n'a pas reçu le code uiohook, on clôture quand même
+ 239 |             capturing = null
+ 240 |             pendingTimer = null
+ 241 |           }, 200)
+ 242 |         } else {
+ 243 |           // fallback: on arme globalShortcut tout de suite avec le label
+ 244 |           refreshHotkeyEngine()
+ 245 |           capturing = null
+ 246 |         }
+ 247 | 
+ 248 |         mainWindow.webContents.removeListener('before-input-event', once)
+ 249 |       }
+ 250 |       mainWindow.webContents.on('before-input-event', once)
+ 251 |     }
+ 252 | 
+ 253 |     return true
+ 254 |   })
+ 255 | }
+ 256 | 
+ 257 | function refreshHotkeyEngine() {
+ 258 |   if (usingUiohook) return // pass-through: rien à enregistrer
+ 259 |   try { globalShortcut.unregisterAll() } catch {}
+ 260 |   const RATE = 180
+ 261 |   let lastT = 0, lastS = 0
+ 262 | 
+ 263 |   const sKey = hotkeysLabel.start || 'F1'
+ 264 |   const wKey = hotkeysLabel.swap  || 'F2'
+ 265 | 
+ 266 |   try {
+ 267 |     globalShortcut.register(sKey, () => {
+ 268 |       const now = Date.now(); if (now - lastT < RATE) return; lastT = now
+ 269 |       overlayWindow?.webContents.send('global-hotkey', { type: 'toggle' })
+ 270 |     })
+ 271 |   } catch {}
+ 272 |   try {
+ 273 |     globalShortcut.register(wKey, () => {
+ 274 |       const now = Date.now(); if (now - lastS < RATE) return; lastS = now
+ 275 |       overlayWindow?.webContents.send('global-hotkey', { type: 'swap' })
+ 276 |     })
+ 277 |   } catch {}
+ 278 | }
+ 279 | 
+ 280 | // uiohook global (pass-through) — charge proprement en ESM
+ 281 | function setupUiohook() {
+ 282 |   try {
+ 283 |     const lib = require('uiohook-napi')
+ 284 |     uIOhook = lib.uIOhook
+ 285 |   } catch (e) {
+ 286 |     usingUiohook = false
+ 287 |     sendHotkeysMode()
+ 288 |     refreshHotkeyEngine()
+ 289 |     return
+ 290 |   }
+ 291 | 
+ 292 |   usingUiohook = true
+ 293 |   sendHotkeysMode()
+ 294 | 
+ 295 |   let lastToggle = 0
+ 296 |   let lastSwap = 0
+ 297 |   const RATE = 180
+ 298 | 
+ 299 |   uIOhook.on('keydown', (e) => {
+ 300 |     // si on est dans la fenêtre de capture, stocke le code puis clôture
+ 301 |     if (capturing) {
+ 302 |       hotkeys = { ...hotkeys, [capturing]: e.keycode }
+ 303 |       store.set('hotkeys', hotkeys)
+ 304 |       if (mainWindow && !mainWindow.isDestroyed()) {
+ 305 |         mainWindow.webContents.send('hotkeys-captured', { type: capturing, keycode: e.keycode, label: hotkeysLabel[capturing] })
+ 306 |       }
+ 307 |       capturing = null
+ 308 |       if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null }
+ 309 |       return
+ 310 |     }
+ 311 | 
+ 312 |     if (!overlayWindow || overlayWindow.isDestroyed()) return
+ 313 |     const now = Date.now()
+ 314 |     if (hotkeys.start && e.keycode === hotkeys.start) {
+ 315 |       if (now - lastToggle < RATE) return; lastToggle = now
+ 316 |       overlayWindow.webContents.send('global-hotkey', { type: 'toggle' })
+ 317 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
+ 318 |       if (now - lastSwap < RATE) return; lastSwap = now
+ 319 |       overlayWindow.webContents.send('global-hotkey', { type: 'swap' })
+ 320 |     }
+ 321 |   })
+ 322 | 
+ 323 |   try { uIOhook.start() } catch {
+ 324 |     usingUiohook = false
+ 325 |     sendHotkeysMode()
+ 326 |     refreshHotkeyEngine()
+ 327 |   }
+ 328 | }
+ 329 | 
+ 330 | app.whenReady().then(() => {
+ 331 |   createMainWindow()
+ 332 |   setupIPC()
+ 333 |   setupUiohook()
+ 334 |   if (isDev) setTimeout(createOverlayWindow, 800)
+ 335 | })
+ 336 | app.on('will-quit', () => {
+ 337 |   try { if (usingUiohook) uIOhook.stop() } catch {}
+ 338 |   try { globalShortcut.unregisterAll() } catch {}
+ 339 | })
+ 340 | app.on('window-all-closed', () => { app.quit() })
 
 ```
 
@@ -477,56 +549,29 @@ dbdoverlaytools-free
 ```cjs
    1 | const { contextBridge, ipcRenderer } = require('electron');
    2 | 
-   3 | const api = {
-   4 |   store: {
-   5 |     get: (key) => ipcRenderer.invoke('store-get', key),
-   6 |     set: (key, value) => ipcRenderer.invoke('store-set', key, value),
-   7 |   },
-   8 |   
-   9 |   overlay: {
-  10 |     show: () => ipcRenderer.invoke('overlay-show'),
-  11 |     hide: () => ipcRenderer.invoke('overlay-hide'),
-  12 |     updateSettings: (settings) => ipcRenderer.invoke('overlay-settings-update', settings),
-  13 |     styleChange: (style) => ipcRenderer.invoke('overlay-style-change', style),
-  14 |     
-  15 |     onDataSync: (callback) => {
-  16 |       ipcRenderer.on('timer-data-sync', (_, data) => callback(data));
-  17 |       return () => ipcRenderer.removeAllListeners('timer-data-sync');
-  18 |     },
-  19 |     
-  20 |     onStyleChange: (callback) => {
-  21 |       ipcRenderer.on('overlay-style-change', (_, style) => callback(style));
-  22 |       return () => ipcRenderer.removeAllListeners('overlay-style-change');
-  23 |     },
-  24 |     
-  25 |     onReady: (callback) => {
-  26 |       ipcRenderer.on('overlay-ready', (_, isReady) => callback(isReady));
-  27 |       return () => ipcRenderer.removeAllListeners('overlay-ready');
-  28 |     },
-  29 |   },
-  30 |   
-  31 |   timer: {
-  32 |     syncData: (data) => ipcRenderer.invoke('timer-data-sync', data),
-  33 |   },
-  34 |   
-  35 |   hotkeys: {
-  36 |     register: (hotkeys) => ipcRenderer.invoke('hotkey-register', hotkeys),
-  37 |     
-  38 |     onPressed: (callback) => {
-  39 |       ipcRenderer.on('hotkey-pressed', (_, action) => callback(action));
-  40 |       return () => ipcRenderer.removeAllListeners('hotkey-pressed');
-  41 |     },
-  42 |   },
-  43 |   
-  44 |   removeAllListeners: () => {
-  45 |     ipcRenderer.removeAllListeners('timer-data-sync');
-  46 |     ipcRenderer.removeAllListeners('overlay-style-change');
-  47 |     ipcRenderer.removeAllListeners('hotkey-pressed');
-  48 |     ipcRenderer.removeAllListeners('overlay-ready');
-  49 |   },
-  50 | };
-  51 | 
-  52 | contextBridge.exposeInMainWorld('electronAPI', api);
+   3 | contextBridge.exposeInMainWorld('api', {
+   4 |   overlay: {
+   5 |     show: () => ipcRenderer.invoke('overlay-show'),
+   6 |     hide: () => ipcRenderer.invoke('overlay-hide'),
+   7 |     updateSettings: (s) => ipcRenderer.invoke('overlay-settings-update', s),
+   8 |     onReady: (cb) => ipcRenderer.on('overlay-ready', (_, v) => cb(v)),
+   9 |     onSettings: (cb) => ipcRenderer.on('overlay-settings', (_, s) => cb(s)),
+  10 |     measure: (w, h) => ipcRenderer.invoke('overlay-measure', { width: w, height: h })
+  11 |   },
+  12 |   timer: {
+  13 |     get: () => ipcRenderer.invoke('timer-data-get'),
+  14 |     set: (data) => ipcRenderer.invoke('timer-data-set', data),
+  15 |     onSync: (cb) => ipcRenderer.on('timer-data-sync', (_, d) => cb(d))
+  16 |   },
+  17 |   hotkeys: {
+  18 |     get: () => ipcRenderer.invoke('hotkeys-get'),
+  19 |     set: (hk) => ipcRenderer.invoke('hotkeys-set', hk),
+  20 |     capture: (type) => ipcRenderer.invoke('hotkeys-capture', type),
+  21 |     onCaptured: (cb) => ipcRenderer.on('hotkeys-captured', (_, p) => cb(p)),
+  22 |     on: (cb) => ipcRenderer.on('global-hotkey', (_, payload) => cb(payload)),
+  23 |     onMode: (cb) => ipcRenderer.on('hotkeys-mode', (_, mode) => cb(mode))
+  24 |   }
+  25 | });
 
 ```
 
@@ -555,19 +600,18 @@ dbdoverlaytools-free
 
 ```html
    1 | <!doctype html>
-   2 | <html lang="en">
+   2 | <html>
    3 |   <head>
    4 |     <meta charset="UTF-8" />
-   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; connect-src 'self' http://localhost:* ws://localhost:*;" />
-   6 |     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-   7 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-   8 |     <title>DBD Timer Overlay - Control Panel</title>
-   9 |   </head>
-  10 |   <body>
-  11 |     <div id="root"></div>
-  12 |     <script type="module" src="/src/main.tsx"></script>
-  13 |   </body>
-  14 | </html>
+   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'inline-speculation-rules'">
+   6 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+   7 |     <title>DBD Timer - Control Panel</title>
+   8 |   </head>
+   9 |   <body class="bg-zinc-950 text-zinc-100">
+  10 |     <div id="root"></div>
+  11 |     <script type="module" src="/src/main.tsx"></script>
+  12 |   </body>
+  13 | </html>
 
 ```
 
@@ -575,28 +619,18 @@ dbdoverlaytools-free
 
 ```html
    1 | <!doctype html>
-   2 | <html lang="en">
+   2 | <html>
    3 |   <head>
    4 |     <meta charset="UTF-8" />
-   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; connect-src 'self' http://localhost:* ws://localhost:*;" />
-   6 |     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-   7 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-   8 |     <title>DBD Timer Overlay</title>
-   9 |     <style>
-  10 |       body {
-  11 |         margin: 0;
-  12 |         padding: 0;
-  13 |         background: transparent;
-  14 |         overflow: hidden;
-  15 |         user-select: none;
-  16 |       }
-  17 |     </style>
-  18 |   </head>
-  19 |   <body>
-  20 |     <div id="overlay-root"></div>
-  21 |     <script type="module" src="/src/overlay.tsx"></script>
-  22 |   </body>
-  23 | </html>
+   5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'inline-speculation-rules'">
+   6 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+   7 |     <title>DBD Timer - Overlay</title>
+   8 |   </head>
+   9 |   <body class="bg-transparent">
+  10 |     <div id="root"></div>
+  11 |     <script type="module" src="/src/overlay.tsx"></script>
+  12 |   </body>
+  13 | </html>
 
 ```
 
@@ -604,108 +638,56 @@ dbdoverlaytools-free
 
 ```json
    1 | {
-   2 |   "name": "dbd-timer-overlay",
+   2 |   "name": "dbdoverlaytools-free",
    3 |   "version": "1.0.0",
-   4 |   "description": "Dead by Daylight 1v1 Timer Overlay - Lightweight and performant desktop application",
-   5 |   "main": "electron/main.cjs",
-   6 |   "type": "module",
-   7 |   "scripts": {
-   8 |     "dev": "vite",
-   9 |     "build": "vite build",
-  10 |     "electron:dev": "node scripts/start.js",
-  11 |     "electron:build": "npm run build && electron-builder",
-  12 |     "clean": "rimraf dist dist-electron release"
-  13 |   },
-  14 |   "keywords": [
-  15 |     "electron",
-  16 |     "react",
-  17 |     "typescript",
-  18 |     "dead-by-daylight",
-  19 |     "overlay",
-  20 |     "timer"
-  21 |   ],
-  22 |   "author": "Doc & Steaxs",
-  23 |   "license": "MIT",
-  24 |   "devDependencies": {
-  25 |     "@types/node": "^20.10.0",
-  26 |     "@types/react": "^18.2.43",
-  27 |     "@types/react-dom": "^18.2.17",
-  28 |     "@vitejs/plugin-react": "^4.2.1",
-  29 |     "autoprefixer": "^10.4.16",
+   4 |   "private": true,
+   5 |   "description": "DBD 1v1 Timer Overlay (Free)",
+   6 |   "main": "electron/main.mjs",
+   7 |   "author": "",
+   8 |   "license": "MIT",
+   9 |   "type": "commonjs",
+  10 |   "scripts": {
+  11 |     "dev": "concurrently -k -n VITE,ELECTRON \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+  12 |     "electron:dev": "npm run dev",
+  13 |     "build": "vite build && electron-builder",
+  14 |     "typecheck": "tsc --noEmit"
+  15 |   },
+  16 |   "dependencies": {
+  17 |     "electron-store": "^9.0.0",
+  18 |     "react": "^18.3.1",
+  19 |     "react-dom": "^18.3.1",
+  20 |     "uiohook-napi": "^1.5.4",
+  21 |     "zustand": "^4.5.2"
+  22 |   },
+  23 |   "devDependencies": {
+  24 |     "@types/node": "^20.12.12",
+  25 |     "@types/react": "^18.3.3",
+  26 |     "@types/react-dom": "^18.3.0",
+  27 |     "@vitejs/plugin-react": "^4.3.1",
+  28 |     "autoprefixer": "^10.4.19",
+  29 |     "concurrently": "^9.0.1",
   30 |     "cross-env": "^7.0.3",
-  31 |     "electron": "^28.1.0",
-  32 |     "electron-builder": "^24.9.1",
-  33 |     "postcss": "^8.4.32",
-  34 |     "rimraf": "^5.0.5",
-  35 |     "tailwindcss": "^3.3.6",
-  36 |     "typescript": "^5.2.2",
-  37 |     "vite": "^5.0.8",
-  38 |     "vite-plugin-electron": "^0.28.1",
-  39 |     "vite-plugin-electron-renderer": "^0.14.5"
-  40 |   },
-  41 |   "dependencies": {
-  42 |     "electron-store": "^8.2.0",
-  43 |     "react": "^18.2.0",
-  44 |     "react-dom": "^18.2.0",
-  45 |     "zustand": "^4.4.7"
-  46 |   },
-  47 |   "build": {
-  48 |     "appId": "com.dbdtools.timer-overlay",
-  49 |     "productName": "DBD Timer Overlay",
-  50 |     "directories": {
-  51 |       "output": "release"
-  52 |     },
-  53 |     "files": [
-  54 |       "dist/**/*",
-  55 |       "dist-electron/**/*",
-  56 |       "node_modules/**/*",
-  57 |       "package.json"
-  58 |     ],
-  59 |     "mac": {
-  60 |       "target": [
-  61 |         {
-  62 |           "target": "dmg",
-  63 |           "arch": [
-  64 |             "arm64",
-  65 |             "x64"
-  66 |           ]
-  67 |         }
-  68 |       ]
-  69 |     },
-  70 |     "win": {
-  71 |       "target": [
-  72 |         {
-  73 |           "target": "nsis",
-  74 |           "arch": [
-  75 |             "x64"
-  76 |           ]
-  77 |         }
-  78 |       ]
-  79 |     },
-  80 |     "linux": {
-  81 |       "target": [
-  82 |         {
-  83 |           "target": "AppImage",
-  84 |           "arch": [
-  85 |             "x64"
-  86 |           ]
-  87 |         }
-  88 |       ]
-  89 |     }
-  90 |   }
-  91 | }
+  31 |     "electron": "^30.0.9",
+  32 |     "electron-builder": "^24.13.3",
+  33 |     "postcss": "^8.4.38",
+  34 |     "tailwindcss": "^3.4.7",
+  35 |     "typescript": "^5.5.4",
+  36 |     "vite": "^5.4.19",
+  37 |     "wait-on": "^7.2.0"
+  38 |   }
+  39 | }
 
 ```
 
-`dbdoverlaytools-free/postcss.config.js`:
+`dbdoverlaytools-free/postcss.config.cjs`:
 
-```js
-   1 | export default {
+```cjs
+   1 | module.exports = {
    2 |   plugins: {
    3 |     tailwindcss: {},
    4 |     autoprefixer: {},
    5 |   },
-   6 | }
+   6 | };
 
 ```
 
@@ -723,88 +705,78 @@ dbdoverlaytools-free
    9 | 
   10 | console.log('🚀 Starting DBD Timer Overlay...\n');
   11 | 
-  12 | function waitForServer(port, timeout = 30000) {
+  12 | async function waitForServer(port, timeout = 30000) {
   13 |   return new Promise((resolve, reject) => {
   14 |     const startTime = Date.now();
-  15 |     
-  16 |     const checkServer = () => {
-  17 |       const socket = new net.Socket();
-  18 |       
-  19 |       socket.setTimeout(1000);
-  20 |       socket.on('connect', () => {
-  21 |         socket.destroy();
-  22 |         console.log(`✅ Server ready on port ${port}`);
-  23 |         resolve(true);
-  24 |       });
-  25 |       
-  26 |       socket.on('timeout', () => {
-  27 |         socket.destroy();
-  28 |         checkAgain();
-  29 |       });
-  30 |       
-  31 |       socket.on('error', () => {
-  32 |         checkAgain();
-  33 |       });
-  34 |       
-  35 |       const checkAgain = () => {
-  36 |         if (Date.now() - startTime > timeout) {
-  37 |           reject(new Error(`Timeout waiting for server on port ${port}`));
-  38 |           return;
-  39 |         }
-  40 |         setTimeout(checkServer, 500);
-  41 |       };
-  42 |       
-  43 |       socket.connect(port, 'localhost');
-  44 |     };
-  45 |     
-  46 |     checkServer();
-  47 |   });
-  48 | }
-  49 | 
-  50 | async function startApp() {
-  51 |   try {
-  52 |     console.log('📦 Starting Vite dev server...');
-  53 |     const viteProcess = spawn('npx', ['vite', '--port', '5173'], {
-  54 |       stdio: 'pipe',
-  55 |       shell: true
-  56 |     });
-  57 |     
-  58 |     viteProcess.stdout.on('data', (data) => {
-  59 |       process.stdout.write(`[VITE] ${data}`);
+  15 |     let attempts = 0;
+  16 |     
+  17 |     const checkServer = () => {
+  18 |       attempts++;
+  19 |       
+  20 |       // Vérifier avec fetch au lieu de socket
+  21 |       fetch(`http://localhost:${port}`)
+  22 |         .then(() => {
+  23 |           console.log(`✅ Server ready on port ${port} after ${attempts} attempts`);
+  24 |           resolve(true);
+  25 |         })
+  26 |         .catch(() => {
+  27 |           if (Date.now() - startTime > timeout) {
+  28 |             reject(new Error(`Timeout waiting for server on port ${port}`));
+  29 |             return;
+  30 |           }
+  31 |           setTimeout(checkServer, 1000);
+  32 |         });
+  33 |     };
+  34 |     
+  35 |     // Attendre un peu avant la première vérification
+  36 |     setTimeout(checkServer, 2000);
+  37 |   });
+  38 | }
+  39 | 
+  40 | async function startApp() {
+  41 |   try {
+  42 |     console.log('📦 Starting Vite dev server...');
+  43 |     const viteProcess = spawn('npx', ['vite', '--port', '5173'], {
+  44 |       stdio: 'pipe',
+  45 |       shell: true
+  46 |     });
+  47 |     
+  48 |     viteProcess.stdout.on('data', (data) => {
+  49 |       process.stdout.write(`[VITE] ${data}`);
+  50 |     });
+  51 |     
+  52 |     await waitForServer(5173);
+  53 |     await new Promise(resolve => setTimeout(resolve, 1000));
+  54 |     
+  55 |     console.log('⚡ Starting Electron...');
+  56 |     const electronProcess = spawn('npx', ['cross-env', 'NODE_ENV=development', 'electron', '.'], {
+  57 |       stdio: 'inherit',
+  58 |       shell: true,
+  59 |       cwd: path.join(__dirname, '..')
   60 |     });
   61 |     
-  62 |     await waitForServer(5173);
-  63 |     await new Promise(resolve => setTimeout(resolve, 1000));
-  64 |     
-  65 |     console.log('⚡ Starting Electron...');
-  66 |     const electronProcess = spawn('npx', ['cross-env', 'NODE_ENV=development', 'electron', '.'], {
-  67 |       stdio: 'inherit',
-  68 |       shell: true,
-  69 |       cwd: path.join(__dirname, '..')
-  70 |     });
-  71 |     
-  72 |     process.on('SIGINT', () => {
-  73 |       console.log('\n🛑 Shutting down...');
-  74 |       viteProcess.kill('SIGTERM');
-  75 |       electronProcess.kill('SIGTERM');
-  76 |       setTimeout(() => process.exit(0), 1000);
-  77 |     });
-  78 |     
-  79 |     electronProcess.on('close', (code) => {
-  80 |       console.log(`\n📱 Electron exited with code ${code}`);
-  81 |       viteProcess.kill('SIGTERM');
-  82 |       process.exit(code);
-  83 |     });
-  84 |     
-  85 |     console.log('🎉 Application started successfully!');
-  86 |     
-  87 |   } catch (error) {
-  88 |     console.error('❌ Error starting application:', error.message);
-  89 |     process.exit(1);
-  90 |   }
-  91 | }
-  92 | 
-  93 | startApp();
+  62 |     process.on('SIGINT', () => {
+  63 |       console.log('\n🛑 Shutting down...');
+  64 |       viteProcess.kill('SIGTERM');
+  65 |       electronProcess.kill('SIGTERM');
+  66 |       setTimeout(() => process.exit(0), 1000);
+  67 |     });
+  68 |     
+  69 |     electronProcess.on('close', (code) => {
+  70 |       console.log(`\n📱 Electron exited with code ${code}`);
+  71 |       viteProcess.kill('SIGTERM');
+  72 |       process.exit(code);
+  73 |     });
+  74 |     
+  75 |     console.log('🎉 Application started successfully!');
+  76 |     
+  77 |   } catch (error) {
+  78 |     console.error('❌ Error starting application:', error.message);
+  79 |     process.exit(1);
+  80 |   }
+  81 | }
+  82 | 
+  83 | startApp();
 
 ```
 
@@ -815,2029 +787,1027 @@ dbdoverlaytools-free
    2 | import { useTimerStore } from './store/timerStore';
    3 | import ControlPanel from './components/ControlPanel';
    4 | import useGlobalHotkeys from './hooks/useGlobalHotkeys';
-   5 | import type { TimerData } from './types';
-   6 | 
-   7 | declare global {
-   8 |   interface Window {
-   9 |     electronAPI?: {
-  10 |       store: {
-  11 |         get: (key: string) => Promise<any>;
-  12 |         set: (key: string, value: any) => Promise<void>;
-  13 |       };
-  14 |       overlay: {
-  15 |         show: () => Promise<{ success: boolean; error?: string }>;
-  16 |         hide: () => Promise<{ success: boolean; error?: string }>;
-  17 |         updateSettings: (settings: any) => Promise<void>;
-  18 |         styleChange: (style: any) => Promise<void>;
-  19 |         onDataSync: (callback: (data: TimerData) => void) => () => void;
-  20 |         onStyleChange: (callback: (style: any) => void) => () => void;
-  21 |         onReady: (callback: (isReady: boolean) => void) => () => void;
-  22 |       };
-  23 |       timer: {
-  24 |         syncData: (data: TimerData) => Promise<void>;
-  25 |       };
-  26 |       hotkeys: {
-  27 |         register: (hotkeys: { start: string; swap: string }) => Promise<void>;
-  28 |         onPressed: (callback: (action: string) => void) => () => void;
-  29 |       };
-  30 |       removeAllListeners: () => void;
-  31 |     };
-  32 |   }
-  33 | }
+   5 | 
+   6 | const App: React.FC = () => {
+   7 |   const { loadFromStorage } = useTimerStore();
+   8 |   const [isInitialized, setIsInitialized] = useState(false);
+   9 | 
+  10 |   useGlobalHotkeys();
+  11 | 
+  12 |   useEffect(() => {
+  13 |     const initializeApp = async () => {
+  14 |       try {
+  15 |         await loadFromStorage();
+  16 |         setIsInitialized(true);
+  17 |         console.log('App initialized successfully');
+  18 |       } catch (error) {
+  19 |         console.error('Failed to initialize app:', error);
+  20 |         setIsInitialized(true);
+  21 |       }
+  22 |     };
+  23 | 
+  24 |     initializeApp();
+  25 |   }, [loadFromStorage]);
+  26 | 
+  27 |   if (!isInitialized) {
+  28 |     return (
+  29 |       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+  30 |         <div className="text-white text-lg">Loading...</div>
+  31 |       </div>
+  32 |     );
+  33 |   }
   34 | 
-  35 | const App: React.FC = () => {
-  36 |   const { loadFromStorage, timerData } = useTimerStore();
-  37 |   const [isInitialized, setIsInitialized] = useState(false);
-  38 | 
-  39 |   useGlobalHotkeys();
-  40 | 
-  41 |   useEffect(() => {
-  42 |     const initializeApp = async () => {
-  43 |       try {
-  44 |         await loadFromStorage();
-  45 |         setIsInitialized(true);
-  46 |         console.log('App initialized with data:', timerData);
-  47 |       } catch (error) {
-  48 |         console.error('Failed to initialize app:', error);
-  49 |         setIsInitialized(true);
-  50 |       }
-  51 |     };
-  52 | 
-  53 |     initializeApp();
-  54 |   }, [loadFromStorage]);
-  55 | 
-  56 |   if (!isInitialized) {
-  57 |     return (
-  58 |       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-  59 |         <div className="text-white text-lg">Loading...</div>
-  60 |       </div>
-  61 |     );
-  62 |   }
-  63 | 
-  64 |   return (
-  65 |     <div className="min-h-screen bg-gray-900 text-white">
-  66 |       <div className="container mx-auto p-6">
-  67 |         <header className="text-center mb-8">
-  68 |           <h1 className="text-4xl font-bold text-primary-400 mb-2">
-  69 |             DBD Timer Overlay
-  70 |           </h1>
-  71 |           <p className="text-gray-400">
-  72 |             Professional timer overlay for Dead by Daylight 1v1 matches
-  73 |           </p>
-  74 |         </header>
-  75 | 
-  76 |         <main>
-  77 |           <ControlPanel />
-  78 |         </main>
-  79 | 
-  80 |         <footer className="text-center mt-8 text-gray-500 text-sm">
-  81 |           <p>Press your configured hotkeys to control timers globally</p>
-  82 |         </footer>
-  83 |       </div>
-  84 |     </div>
-  85 |   );
-  86 | };
-  87 | 
-  88 | export default App;
+  35 |   return (
+  36 |     <div className="min-h-screen bg-gray-900 text-white">
+  37 |       <div className="container mx-auto p-6">
+  38 |         <header className="text-center mb-8">
+  39 |           <h1 className="text-4xl font-bold text-primary-400 mb-2">
+  40 |             DBD Timer Overlay
+  41 |           </h1>
+  42 |           <p className="text-gray-400">
+  43 |             Professional timer overlay for Dead by Daylight 1v1 matches
+  44 |           </p>
+  45 |         </header>
+  46 | 
+  47 |         <main>
+  48 |           <ControlPanel />
+  49 |         </main>
+  50 | 
+  51 |         <footer className="text-center mt-8 text-gray-500 text-sm">
+  52 |           <p>Press your configured hotkeys to control timers globally</p>
+  53 |         </footer>
+  54 |       </div>
+  55 |     </div>
+  56 |   );
+  57 | };
+  58 | 
+  59 | export default App;
 
 ```
 
 `dbdoverlaytools-free/src\components\ControlPanel.tsx`:
 
 ```tsx
-   1 | import React, { useEffect } from 'react';
-   2 | import { useTimerStore } from '../store/timerStore';
-   3 | import useTimer from '../hooks/useTimer';
-   4 | import TimerControls from './TimerControls';
-   5 | import PlayerSettings from './PlayerSettings';
-   6 | import OverlaySettings from './OverlaySettings';
-   7 | import HotkeySettings from './HotkeySettings';
-   8 | 
-   9 | const ControlPanel: React.FC = () => {
-  10 |   const {
-  11 |     timerData,
-  12 |     overlaySettings,
-  13 |     isOverlayVisible,
-  14 |     setOverlayVisible,
-  15 |     saveToStorage,
-  16 |   } = useTimerStore();
-  17 | 
-  18 |   const { formattedTime1, formattedTime2, isRunning } = useTimer();
-  19 | 
-  20 |   useEffect(() => {
-  21 |     if (!window.electronAPI) return;
-  22 | 
-  23 |     const unsubscribeOverlayReady = window.electronAPI.overlay.onReady((isReady: boolean) => {
-  24 |       setOverlayVisible(isReady);
-  25 |     });
+   1 | import React, { useEffect, useState } from 'react';
+   2 | 
+   3 | type HKGet = { start:number|null, swap:number|null, startLabel?:string, swapLabel?:string, mode?:'pass-through'|'fallback' }
+   4 | type HKSet = { start?:number|null, swap?:number|null }
+   5 | 
+   6 | const ControlPanel: React.FC = () => {
+   7 |   const [overlayOn, setOverlayOn]     = useState(false);
+   8 |   const [locked, setLocked]           = useState(true);
+   9 |   const [scale, setScale]             = useState(100);
+  10 |   const [players, setPlayers]         = useState({ player1:{name:'PLAYER 1',score:0}, player2:{name:'PLAYER 2',score:0} });
+  11 |   const [hkCodes, setHkCodes]         = useState<{start:number|null, swap:number|null}>({ start: null, swap: null });
+  12 |   const [hkLabels, setHkLabels]       = useState<{start:string, swap:string}>({ start: 'F1', swap: 'F2' });
+  13 |   const [capturing, setCapturing]     = useState<null|'start'|'swap'>(null);
+  14 |   const [mode, setMode]               = useState<'pass-through'|'fallback'>('fallback');
+  15 | 
+  16 |   useEffect(() => {
+  17 |     window.api.timer.get().then(setPlayers);
+  18 |     window.api.hotkeys.get().then((h:HKGet) => {
+  19 |       setHkCodes({ start: h.start ?? null, swap: h.swap ?? null });
+  20 |       setHkLabels({ start: h.startLabel || 'F1', swap: h.swapLabel || 'F2' });
+  21 |       if (h.mode) setMode(h.mode);
+  22 |     });
+  23 |     window.api.overlay.onReady((v:boolean)=>setOverlayOn(v));
+  24 |     window.api.overlay.onSettings((s:any)=>{ setLocked(!!s.locked); setScale(s.scale||100); });
+  25 |     window.api.timer.onSync((d:any)=>setPlayers(d));
   26 | 
-  27 |     return () => {
-  28 |       unsubscribeOverlayReady();
-  29 |     };
-  30 |   }, [setOverlayVisible]);
-  31 | 
-  32 |   const handleToggleOverlay = async () => {
-  33 |     if (!window.electronAPI) return;
+  27 |     window.api.hotkeys.onCaptured((p:{type:'start'|'swap', keycode?:number|null, label?:string})=>{
+  28 |       if (p.label) setHkLabels(prev => ({ ...prev, [p.type]: p.label! }));
+  29 |       if (p.keycode != null) setHkCodes(prev => ({ ...prev, [p.type]: p.keycode! }));
+  30 |       setCapturing(null);
+  31 |     })
+  32 |     window.api.hotkeys.onMode((m:'pass-through'|'fallback') => setMode(m))
+  33 |   }, []);
   34 | 
-  35 |     try {
-  36 |       if (isOverlayVisible) {
-  37 |         await window.electronAPI.overlay.hide();
-  38 |         setOverlayVisible(false);
-  39 |       } else {
-  40 |         await window.electronAPI.overlay.show();
-  41 |         setOverlayVisible(true);
-  42 |       }
-  43 |       saveToStorage();
-  44 |     } catch (error) {
-  45 |       console.error('Failed to toggle overlay:', error);
-  46 |     }
-  47 |   };
-  48 | 
-  49 |   return (
-  50 |     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  51 |       <div className="space-y-6">
-  52 |         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-  53 |           <h2 className="text-xl font-semibold text-primary-400 mb-4">
-  54 |             Timer Control
-  55 |           </h2>
-  56 |           
-  57 |           <div className="mb-6">
-  58 |             <div className="grid grid-cols-2 gap-4 mb-4">
-  59 |               <div className="text-center">
-  60 |                 <div className="text-sm text-gray-400 mb-1">
-  61 |                   {timerData.player1Name}
-  62 |                 </div>
-  63 |                 <div className={`text-2xl font-mono font-bold ${
-  64 |                   timerData.currentTimer === 1 && isRunning 
-  65 |                     ? 'text-primary-400 timer-glow' 
-  66 |                     : 'text-white'
-  67 |                 }`}>
-  68 |                   {formattedTime1}
-  69 |                 </div>
-  70 |               </div>
-  71 |               
-  72 |               <div className="text-center">
-  73 |                 <div className="text-sm text-gray-400 mb-1">
-  74 |                   {timerData.player2Name}
-  75 |                 </div>
-  76 |                 <div className={`text-2xl font-mono font-bold ${
-  77 |                   timerData.currentTimer === 2 && isRunning 
-  78 |                     ? 'text-primary-400 timer-glow' 
-  79 |                     : 'text-white'
-  80 |                 }`}>
-  81 |                   {formattedTime2}
-  82 |                 </div>
-  83 |               </div>
-  84 |             </div>
-  85 |             
-  86 |             <div className="text-center text-lg font-semibold">
-  87 |               Score: {timerData.player1Score} - {timerData.player2Score}
-  88 |             </div>
-  89 |           </div>
-  90 |           
-  91 |           <TimerControls />
-  92 |         </div>
-  93 | 
-  94 |         <PlayerSettings />
-  95 |       </div>
+  35 |   const savePlayers = (next:any) => {
+  36 |     setPlayers(next);
+  37 |     window.api.timer.set(next);
+  38 |   };
+  39 | 
+  40 |   const toggleOverlay = async () => {
+  41 |     if (overlayOn) {
+  42 |       await window.api.overlay.hide();
+  43 |       setOverlayOn(false);
+  44 |     } else {
+  45 |       await window.api.overlay.show();
+  46 |       setOverlayOn(true);
+  47 |     }
+  48 |   };
+  49 | 
+  50 |   const saveHotkeys = async () => {
+  51 |     const payload: HKSet = { start: hkCodes.start ?? null, swap: hkCodes.swap ?? null }
+  52 |     await window.api.hotkeys.set(payload)
+  53 |   }
+  54 | 
+  55 |   return (
+  56 |     <div className="p-6 max-w-xl mx-auto font-ui">
+  57 |       <h1 className="text-2xl font-semibold mb-1">DBD 1v1 Timer — Control Panel</h1>
+  58 |       <div className={`text-sm mb-4 ${mode==='pass-through' ? 'text-emerald-400' : 'text-amber-400'}`}>
+  59 |         Hotkeys mode: <b>{mode==='pass-through' ? 'Pass-through (uiohook)' : 'Fallback (intercept)'}</b>
+  60 |       </div>
+  61 | 
+  62 |       <div className="grid grid-cols-2 gap-6">
+  63 |         <div className="space-y-3">
+  64 |           <label className="block text-sm text-zinc-400">Player 1 name</label>
+  65 |           <input className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
+  66 |             value={players.player1.name}
+  67 |             onChange={e=>savePlayers({...players, player1:{...players.player1, name:e.target.value}})} />
+  68 |           <label className="block text-sm text-zinc-400">Score</label>
+  69 |           <div className="flex items-center gap-2">
+  70 |             <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>savePlayers({...players, player1:{...players.player1, score:Math.max(0, players.player1.score-1)}})}>-</button>
+  71 |             <div className="min-w-10 text-center">{players.player1.score}</div>
+  72 |             <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>savePlayers({...players, player1:{...players.player1, score:players.player1.score+1}})}>+</button>
+  73 |           </div>
+  74 |         </div>
+  75 | 
+  76 |         <div className="space-y-3">
+  77 |           <label className="block text-sm text-zinc-400">Player 2 name</label>
+  78 |           <input className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
+  79 |             value={players.player2.name}
+  80 |             onChange={e=>savePlayers({...players, player2:{...players.player2, name:e.target.value}})} />
+  81 |           <label className="block text-sm text-zinc-400">Score</label>
+  82 |           <div className="flex items-center gap-2">
+  83 |             <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>savePlayers({...players, player2:{...players.player2, score:Math.max(0, players.player2.score-1)}})}>-</button>
+  84 |             <div className="min-w-10 text-center">{players.player2.score}</div>
+  85 |             <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>savePlayers({...players, player2:{...players.player2, score:players.player2.score+1}})}>+</button>
+  86 |           </div>
+  87 |         </div>
+  88 |       </div>
+  89 | 
+  90 |       <div className="mt-6 flex items-center gap-3">
+  91 |         {overlayOn ? (
+  92 |           <button className="px-3 py-2 rounded bg-red-700 hover:bg-red-600" onClick={toggleOverlay}>Hide Overlay</button>
+  93 |         ) : (
+  94 |           <button className="px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600" onClick={toggleOverlay}>Show Overlay</button>
+  95 |         )}
   96 | 
-  97 |       <div className="space-y-6">
-  98 |         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-  99 |           <h2 className="text-xl font-semibold text-primary-400 mb-4">
- 100 |             Overlay Control
- 101 |           </h2>
- 102 |           
- 103 |           <div className="space-y-4">
- 104 |             <button
- 105 |               onClick={handleToggleOverlay}
- 106 |               className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${
- 107 |                 isOverlayVisible
- 108 |                   ? 'bg-success-600 hover:bg-success-700 text-white'
- 109 |                   : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
- 110 |               }`}
- 111 |             >
- 112 |               {isOverlayVisible ? 'Hide Overlay' : 'Show Overlay'}
- 113 |             </button>
- 114 |             
- 115 |             <div className="text-sm text-gray-400">
- 116 |               Status: {isOverlayVisible ? 'Visible' : 'Hidden'}
- 117 |             </div>
- 118 |           </div>
- 119 |         </div>
- 120 | 
- 121 |         <OverlaySettings />
- 122 |         <HotkeySettings />
- 123 |       </div>
- 124 |     </div>
- 125 |   );
- 126 | };
- 127 | 
- 128 | export default ControlPanel;
-
-```
-
-`dbdoverlaytools-free/src\components\HotkeySettings.tsx`:
-
-```tsx
-   1 | // src/components/HotkeySettings.tsx
-   2 | import React, { useState } from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | 
-   5 | const HotkeySettings: React.FC = () => {
-   6 |   const { timerData, updateHotkeys, saveToStorage } = useTimerStore();
-   7 |   
-   8 |   const [startKey, setStartKey] = useState(timerData.startHotkey);
-   9 |   const [swapKey, setSwapKey] = useState(timerData.swapHotkey);
-  10 |   const [isListening, setIsListening] = useState<'start' | 'swap' | null>(null);
-  11 | 
-  12 |   const handleKeyCapture = (type: 'start' | 'swap') => {
-  13 |     setIsListening(type);
-  14 |     
-  15 |     const handleKeyDown = (e: KeyboardEvent) => {
-  16 |       e.preventDefault();
-  17 |       e.stopPropagation();
-  18 |       
-  19 |       let key = '';
-  20 |       
-  21 |       if (e.code.startsWith('F') && /^F\d+$/.test(e.code)) {
-  22 |         key = e.code;
-  23 |       } else if (e.code.startsWith('Key')) {
-  24 |         key = e.code.slice(3);
-  25 |       } else if (e.code.startsWith('Digit')) {
-  26 |         key = e.code.slice(5);
-  27 |       } else {
-  28 |         key = e.code;
-  29 |       }
-  30 |       
-  31 |       if (type === 'start') {
-  32 |         setStartKey(key);
-  33 |       } else {
-  34 |         setSwapKey(key);
-  35 |       }
-  36 |       
-  37 |       setIsListening(null);
-  38 |       document.removeEventListener('keydown', handleKeyDown);
-  39 |     };
-  40 |     
-  41 |     document.addEventListener('keydown', handleKeyDown);
-  42 |     
-  43 |     setTimeout(() => {
-  44 |       if (isListening === type) {
-  45 |         setIsListening(null);
-  46 |         document.removeEventListener('keydown', handleKeyDown);
-  47 |       }
-  48 |     }, 5000);
-  49 |   };
-  50 | 
-  51 |   const handleSave = async () => {
-  52 |     const hotkeys = {
-  53 |       start: startKey,
-  54 |       swap: swapKey,
-  55 |     };
-  56 |     
-  57 |     updateHotkeys(hotkeys);
-  58 |     
-  59 |     if (window.electronAPI) {
-  60 |       await window.electronAPI.hotkeys.register(hotkeys);
-  61 |     }
-  62 |     
-  63 |     saveToStorage();
-  64 |   };
-  65 | 
-  66 |   const handleReset = () => {
-  67 |     setStartKey('F1');
-  68 |     setSwapKey('F2');
-  69 |   };
-  70 | 
-  71 |   return (
-  72 |     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-  73 |       <h2 className="text-xl font-semibold text-primary-400 mb-4">
-  74 |         Hotkey Settings
-  75 |       </h2>
-  76 |       
-  77 |       <div className="space-y-4">
-  78 |         <div>
-  79 |           <label className="block text-sm font-medium text-gray-300 mb-2">
-  80 |             Start/Pause Timer
-  81 |           </label>
-  82 |           <button
-  83 |             onClick={() => handleKeyCapture('start')}
-  84 |             className={`w-full py-2 px-4 rounded-md border text-left transition-colors ${
-  85 |               isListening === 'start'
-  86 |                 ? 'bg-primary-600 border-primary-500 text-white'
-  87 |                 : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
-  88 |             }`}
-  89 |           >
-  90 |             {isListening === 'start' ? 'Press any key...' : startKey}
-  91 |           </button>
-  92 |         </div>
-  93 | 
-  94 |         <div>
-  95 |           <label className="block text-sm font-medium text-gray-300 mb-2">
-  96 |             Swap Timer
-  97 |           </label>
-  98 |           <button
-  99 |             onClick={() => handleKeyCapture('swap')}
- 100 |             className={`w-full py-2 px-4 rounded-md border text-left transition-colors ${
- 101 |               isListening === 'swap'
- 102 |                 ? 'bg-primary-600 border-primary-500 text-white'
- 103 |                 : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
- 104 |             }`}
- 105 |           >
- 106 |             {isListening === 'swap' ? 'Press any key...' : swapKey}
- 107 |           </button>
- 108 |         </div>
- 109 | 
- 110 |         <div className="flex gap-3">
- 111 |           <button
- 112 |             onClick={handleSave}
- 113 |             disabled={isListening !== null}
- 114 |             className="flex-1 py-2 px-4 bg-success-600 hover:bg-success-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-md font-medium transition-colors"
- 115 |           >
- 116 |             Save Hotkeys
- 117 |           </button>
- 118 |           
- 119 |           <button
- 120 |             onClick={handleReset}
- 121 |             disabled={isListening !== null}
- 122 |             className="flex-1 py-2 px-4 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-gray-300 rounded-md font-medium transition-colors"
- 123 |           >
- 124 |             Reset
- 125 |           </button>
- 126 |         </div>
- 127 | 
- 128 |         <div className="text-xs text-gray-500">
- 129 |           Global hotkeys work even when the app is not focused. Current: Start ({timerData.startHotkey}), Swap ({timerData.swapHotkey})
- 130 |         </div>
- 131 |       </div>
- 132 |     </div>
- 133 |   );
- 134 | };
- 135 | 
- 136 | export default HotkeySettings;
+  97 |         <label className="inline-flex items-center gap-2">
+  98 |           <input type="checkbox" checked={locked} onChange={(e)=>{ setLocked(e.target.checked); window.api.overlay.updateSettings({locked:e.target.checked}) }} />
+  99 |           <span>Lock (click-through)</span>
+ 100 |         </label>
+ 101 | 
+ 102 |         <label className="inline-flex items-center gap-2">
+ 103 |           <span>Scale</span>
+ 104 |           <input type="range" min={50} max={200} value={scale} onChange={e=>{ const v=Number(e.target.value); setScale(v); window.api.overlay.updateSettings({scale:v}) }} />
+ 105 |         </label>
+ 106 | 
+ 107 |         <label className="inline-flex items-center gap-2">
+ 108 |           <input type="checkbox" defaultChecked onChange={(e)=>window.api.overlay.updateSettings({alwaysOnTop:e.target.checked})}/>
+ 109 |           <span>Always on top</span>
+ 110 |         </label>
+ 111 |       </div>
+ 112 | 
+ 113 |       <div className="mt-6 grid grid-cols-2 gap-4">
+ 114 |         <div className="bg-zinc-900 border border-zinc-800 rounded p-3">
+ 115 |           <div className="text-sm text-zinc-400 mb-2">Start/Pause key</div>
+ 116 |           <button
+ 117 |             className={`w-full px-3 py-2 rounded ${capturing==='start' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+ 118 |             onClick={() => { setCapturing('start'); window.api.hotkeys.capture('start') }}
+ 119 |           >
+ 120 |             {capturing==='start' ? 'Press a key…' : hkLabels.start}
+ 121 |           </button>
+ 122 |         </div>
+ 123 |         <div className="bg-zinc-900 border border-zinc-800 rounded p-3">
+ 124 |           <div className="text-sm text-zinc-400 mb-2">Swap key</div>
+ 125 |           <button
+ 126 |             className={`w-full px-3 py-2 rounded ${capturing==='swap' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+ 127 |             onClick={() => { setCapturing('swap'); window.api.hotkeys.capture('swap') }}
+ 128 |           >
+ 129 |             {capturing==='swap' ? 'Press a key…' : hkLabels.swap}
+ 130 |           </button>
+ 131 |         </div>
+ 132 |       </div>
+ 133 | 
+ 134 |       <div className="mt-3">
+ 135 |         <button
+ 136 |           className="px-4 py-2 rounded bg-violet-700 hover:bg-violet-600"
+ 137 |           onClick={saveHotkeys}
+ 138 |         >
+ 139 |           Save hotkeys
+ 140 |         </button>
+ 141 |         <span className="ml-3 text-sm text-zinc-500">
+ 142 |           {mode==='pass-through' ? 'Pass-through activé (uiohook).' : 'Fallback intercept (globalShortcut).'}
+ 143 |         </span>
+ 144 |       </div>
+ 145 |     </div>
+ 146 |   )
+ 147 | }
+ 148 | 
+ 149 | export default ControlPanel
 
 ```
 
 `dbdoverlaytools-free/src\components\OverlayApp.tsx`:
 
 ```tsx
-   1 | // src/components/OverlayApp.tsx
-   2 | import React, { useEffect, useState } from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | import TimerOverlay from './overlay/TimerOverlay';
-   5 | import DragHandle from './overlay/DragHandle';
-   6 | import type { TimerData, TimerStyle } from '../types';
-   7 | 
-   8 | const OverlayApp: React.FC = () => {
-   9 |   const { timerData, overlaySettings } = useTimerStore();
-  10 |   const [localTimerData, setLocalTimerData] = useState<TimerData>(timerData);
-  11 |   const [currentStyle, setCurrentStyle] = useState<TimerStyle>(timerData.style);
+   1 | import React, { useEffect, useRef, useState } from 'react';
+   2 | import { useTimerStore } from '@/store/timerStore';
+   3 | import TimerOverlay from '@/components/overlay/TimerOverlay';
+   4 | import { PreciseTimer } from '@/utils/timer';
+   5 | import type { TimerData } from '@/types';
+   6 | 
+   7 | const OverlayApp: React.FC = () => {
+   8 |   const { loadFromStorage, timerData } = useTimerStore();
+   9 | 
+  10 |   const [isInitialized, setIsInitialized] = useState(false);
+  11 |   const [localTimerData, setLocalTimerData] = useState<TimerData>(timerData);
   12 | 
-  13 |   useEffect(() => {
-  14 |     if (!window.electronAPI) return;
-  15 | 
-  16 |     const handleTimerUpdate = (data: any) => {
-  17 |       setLocalTimerData(prev => ({ ...prev, ...data }));
-  18 |     };
-  19 | 
-  20 |     const handleDataSync = (data: TimerData) => {
-  21 |       setLocalTimerData(data);
-  22 |     };
-  23 | 
-  24 |     const handleStyleChange = (style: TimerStyle) => {
-  25 |       setCurrentStyle(style);
-  26 |     };
-  27 | 
-  28 |     window.electronAPI.overlay.onTimerUpdate(handleTimerUpdate);
-  29 |     window.electronAPI.overlay.onDataSync(handleDataSync);
-  30 |     window.electronAPI.overlay.onStyleChange(handleStyleChange);
-  31 | 
-  32 |     return () => {
-  33 |       window.electronAPI.removeAllListeners();
-  34 |     };
-  35 |   }, []);
-  36 | 
-  37 |   const containerStyle: React.CSSProperties = {
-  38 |     transform: `scale(${overlaySettings.scale / 100})`,
-  39 |     transformOrigin: 'top left',
-  40 |     position: 'fixed',
-  41 |     top: 0,
-  42 |     left: 0,
-  43 |     width: '100%',
-  44 |     height: '100%',
-  45 |     pointerEvents: overlaySettings.locked ? 'none' : 'auto',
-  46 |     userSelect: 'none',
-  47 |   };
-  48 | 
-  49 |   return (
-  50 |     <div style={containerStyle}>
-  51 |       {!overlaySettings.locked && <DragHandle />}
-  52 |       <TimerOverlay
-  53 |         timerData={localTimerData}
-  54 |         style={currentStyle}
-  55 |         isActive={localTimerData.isRunning}
-  56 |       />
-  57 |     </div>
-  58 |   );
-  59 | };
-  60 | 
-  61 | export default OverlayApp;
-
-```
-
-`dbdoverlaytools-free/src\components\OverlaySettings.tsx`:
-
-```tsx
-   1 | // src/components/OverlaySettings.tsx
-   2 | import React from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | import type { TimerStyle } from '../types';
-   5 | 
-   6 | const OverlaySettings: React.FC = () => {
-   7 |   const {
-   8 |     timerData,
-   9 |     overlaySettings,
-  10 |     updateStyle,
-  11 |     toggleOverlayLock,
-  12 |     updateOverlayScale,
-  13 |     saveToStorage,
-  14 |   } = useTimerStore();
-  15 | 
-  16 |   const styles: { value: TimerStyle; label: string }[] = [
-  17 |     { value: 'default', label: 'Default' },
-  18 |     { value: 'minimal', label: 'Minimal' },
-  19 |     { value: 'circular', label: 'Circular' },
-  20 |     { value: 'nostalgia', label: 'Nostalgia' },
-  21 |   ];
+  13 |   const timer1Ref = useRef<PreciseTimer | null>(null);
+  14 |   const timer2Ref = useRef<PreciseTimer | null>(null);
+  15 |   const syncingRef = useRef(false);
+  16 |   const lastStateRef = useRef({
+  17 |     timer1Running: false,
+  18 |     timer2Running: false,
+  19 |     timer1Value: 0,
+  20 |     timer2Value: 0
+  21 |   });
   22 | 
-  23 |   const handleStyleChange = (style: TimerStyle) => {
-  24 |     updateStyle(style);
-  25 |     if (window.electronAPI) {
-  26 |       window.electronAPI.overlay.styleChange(style);
-  27 |     }
-  28 |     saveToStorage();
-  29 |   };
+  23 |   useEffect(() => {
+  24 |     const run = async () => {
+  25 |       await loadFromStorage();
+  26 |       setIsInitialized(true);
+  27 |     };
+  28 |     run();
+  29 |   }, [loadFromStorage]);
   30 | 
-  31 |   const handleLockToggle = async () => {
-  32 |     const newLocked = !overlaySettings.locked;
-  33 |     toggleOverlayLock();
-  34 |     
-  35 |     if (window.electronAPI) {
-  36 |       await window.electronAPI.overlay.updateSettings({ locked: newLocked });
-  37 |     }
-  38 |     saveToStorage();
-  39 |   };
-  40 | 
-  41 |   const handleScaleChange = async (scale: number) => {
-  42 |     updateOverlayScale(scale);
-  43 |     
-  44 |     if (window.electronAPI) {
-  45 |       await window.electronAPI.overlay.updateSettings({ scale });
-  46 |     }
-  47 |     saveToStorage();
-  48 |   };
-  49 | 
-  50 |   return (
-  51 |     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-  52 |       <h2 className="text-xl font-semibold text-primary-400 mb-4">
-  53 |         Overlay Settings
-  54 |       </h2>
-  55 |       
-  56 |       <div className="space-y-4">
-  57 |         <div>
-  58 |           <label className="block text-sm font-medium text-gray-300 mb-2">
-  59 |             Style
-  60 |           </label>
-  61 |           <div className="grid grid-cols-2 gap-2">
-  62 |             {styles.map(({ value, label }) => (
-  63 |               <button
-  64 |                 key={value}
-  65 |                 onClick={() => handleStyleChange(value)}
-  66 |                 className={`py-2 px-3 rounded-md text-sm font-medium transition-colors ${
-  67 |                   timerData.style === value
-  68 |                     ? 'bg-primary-600 text-white'
-  69 |                     : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-  70 |                 }`}
-  71 |               >
-  72 |                 {label}
-  73 |               </button>
-  74 |             ))}
-  75 |           </div>
-  76 |         </div>
-  77 | 
-  78 |         <div>
-  79 |           <label className="block text-sm font-medium text-gray-300 mb-2">
-  80 |             Scale: {overlaySettings.scale}%
-  81 |           </label>
-  82 |           <input
-  83 |             type="range"
-  84 |             min="50"
-  85 |             max="200"
-  86 |             step="10"
-  87 |             value={overlaySettings.scale}
-  88 |             onChange={(e) => handleScaleChange(parseInt(e.target.value))}
-  89 |             className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-  90 |           />
-  91 |           <div className="flex justify-between text-xs text-gray-500 mt-1">
-  92 |             <span>50%</span>
-  93 |             <span>100%</span>
-  94 |             <span>200%</span>
-  95 |           </div>
-  96 |         </div>
-  97 | 
-  98 |         <div className="flex items-center justify-between">
-  99 |           <span className="text-sm font-medium text-gray-300">
- 100 |             Lock Position
- 101 |           </span>
- 102 |           <button
- 103 |             onClick={handleLockToggle}
- 104 |             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
- 105 |               overlaySettings.locked ? 'bg-primary-600' : 'bg-gray-700'
- 106 |             }`}
- 107 |           >
- 108 |             <span
- 109 |               className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
- 110 |                 overlaySettings.locked ? 'translate-x-6' : 'translate-x-1'
- 111 |               }`}
- 112 |             />
- 113 |           </button>
- 114 |         </div>
- 115 | 
- 116 |         <div className="text-xs text-gray-500">
- 117 |           {overlaySettings.locked 
- 118 |             ? 'Overlay position is locked and click-through is enabled'
- 119 |             : 'Overlay can be moved by dragging'}
- 120 |         </div>
- 121 | 
- 122 |         <div className="text-xs text-gray-500">
- 123 |           Position: X: {overlaySettings.x}, Y: {overlaySettings.y}
- 124 |         </div>
- 125 |       </div>
- 126 |     </div>
- 127 |   );
- 128 | };
- 129 | 
- 130 | export default OverlaySettings;
-
-```
-
-`dbdoverlaytools-free/src\components\PlayerSettings.tsx`:
-
-```tsx
-   1 | // src/components/PlayerSettings.tsx
-   2 | import React, { useState } from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | 
-   5 | const PlayerSettings: React.FC = () => {
-   6 |   const {
-   7 |     timerData,
-   8 |     updatePlayerName,
-   9 |     updatePlayerScore,
-  10 |     saveToStorage,
-  11 |   } = useTimerStore();
-  12 | 
-  13 |   const [player1Input, setPlayer1Input] = useState(timerData.player1Name);
-  14 |   const [player2Input, setPlayer2Input] = useState(timerData.player2Name);
-  15 | 
-  16 |   const handlePlayer1NameSubmit = (e: React.FormEvent) => {
-  17 |     e.preventDefault();
-  18 |     updatePlayerName(1, player1Input.trim() || 'PLAYER 1');
-  19 |     saveToStorage();
-  20 |   };
-  21 | 
-  22 |   const handlePlayer2NameSubmit = (e: React.FormEvent) => {
-  23 |     e.preventDefault();
-  24 |     updatePlayerName(2, player2Input.trim() || 'PLAYER 2');
-  25 |     saveToStorage();
-  26 |   };
-  27 | 
-  28 |   const handleScoreChange = (player: 1 | 2, delta: number) => {
-  29 |     updatePlayerScore(player, delta);
-  30 |     saveToStorage();
-  31 |   };
-  32 | 
-  33 |   return (
-  34 |     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-  35 |       <h2 className="text-xl font-semibold text-primary-400 mb-4">
-  36 |         Player Settings
-  37 |       </h2>
-  38 |       
-  39 |       <div className="space-y-6">
-  40 |         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-  41 |           <div>
-  42 |             <label className="block text-sm font-medium text-gray-300 mb-2">
-  43 |               Player 1 Name
-  44 |             </label>
-  45 |             <form onSubmit={handlePlayer1NameSubmit} className="space-y-2">
-  46 |               <input
-  47 |                 type="text"
-  48 |                 value={player1Input}
-  49 |                 onChange={(e) => setPlayer1Input(e.target.value)}
-  50 |                 maxLength={20}
-  51 |                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-  52 |                 placeholder="Enter player 1 name"
-  53 |               />
-  54 |               <button
-  55 |                 type="submit"
-  56 |                 className="w-full py-1 px-3 bg-primary-600 hover:bg-primary-700 text-white rounded-md text-sm font-medium transition-colors"
-  57 |               >
-  58 |                 Update
-  59 |               </button>
-  60 |             </form>
-  61 |             
-  62 |             <div className="mt-3">
-  63 |               <label className="block text-sm font-medium text-gray-300 mb-2">
-  64 |                 Score: {timerData.player1Score}
-  65 |               </label>
-  66 |               <div className="flex gap-2">
-  67 |                 <button
-  68 |                   onClick={() => handleScoreChange(1, -1)}
-  69 |                   className="flex-1 py-1 px-2 bg-danger-600 hover:bg-danger-700 text-white rounded text-sm font-medium transition-colors"
-  70 |                 >
-  71 |                   -1
-  72 |                 </button>
-  73 |                 <button
-  74 |                   onClick={() => handleScoreChange(1, 1)}
-  75 |                   className="flex-1 py-1 px-2 bg-success-600 hover:bg-success-700 text-white rounded text-sm font-medium transition-colors"
-  76 |                 >
-  77 |                   +1
-  78 |                 </button>
-  79 |               </div>
-  80 |             </div>
-  81 |           </div>
-  82 | 
-  83 |           <div>
-  84 |             <label className="block text-sm font-medium text-gray-300 mb-2">
-  85 |               Player 2 Name
-  86 |             </label>
-  87 |             <form onSubmit={handlePlayer2NameSubmit} className="space-y-2">
-  88 |               <input
-  89 |                 type="text"
-  90 |                 value={player2Input}
-  91 |                 onChange={(e) => setPlayer2Input(e.target.value)}
-  92 |                 maxLength={20}
-  93 |                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-  94 |                 placeholder="Enter player 2 name"
-  95 |               />
-  96 |               <button
-  97 |                 type="submit"
-  98 |                 className="w-full py-1 px-3 bg-primary-600 hover:bg-primary-700 text-white rounded-md text-sm font-medium transition-colors"
-  99 |               >
- 100 |                 Update
- 101 |               </button>
- 102 |             </form>
- 103 |             
- 104 |             <div className="mt-3">
- 105 |               <label className="block text-sm font-medium text-gray-300 mb-2">
- 106 |                 Score: {timerData.player2Score}
- 107 |               </label>
- 108 |               <div className="flex gap-2">
- 109 |                 <button
- 110 |                   onClick={() => handleScoreChange(2, -1)}
- 111 |                   className="flex-1 py-1 px-2 bg-danger-600 hover:bg-danger-700 text-white rounded text-sm font-medium transition-colors"
- 112 |                 >
- 113 |                   -1
- 114 |                 </button>
- 115 |                 <button
- 116 |                   onClick={() => handleScoreChange(2, 1)}
- 117 |                   className="flex-1 py-1 px-2 bg-success-600 hover:bg-success-700 text-white rounded text-sm font-medium transition-colors"
- 118 |                 >
- 119 |                   +1
- 120 |                 </button>
- 121 |               </div>
- 122 |             </div>
- 123 |           </div>
- 124 |         </div>
- 125 |       </div>
- 126 |     </div>
- 127 |   );
- 128 | };
- 129 | 
- 130 | export default PlayerSettings;
-
-```
-
-`dbdoverlaytools-free/src\components\TimerControls.tsx`:
-
-```tsx
-   1 | // src/components/TimerControls.tsx
-   2 | import React from 'react';
-   3 | import { useTimerStore } from '../store/timerStore';
-   4 | import useTimer from '../hooks/useTimer';
-   5 | 
-   6 | const TimerControls: React.FC = () => {
-   7 |   const {
-   8 |     timerData,
-   9 |     setCurrentTimer,
-  10 |     resetTimer,
-  11 |     resetAllTimers,
-  12 |     saveToStorage,
-  13 |   } = useTimerStore();
-  14 | 
-  15 |   const { isRunning, startTimer, pauseTimer, swapTimer } = useTimer();
-  16 | 
-  17 |   const handleStartPause = () => {
-  18 |     console.log('Start/Pause clicked. Current running state:', isRunning);
-  19 |     
-  20 |     if (isRunning) {
-  21 |       pauseTimer();
-  22 |     } else {
-  23 |       startTimer();
-  24 |     }
-  25 |     
-  26 |     // Sauvegarder après un délai pour laisser le temps aux états de se mettre à jour
-  27 |     setTimeout(() => {
-  28 |       saveToStorage();
-  29 |     }, 100);
-  30 |   };
-  31 | 
-  32 |   const handleSwap = () => {
-  33 |     console.log('Swap clicked. Current timer:', timerData.currentTimer);
-  34 |     swapTimer();
-  35 |     
-  36 |     setTimeout(() => {
-  37 |       saveToStorage();
-  38 |     }, 100);
-  39 |   };
-  40 | 
-  41 |   const handleResetCurrent = () => {
-  42 |     console.log('Reset current clicked. Current timer:', timerData.currentTimer);
-  43 |     resetTimer();
-  44 |     
-  45 |     setTimeout(() => {
-  46 |       saveToStorage();
-  47 |     }, 100);
-  48 |   };
-  49 | 
-  50 |   const handleResetAll = () => {
-  51 |     console.log('Reset all clicked');
-  52 |     resetAllTimers();
-  53 |     
-  54 |     setTimeout(() => {
-  55 |       saveToStorage();
-  56 |     }, 100);
-  57 |   };
-  58 | 
-  59 |   const handleTimerSelect = (timer: 1 | 2) => {
-  60 |     console.log('Timer selected:', timer);
-  61 |     setCurrentTimer(timer);
-  62 |     
-  63 |     setTimeout(() => {
-  64 |       saveToStorage();
-  65 |     }, 100);
-  66 |   };
-  67 | 
-  68 |   return (
-  69 |     <div className="space-y-4">
-  70 |       <div className="grid grid-cols-2 gap-3">
-  71 |         <button
-  72 |           onClick={() => handleTimerSelect(1)}
-  73 |           className={`py-2 px-4 rounded-md font-medium transition-colors ${
-  74 |             timerData.currentTimer === 1
-  75 |               ? 'bg-primary-600 text-white'
-  76 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-  77 |           }`}
-  78 |         >
-  79 |           Timer 1 {timerData.currentTimer === 1 && isRunning && '●'}
-  80 |         </button>
-  81 |         
-  82 |         <button
-  83 |           onClick={() => handleTimerSelect(2)}
-  84 |           className={`py-2 px-4 rounded-md font-medium transition-colors ${
-  85 |             timerData.currentTimer === 2
-  86 |               ? 'bg-primary-600 text-white'
-  87 |               : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-  88 |           }`}
-  89 |         >
-  90 |           Timer 2 {timerData.currentTimer === 2 && isRunning && '●'}
-  91 |         </button>
-  92 |       </div>
-  93 | 
-  94 |       <div className="grid grid-cols-2 gap-3">
-  95 |         <button
-  96 |           onClick={handleStartPause}
-  97 |           className={`py-3 px-4 rounded-md font-semibold transition-colors ${
-  98 |             isRunning
-  99 |               ? 'bg-danger-600 hover:bg-danger-700 text-white'
- 100 |               : 'bg-success-600 hover:bg-success-700 text-white'
- 101 |           }`}
- 102 |         >
- 103 |           {isRunning ? 'Pause' : 'Start'}
- 104 |         </button>
- 105 |         
- 106 |         <button
- 107 |           onClick={handleSwap}
- 108 |           className="py-3 px-4 bg-info-600 hover:bg-info-700 text-white rounded-md font-semibold transition-colors"
- 109 |         >
- 110 |           Swap
- 111 |         </button>
- 112 |       </div>
- 113 | 
- 114 |       <div className="grid grid-cols-2 gap-3">
- 115 |         <button
- 116 |           onClick={handleResetCurrent}
- 117 |           className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
- 118 |         >
- 119 |           Reset Current
- 120 |         </button>
- 121 |         
- 122 |         <button
- 123 |           onClick={handleResetAll}
- 124 |           className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
- 125 |         >
- 126 |           Reset All
- 127 |         </button>
- 128 |       </div>
- 129 | 
- 130 |       <div className="text-sm text-gray-400 text-center">
- 131 |         Active Timer: {timerData.currentTimer === 1 ? timerData.player1Name : timerData.player2Name}
- 132 |         {isRunning && <span className="text-success-400 ml-2">● Running</span>}
- 133 |       </div>
- 134 |     </div>
- 135 |   );
- 136 | };
+  31 |   useEffect(() => {
+  32 |     if (!timer1Ref.current) {
+  33 |       timer1Ref.current = new PreciseTimer((value) => {
+  34 |         if (!syncingRef.current) {
+  35 |           setLocalTimerData((prev) => ({ ...prev, timer1Value: value }));
+  36 |         }
+  37 |       });
+  38 |     }
+  39 |     if (!timer2Ref.current) {
+  40 |       timer2Ref.current = new PreciseTimer((value) => {
+  41 |         if (!syncingRef.current) {
+  42 |           setLocalTimerData((prev) => ({ ...prev, timer2Value: value }));
+  43 |         }
+  44 |       });
+  45 |     }
+  46 |     return () => {
+  47 |       timer1Ref.current?.stop();
+  48 |       timer2Ref.current?.stop();
+  49 |     };
+  50 |   }, []);
+  51 | 
+  52 |   useEffect(() => {
+  53 |     if (!isInitialized) return;
+  54 | 
+  55 |     setLocalTimerData((prev) => ({
+  56 |       ...prev,
+  57 |       ...timerData,
+  58 |     }));
+  59 |   }, [isInitialized, timerData]);
+  60 | 
+  61 |   useEffect(() => {
+  62 |     if (!isInitialized || !timer1Ref.current || !timer2Ref.current) return;
+  63 |     const shouldTimer1Run = localTimerData.isRunning && localTimerData.currentTimer === 1;
+  64 |     const shouldTimer2Run = localTimerData.isRunning && localTimerData.currentTimer === 2;
+  65 |     
+  66 |   // Synchroniser timer 1
+  67 |   if (shouldTimer1Run && !timer1Ref.current.running) {
+  68 |     timer2Ref.current?.pause();
+  69 |     timer1Ref.current.start(localTimerData.timer1Value || 0);
+  70 |   } else if (!shouldTimer1Run && timer1Ref.current.running) {
+  71 |     timer1Ref.current.pause();
+  72 |   }
+  73 | 
+  74 |   // Synchroniser timer 2
+  75 |   if (shouldTimer2Run && !timer2Ref.current.running) {
+  76 |     timer1Ref.current?.pause();
+  77 |     timer2Ref.current.start(localTimerData.timer2Value || 0);
+  78 |   } else if (!shouldTimer2Run && timer2Ref.current.running) {
+  79 |     timer2Ref.current.pause();
+  80 |   }
+  81 | 
+  82 |   // Reset si nécessaire
+  83 |   if (localTimerData.timer1Value === 0 && timer1Ref.current.currentValue !== 0) {
+  84 |     timer1Ref.current.reset();
+  85 |   }
+  86 |   if (localTimerData.timer2Value === 0 && timer2Ref.current.currentValue !== 0) {
+  87 |     timer2Ref.current.reset();
+  88 |   }
+  89 | }, [isInitialized, localTimerData]);
+  90 | 
+  91 |   useEffect(() => {
+  92 |     if (!window.electronAPI) return;
+  93 |     
+  94 |     const offSync = window.electronAPI.overlay.onDataSync((data) => {
+  95 |       syncingRef.current = true;
+  96 |       setLocalTimerData(data);
+  97 |       syncingRef.current = false;
+  98 | 
+  99 |       const shouldTimer1Run = data.isRunning && data.currentTimer === 1;
+ 100 |       const shouldTimer2Run = data.isRunning && data.currentTimer === 2;
+ 101 | 
+ 102 |       if (shouldTimer1Run) {
+ 103 |         timer2Ref.current?.pause();
+ 104 |         timer1Ref.current?.start(data.timer1Value || 0);
+ 105 |       } else if (shouldTimer2Run) {
+ 106 |         timer1Ref.current?.pause();
+ 107 |         timer2Ref.current?.start(data.timer2Value || 0);
+ 108 |       } else {
+ 109 |         timer1Ref.current?.pause();
+ 110 |         timer2Ref.current?.pause();
+ 111 |       }
+ 112 | 
+ 113 |       if (data.timer1Value === 0 && timer1Ref.current) {
+ 114 |         timer1Ref.current.reset();
+ 115 |       }
+ 116 |       if (data.timer2Value === 0 && timer2Ref.current) {
+ 117 |         timer2Ref.current.reset();
+ 118 |       }
+ 119 | 
+ 120 |       lastStateRef.current = {
+ 121 |         timer1Running: shouldTimer1Run,
+ 122 |         timer2Running: shouldTimer2Run,
+ 123 |         timer1Value: data.timer1Value,
+ 124 |         timer2Value: data.timer2Value
+ 125 |       };
+ 126 |     });
+ 127 |     
+ 128 |     return () => {
+ 129 |       offSync?.();
+ 130 |     };
+ 131 |   }, []);
+ 132 | 
+ 133 |   useEffect(() => {
+ 134 |     const root = document.getElementById('overlay-root');
+ 135 |     if (root) root.style.background = 'transparent';
+ 136 |   }, []);
  137 | 
- 138 | export default TimerControls;
+ 138 |   if (!isInitialized) {
+ 139 |     return null;
+ 140 |   }
+ 141 | 
+ 142 |   return <TimerOverlay timerData={localTimerData} />;
+ 143 | };
+ 144 | 
+ 145 | export default OverlayApp;
 
 ```
 
 `dbdoverlaytools-free/src\components\overlay\DragHandle.tsx`:
 
 ```tsx
-   1 | import React from 'react';
-   2 | 
-   3 | const DragHandle: React.FC = () => {
-   4 |   return (
-   5 |     <div className="drag-handle absolute top-0 left-1/2 transform -translate-x-1/2 w-12 h-4 bg-primary-600 bg-opacity-50 hover:bg-opacity-70 transition-all duration-200 rounded-b-md flex items-center justify-center cursor-move">
-   6 |       <div className="flex space-x-1">
-   7 |         <div className="w-1 h-1 bg-white rounded-full opacity-60"></div>
-   8 |         <div className="w-1 h-1 bg-white rounded-full opacity-60"></div>
-   9 |         <div className="w-1 h-1 bg-white rounded-full opacity-60"></div>
-  10 |       </div>
-  11 |     </div>
-  12 |   );
-  13 | };
-  14 | 
-  15 | export default DragHandle;
-
-```
-
-`dbdoverlaytools-free/src\components\overlay\PlayerName.tsx`:
-
-```tsx
-   1 | import React, { useEffect, useState } from 'react';
-   2 | import { cn } from '../../utils/cn';
-   3 | 
-   4 | interface PlayerNameProps {
-   5 |   name: string;
-   6 |   isActive: boolean;
+   1 | // src/components/overlay/DragHandle.tsx
+   2 | import React from 'react';
+   3 | import { cn } from '../../utils/cn';
+   4 | 
+   5 | interface DragHandleProps {
+   6 |   isVisible: boolean;
    7 |   className?: string;
    8 | }
    9 | 
-  10 | const PlayerName: React.FC<PlayerNameProps> = ({ name, isActive, className }) => {
-  11 |   const [shouldScroll, setShouldScroll] = useState(false);
-  12 | 
-  13 |   useEffect(() => {
-  14 |     setShouldScroll(name.length > 12);
-  15 |   }, [name]);
-  16 | 
-  17 |   return (
-  18 |     <div
-  19 |       className={cn(
-  20 |         'font-semibold transition-colors duration-200',
-  21 |         isActive ? 'text-primary-300' : 'text-gray-300',
-  22 |         shouldScroll ? 'scrolling-text' : '',
-  23 |         className
-  24 |       )}
-  25 |     >
-  26 |       <div className={shouldScroll ? 'scrolling-text active' : ''}>
-  27 |         {name}
-  28 |       </div>
-  29 |     </div>
-  30 |   );
-  31 | };
-  32 | 
-  33 | export default PlayerName;
-
-```
-
-`dbdoverlaytools-free/src\components\overlay\ScoreDisplay.tsx`:
-
-```tsx
-   1 | import React from 'react';
-   2 | import { cn } from '../../utils/cn';
-   3 | 
-   4 | interface ScoreDisplayProps {
-   5 |   player1Score: number;
-   6 |   player2Score: number;
-   7 |   className?: string;
-   8 | }
-   9 | 
-  10 | const ScoreDisplay: React.FC<ScoreDisplayProps> = ({ player1Score, player2Score, className }) => {
-  11 |   return (
-  12 |     <div className={cn('text-white font-bold', className)}>
-  13 |       <span className={player1Score > player2Score ? 'text-success-400' : ''}>
-  14 |         {player1Score}
-  15 |       </span>
-  16 |       <span className="mx-2 text-gray-400">-</span>
-  17 |       <span className={player2Score > player1Score ? 'text-success-400' : ''}>
-  18 |         {player2Score}
-  19 |       </span>
-  20 |     </div>
-  21 |   );
-  22 | };
-  23 | 
-  24 | export default ScoreDisplay;
-
-```
-
-`dbdoverlaytools-free/src\components\overlay\Timer.tsx`:
-
-```tsx
-   1 | import React from 'react';
-   2 | import { cn } from '../../utils/cn';
-   3 | 
-   4 | interface TimerProps {
-   5 |   value: string;
-   6 |   isActive: boolean;
-   7 |   className?: string;
-   8 | }
-   9 | 
-  10 | const Timer: React.FC<TimerProps> = ({ value, isActive, className }) => {
+  10 | const DragHandle: React.FC<DragHandleProps> = ({ isVisible, className }) => {
   11 |   return (
   12 |     <div
   13 |       className={cn(
-  14 |         'font-mono font-bold transition-all duration-200',
-  15 |         isActive 
-  16 |           ? 'text-primary-400 timer-glow animate-pulse' 
-  17 |           : 'text-white',
-  18 |         className
-  19 |       )}
-  20 |     >
-  21 |       {value}
-  22 |     </div>
-  23 |   );
-  24 | };
-  25 | 
-  26 | export default Timer;
+  14 |         'absolute top-0 left-0 right-0 h-8 z-50 transition-all duration-300',
+  15 |         'bg-gradient-to-r from-purple-500/20 via-purple-400/30 to-purple-500/20',
+  16 |         'border-b-2 border-purple-400/40',
+  17 |         'shadow-lg shadow-purple-500/30',
+  18 |         'flex items-center justify-center',
+  19 |         'select-none cursor-move',
+  20 |         'animate-pulse-glow',
+  21 |         isVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+  22 |         className
+  23 |       )}
+  24 |       style={{
+  25 |         WebkitAppRegion: 'drag'
+  26 |       } as React.CSSProperties}
+  27 |     >
+  28 |       <div className="flex items-center space-x-2 text-purple-300 text-xs font-semibold uppercase tracking-wider">
+  29 |         <div className="flex space-x-1">
+  30 |           <div className="w-1 h-1 bg-purple-400 rounded-full animate-pulse" />
+  31 |           <div className="w-1 h-1 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+  32 |           <div className="w-1 h-1 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+  33 |         </div>
+  34 |         <span>Drag to Move</span>
+  35 |         <div className="flex space-x-1">
+  36 |           <div className="w-1 h-1 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.6s' }} />
+  37 |           <div className="w-1 h-1 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.8s' }} />
+  38 |           <div className="w-1 h-1 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '1s' }} />
+  39 |         </div>
+  40 |       </div>
+  41 |     </div>
+  42 |   );
+  43 | };
+  44 | 
+  45 | export default DragHandle;
 
 ```
 
 `dbdoverlaytools-free/src\components\overlay\TimerOverlay.tsx`:
 
 ```tsx
-   1 | import React from 'react';
-   2 | import { formatTime } from '../../utils/timer';
-   3 | import type { TimerData, TimerStyle } from '../../types';
-   4 | import DefaultStyle from './styles/DefaultStyle';
-   5 | import MinimalStyle from './styles/MinimalStyle';
-   6 | import CircularStyle from './styles/CircularStyle';
-   7 | import NostalgiaStyle from './styles/NostalgiaStyle';
-   8 | 
-   9 | interface TimerOverlayProps {
-  10 |   timerData: TimerData;
-  11 |   style: TimerStyle;
-  12 |   isActive: boolean;
-  13 | }
-  14 | 
-  15 | const TimerOverlay: React.FC<TimerOverlayProps> = ({ timerData, style, isActive }) => {
-  16 |   const timer1Display = formatTime(timerData.timer1Value);
-  17 |   const timer2Display = formatTime(timerData.timer2Value);
-  18 |   
-  19 |   const overlayData = {
-  20 |     player1Name: timerData.player1Name,
-  21 |     player2Name: timerData.player2Name,
-  22 |     player1Score: timerData.player1Score,
-  23 |     player2Score: timerData.player2Score,
-  24 |     timer1: timer1Display,
-  25 |     timer2: timer2Display,
-  26 |     currentTimer: timerData.currentTimer,
-  27 |     isRunning: isActive,
-  28 |   };
-  29 | 
-  30 |   switch (style) {
-  31 |     case 'minimal':
-  32 |       return <MinimalStyle {...overlayData} />;
-  33 |     case 'circular':
-  34 |       return <CircularStyle {...overlayData} />;
-  35 |     case 'nostalgia':
-  36 |       return <NostalgiaStyle {...overlayData} />;
-  37 |     case 'default':
-  38 |     default:
-  39 |       return <DefaultStyle {...overlayData} />;
-  40 |   }
-  41 | };
-  42 | 
-  43 | export default TimerOverlay;
-
-```
-
-`dbdoverlaytools-free/src\components\overlay\styles\CircularStyle.tsx`:
-
-```tsx
-   1 | import React from 'react';
-   2 | import Timer from '../Timer';
-   3 | import PlayerName from '../PlayerName';
-   4 | import ScoreDisplay from '../ScoreDisplay';
-   5 | 
-   6 | interface CircularStyleProps {
-   7 |   player1Name: string;
-   8 |   player2Name: string;
-   9 |   player1Score: number;
-  10 |   player2Score: number;
-  11 |   timer1: string;
-  12 |   timer2: string;
-  13 |   currentTimer: 1 | 2;
-  14 |   isRunning: boolean;
-  15 | }
-  16 | 
-  17 | const CircularStyle: React.FC<CircularStyleProps> = ({
-  18 |   player1Name,
-  19 |   player2Name,
-  20 |   player1Score,
-  21 |   player2Score,
-  22 |   timer1,
-  23 |   timer2,
-  24 |   currentTimer,
-  25 |   isRunning,
-  26 | }) => {
-  27 |   return (
-  28 |     <div className="w-[420px] h-[160px] relative">
-  29 |       <div className="absolute inset-0 bg-gray-900 bg-opacity-90 rounded-full border-2 border-gray-700"></div>
-  30 |       
-  31 |       <div className="relative flex items-center justify-center h-full">
-  32 |         <div className="absolute left-8 text-center">
-  33 |           <div className={`w-16 h-16 rounded-full border-2 flex items-center justify-center mb-2 ${
-  34 |             currentTimer === 1 && isRunning
-  35 |               ? 'border-primary-400 bg-primary-900 bg-opacity-50'
-  36 |               : 'border-gray-600 bg-gray-800 bg-opacity-50'
-  37 |           }`}>
-  38 |             <Timer 
-  39 |               value={timer1}
-  40 |               isActive={currentTimer === 1 && isRunning}
-  41 |               className="text-sm font-mono"
-  42 |             />
-  43 |           </div>
-  44 |           <PlayerName 
-  45 |             name={player1Name} 
-  46 |             isActive={currentTimer === 1 && isRunning}
-  47 |             className="text-xs"
-  48 |           />
-  49 |         </div>
+   1 | import React from 'react'
+   2 | import { useTimerStore } from '@/store/timerStore'
+   3 | import { formatMillisDynamic } from '@/utils/timer'
+   4 | 
+   5 | type TD = { player1:{name:string,score:number}, player2:{name:string,score:number} }
+   6 | 
+   7 | function splitForTheme(fmt: string) {
+   8 |   // support "SS.CC" ou "M:SS.CC"
+   9 |   const arr: { ch: string; sep?: boolean }[] = []
+  10 |   for (let i=0;i<fmt.length;i++){
+  11 |     const ch = fmt[i]
+  12 |     if (ch === ':' || ch === '.') arr.push({ ch, sep: true })
+  13 |     else arr.push({ ch })
+  14 |   }
+  15 |   return arr
+  16 | }
+  17 | 
+  18 | export default function TimerOverlay() {
+  19 |   const [players, setPlayers] = React.useState<TD>({player1:{name:'Player 1',score:0}, player2:{name:'Player 2',score:0}})
+  20 |   const active = useTimerStore(s=>s.active)
+  21 |   const status = useTimerStore(s=>s.status)
+  22 |   const elapsed = useTimerStore(s=>s.elapsed)
+  23 | 
+  24 |   const [locked, setLocked] = React.useState(false)
+  25 |   const [scale, setScale] = React.useState(100)
+  26 | 
+  27 |   // IPC: names/scores only
+  28 |   React.useEffect(() => {
+  29 |     (async () => setPlayers(await window.api.timer.get()))()
+  30 |     window.api.timer.onSync((d:any)=>setPlayers(d))
+  31 |   }, [])
+  32 | 
+  33 |   // Receive overlay settings (lock + scale)
+  34 |   React.useEffect(() => {
+  35 |     window.api.overlay.onSettings((s:any) => {
+  36 |       setLocked(!!s.locked)
+  37 |       setScale(s.scale || 100)
+  38 |     })
+  39 |   }, [])
+  40 | 
+  41 |   // Hotkeys globales (venant du main via uiohook)
+  42 |   React.useEffect(() => {
+  43 |     const handler = (p:any) => {
+  44 |       const api = useTimerStore.getState()
+  45 |       if (p?.type === 'toggle') api.toggle()
+  46 |       else if (p?.type === 'swap') api.select(api.active === 1 ? 2 : 1)
+  47 |     }
+  48 |     window.api.hotkeys.on(handler)
+  49 |   }, [])
   50 | 
-  51 |         <div className="text-center">
-  52 |           <ScoreDisplay 
-  53 |             player1Score={player1Score}
-  54 |             player2Score={player2Score}
-  55 |             className="text-2xl font-bold"
-  56 |           />
-  57 |         </div>
-  58 | 
-  59 |         <div className="absolute right-8 text-center">
-  60 |           <div className={`w-16 h-16 rounded-full border-2 flex items-center justify-center mb-2 ${
-  61 |             currentTimer === 2 && isRunning
-  62 |               ? 'border-primary-400 bg-primary-900 bg-opacity-50'
-  63 |               : 'border-gray-600 bg-gray-800 bg-opacity-50'
-  64 |           }`}>
-  65 |             <Timer 
-  66 |               value={timer2}
-  67 |               isActive={currentTimer === 2 && isRunning}
-  68 |               className="text-sm font-mono"
-  69 |             />
-  70 |           </div>
-  71 |           <PlayerName 
-  72 |             name={player2Name} 
-  73 |             isActive={currentTimer === 2 && isRunning}
-  74 |             className="text-xs"
-  75 |           />
-  76 |         </div>
-  77 |       </div>
-  78 |     </div>
-  79 |   );
-  80 | };
-  81 | 
-  82 | export default CircularStyle;
-
-```
-
-`dbdoverlaytools-free/src\components\overlay\styles\DefaultStyle.tsx`:
-
-```tsx
-   1 | import React from 'react';
-   2 | import Timer from '../Timer';
-   3 | import PlayerName from '../PlayerName';
-   4 | import ScoreDisplay from '../ScoreDisplay';
-   5 | 
-   6 | interface DefaultStyleProps {
-   7 |   player1Name: string;
-   8 |   player2Name: string;
-   9 |   player1Score: number;
-  10 |   player2Score: number;
-  11 |   timer1: string;
-  12 |   timer2: string;
-  13 |   currentTimer: 1 | 2;
-  14 |   isRunning: boolean;
-  15 | }
-  16 | 
-  17 | const DefaultStyle: React.FC<DefaultStyleProps> = ({
-  18 |   player1Name,
-  19 |   player2Name,
-  20 |   player1Score,
-  21 |   player2Score,
-  22 |   timer1,
-  23 |   timer2,
-  24 |   currentTimer,
-  25 |   isRunning,
-  26 | }) => {
-  27 |   return (
-  28 |     <div className="w-[520px] h-[120px] bg-gray-900 bg-opacity-95 border border-gray-700 rounded-lg p-4">
-  29 |       <div className="flex items-center justify-between h-full">
-  30 |         <div className="flex-1 text-center">
-  31 |           <PlayerName 
-  32 |             name={player1Name} 
-  33 |             isActive={currentTimer === 1 && isRunning}
-  34 |             className="mb-2"
-  35 |           />
-  36 |           <Timer 
-  37 |             value={timer1}
-  38 |             isActive={currentTimer === 1 && isRunning}
-  39 |             className="text-2xl"
-  40 |           />
-  41 |         </div>
-  42 |         
-  43 |         <div className="px-6">
-  44 |           <ScoreDisplay 
-  45 |             player1Score={player1Score}
-  46 |             player2Score={player2Score}
-  47 |             className="text-xl font-bold"
-  48 |           />
-  49 |         </div>
-  50 |         
-  51 |         <div className="flex-1 text-center">
-  52 |           <PlayerName 
-  53 |             name={player2Name} 
-  54 |             isActive={currentTimer === 2 && isRunning}
-  55 |             className="mb-2"
-  56 |           />
-  57 |           <Timer 
-  58 |             value={timer2}
-  59 |             isActive={currentTimer === 2 && isRunning}
-  60 |             className="text-2xl"
-  61 |           />
-  62 |         </div>
-  63 |       </div>
-  64 |     </div>
-  65 |   );
-  66 | };
-  67 | 
-  68 | export default DefaultStyle;
-
-```
-
-`dbdoverlaytools-free/src\components\overlay\styles\MinimalStyle.tsx`:
-
-```tsx
-   1 | import React from 'react';
-   2 | import Timer from '../Timer';
-   3 | import ScoreDisplay from '../ScoreDisplay';
-   4 | 
-   5 | interface MinimalStyleProps {
-   6 |   player1Name: string;
-   7 |   player2Name: string;
-   8 |   player1Score: number;
-   9 |   player2Score: number;
-  10 |   timer1: string;
-  11 |   timer2: string;
-  12 |   currentTimer: 1 | 2;
-  13 |   isRunning: boolean;
-  14 | }
-  15 | 
-  16 | const MinimalStyle: React.FC<MinimalStyleProps> = ({
-  17 |   player1Name,
-  18 |   player2Name,
-  19 |   player1Score,
-  20 |   player2Score,
-  21 |   timer1,
-  22 |   timer2,
-  23 |   currentTimer,
-  24 |   isRunning,
-  25 | }) => {
-  26 |   return (
-  27 |     <div className="w-[400px] h-[110px] bg-black bg-opacity-80 border border-gray-800 rounded p-3">
-  28 |       <div className="flex items-center justify-between h-full">
-  29 |         <div className="text-center">
-  30 |           <div className="text-xs text-gray-400 mb-1">
-  31 |             {player1Name.slice(0, 8)}
-  32 |           </div>
-  33 |           <Timer 
-  34 |             value={timer1}
-  35 |             isActive={currentTimer === 1 && isRunning}
-  36 |             className="text-xl font-mono"
-  37 |           />
-  38 |         </div>
-  39 |         
-  40 |         <div className="px-4">
-  41 |           <ScoreDisplay 
-  42 |             player1Score={player1Score}
-  43 |             player2Score={player2Score}
-  44 |             className="text-lg font-semibold"
-  45 |           />
-  46 |         </div>
-  47 |         
-  48 |         <div className="text-center">
-  49 |           <div className="text-xs text-gray-400 mb-1">
-  50 |             {player2Name.slice(0, 8)}
-  51 |           </div>
-  52 |           <Timer 
-  53 |             value={timer2}
-  54 |             isActive={currentTimer === 2 && isRunning}
-  55 |             className="text-xl font-mono"
-  56 |           />
-  57 |         </div>
-  58 |       </div>
-  59 |     </div>
-  60 |   );
-  61 | };
-  62 | 
-  63 | export default MinimalStyle;
-
-```
-
-`dbdoverlaytools-free/src\components\overlay\styles\NostalgiaStyle.tsx`:
-
-```tsx
-   1 | import React from 'react';
-   2 | import Timer from '../Timer';
-   3 | import ScoreDisplay from '../ScoreDisplay';
-   4 | 
-   5 | interface NostalgiaStyleProps {
-   6 |   player1Name: string;
-   7 |   player2Name: string;
-   8 |   player1Score: number;
-   9 |   player2Score: number;
-  10 |   timer1: string;
-  11 |   timer2: string;
-  12 |   currentTimer: 1 | 2;
-  13 |   isRunning: boolean;
-  14 | }
-  15 | 
-  16 | const NostalgiaStyle: React.FC<NostalgiaStyleProps> = ({
-  17 |   player1Name,
-  18 |   player2Name,
-  19 |   player1Score,
-  20 |   player2Score,
-  21 |   timer1,
-  22 |   timer2,
-  23 |   currentTimer,
-  24 |   isRunning,
-  25 | }) => {
-  26 |   return (
-  27 |     <div className="w-[360px] h-[80px] bg-black border border-green-500 font-mono p-2">
-  28 |       <div className="flex items-center justify-between h-full text-green-400">
-  29 |         <div className="text-center">
-  30 |           <div className="text-xs mb-1">
-  31 |             {player1Name.slice(0, 6).toUpperCase()}
-  32 |           </div>
-  33 |           <Timer 
-  34 |             value={timer1}
-  35 |             isActive={currentTimer === 1 && isRunning}
-  36 |             className={`text-lg ${currentTimer === 1 && isRunning ? 'text-green-300' : 'text-green-600'}`}
-  37 |           />
-  38 |         </div>
-  39 |         
-  40 |         <div className="px-3">
-  41 |           <ScoreDisplay 
-  42 |             player1Score={player1Score}
-  43 |             player2Score={player2Score}
-  44 |             className="text-lg font-bold text-green-400"
-  45 |           />
-  46 |         </div>
-  47 |         
-  48 |         <div className="text-center">
-  49 |           <div className="text-xs mb-1">
-  50 |             {player2Name.slice(0, 6).toUpperCase()}
-  51 |           </div>
-  52 |           <Timer 
-  53 |             value={timer2}
-  54 |             isActive={currentTimer === 2 && isRunning}
-  55 |             className={`text-lg ${currentTimer === 2 && isRunning ? 'text-green-300' : 'text-green-600'}`}
-  56 |           />
-  57 |         </div>
-  58 |       </div>
-  59 |     </div>
-  60 |   );
-  61 | };
-  62 | 
-  63 | export default NostalgiaStyle;
-
-```
-
-`dbdoverlaytools-free/src\hooks\useGlobalHotkeys.ts`:
-
-```ts
-   1 | import { useEffect } from 'react';
-   2 | import { useTimerStore } from '../store/timerStore';
-   3 | import useTimer from './useTimer';
-   4 | 
-   5 | const useGlobalHotkeys = () => {
-   6 |   const { saveToStorage } = useTimerStore();
-   7 |   const { isRunning, startTimer, pauseTimer, swapTimer } = useTimer();
-   8 | 
-   9 |   useEffect(() => {
-  10 |     if (!window.electronAPI) return;
-  11 | 
-  12 |     const handleHotkeyPress = (action: string) => {
-  13 |       console.log('Global hotkey pressed:', action, 'Current running state:', isRunning);
-  14 |       
-  15 |       switch (action) {
-  16 |         case 'start':
-  17 |           if (isRunning) {
-  18 |             console.log('Pausing via hotkey');
-  19 |             pauseTimer();
-  20 |           } else {
-  21 |             console.log('Starting via hotkey');
-  22 |             startTimer();
-  23 |           }
-  24 |           
-  25 |           // Sauvegarder après un délai
-  26 |           setTimeout(() => {
-  27 |             saveToStorage();
-  28 |           }, 200);
-  29 |           break;
-  30 |           
-  31 |         case 'swap':
-  32 |           console.log('Swapping via hotkey');
-  33 |           swapTimer();
-  34 |           
-  35 |           setTimeout(() => {
-  36 |             saveToStorage();
-  37 |           }, 200);
-  38 |           break;
-  39 |           
-  40 |         default:
-  41 |           console.warn('Unknown hotkey action:', action);
-  42 |       }
-  43 |     };
-  44 | 
-  45 |     window.electronAPI.hotkeys.onPressed(handleHotkeyPress);
-  46 | 
-  47 |     return () => {
-  48 |       if (window.electronAPI?.removeAllListeners) {
-  49 |         window.electronAPI.removeAllListeners();
-  50 |       }
-  51 |     };
-  52 |   }, [isRunning, startTimer, pauseTimer, swapTimer, saveToStorage]);
-  53 | 
-  54 |   const registerHotkeys = async (startKey: string, swapKey: string) => {
-  55 |     if (!window.electronAPI) {
-  56 |       console.warn('Electron API not available');
-  57 |       return;
-  58 |     }
+  51 |   // rAF tick
+  52 |   const [, setTick] = React.useState(0)
+  53 |   React.useEffect(() => {
+  54 |     let raf = 0
+  55 |     const loop = () => { setTick(t => (t+1)&1023); raf = requestAnimationFrame(loop) }
+  56 |     raf = requestAnimationFrame(loop)
+  57 |     return () => cancelAnimationFrame(raf)
+  58 |   }, [])
   59 | 
-  60 |     try {
-  61 |       await window.electronAPI.hotkeys.register({
-  62 |         start: startKey,
-  63 |         swap: swapKey,
-  64 |       });
-  65 |       console.log('Hotkeys registered:', { start: startKey, swap: swapKey });
-  66 |     } catch (error) {
-  67 |       console.error('Failed to register hotkeys:', error);
+  60 |   // Mesure DOM non-scalée (offsetWidth/Height ignorent transform)
+  61 |   React.useLayoutEffect(() => {
+  62 |     const el = document.getElementById('timerContainer')
+  63 |     if (!el) return
+  64 |     const measure = () => {
+  65 |       const w = el.offsetWidth
+  66 |       const h = el.offsetHeight
+  67 |       window.api.overlay.measure(w, h)
   68 |     }
-  69 |   };
-  70 | 
-  71 |   return { registerHotkeys };
-  72 | };
-  73 | 
-  74 | export default useGlobalHotkeys;
+  69 |     // fonts prêtes → mesurer
+  70 |     // @ts-ignore
+  71 |     if (document.fonts?.ready) {
+  72 |       // @ts-ignore
+  73 |       document.fonts.ready.then(() => { measure(); setTimeout(measure, 50) })
+  74 |     }
+  75 |     measure()
+  76 |     window.addEventListener('resize', measure)
+  77 |     return () => window.removeEventListener('resize', measure)
+  78 |   }, [players.player1.name, players.player2.name])
+  79 | 
+  80 |   const t1 = splitForTheme(formatMillisDynamic(elapsed(1)))
+  81 |   const t2 = splitForTheme(formatMillisDynamic(elapsed(2)))
+  82 | 
+  83 |   const p1Scroll = players.player1.name.length > 16
+  84 |   const p2Scroll = players.player2.name.length > 16
+  85 | 
+  86 |   const s = (scale || 100)/100
+  87 | 
+  88 |   return (
+  89 |     // wrapper extérieur = dimension exacte *après* zoom → pas de scroll
+  90 |     <div
+  91 |       className="pointer-events-none select-none"
+  92 |       style={{ width: Math.round(520*s), height: Math.round((120 + (locked?0:30))*s), overflow:'hidden' }}
+  93 |     >
+  94 |       {/* Drag handle (visible quand unlock) */}
+  95 |       <div className={`drag-handle ${locked ? '' : 'visible'}`}>
+  96 |         Drag to move
+  97 |       </div>
+  98 | 
+  99 |       {/* Coins carrés: pas de rounded ni border */}
+ 100 |       {/* Zoom par transform sur le contenu interne */}
+ 101 |       <div style={{ transform:`scale(${s})`, transformOrigin:'top left', width:520, height:120 }}>
+ 102 |         <div className="timer-overlay" id="timerContainer">
+ 103 |           {/* Noms + score */}
+ 104 |           <div className={`name left ${p1Scroll ? 'scrolling' : ''}`}>
+ 105 |             <span className="name-scroll">{players.player1.name || 'PLAYER 1'}</span>
+ 106 |           </div>
+ 107 |           <div className="score-value">
+ 108 |             {players.player1.score} – {players.player2.score}
+ 109 |           </div>
+ 110 |           <div className={`name right ${p2Scroll ? 'scrolling' : ''}`}>
+ 111 |             <span className="name-scroll">{players.player2.name || 'PLAYER 2'}</span>
+ 112 |           </div>
+ 113 | 
+ 114 |           {/* Timers */}
+ 115 |           <div className={`timer left ${active===1 ? 'active' : ''}`} aria-label={status[1]}>
+ 116 |             <span className="timer-text dbd-digits">
+ 117 |               {t1.map((c, i) => (
+ 118 |                 <span key={i} className={`timer-char ${c.sep ? 'separator' : ''}`}>{c.ch}</span>
+ 119 |               ))}
+ 120 |             </span>
+ 121 |           </div>
+ 122 |           <div className={`timer right ${active===2 ? 'active' : ''}`} aria-label={status[2]}>
+ 123 |             <span className="timer-text dbd-digits">
+ 124 |               {t2.map((c, i) => (
+ 125 |                 <span key={i} className={`timer-char ${c.sep ? 'separator' : ''}`}>{c.ch}</span>
+ 126 |               ))}
+ 127 |             </span>
+ 128 |           </div>
+ 129 |         </div>
+ 130 |       </div>
+ 131 |     </div>
+ 132 |   )
+ 133 | }
 
 ```
 
 `dbdoverlaytools-free/src\hooks\useTimer.ts`:
 
 ```ts
-   1 | import { useEffect, useRef, useState, useCallback } from 'react';
+   1 | import { useEffect, useCallback } from 'react';
    2 | import { useTimerStore } from '../store/timerStore';
-   3 | import { formatTime, PreciseTimer } from '../utils/timer';
-   4 | 
-   5 | const useTimer = () => {
-   6 |   const {
-   7 |     timerData,
-   8 |     setTimerValue,
-   9 |     setTimerRunning,
-  10 |     setCurrentTimer,
-  11 |     resetTimer,
-  12 |   } = useTimerStore();
-  13 | 
-  14 |   const timer1Ref = useRef<PreciseTimer | null>(null);
-  15 |   const timer2Ref = useRef<PreciseTimer | null>(null);
-  16 |   const [formattedTime1, setFormattedTime1] = useState('0:00.0');
-  17 |   const [formattedTime2, setFormattedTime2] = useState('0:00.0');
-  18 | 
-  19 |   const syncToOverlay = useCallback((data: any) => {
-  20 |     if (window.electronAPI) {
-  21 |       window.electronAPI.timer.syncData(data);
-  22 |     }
-  23 |   }, []);
-  24 | 
-  25 |   useEffect(() => {
-  26 |     if (!timer1Ref.current) {
-  27 |       timer1Ref.current = new PreciseTimer((value) => {
-  28 |         setTimerValue(1, value);
-  29 |         const formatted = formatTime(value);
-  30 |         setFormattedTime1(formatted);
-  31 |         
-  32 |         const currentData = useTimerStore.getState().timerData;
-  33 |         syncToOverlay({
-  34 |           ...currentData,
-  35 |           timer1Value: value,
-  36 |           timer1: formatted,
-  37 |           timer2: formatTime(currentData.timer2Value),
-  38 |         });
-  39 |       });
-  40 |     }
-  41 | 
-  42 |     if (!timer2Ref.current) {
-  43 |       timer2Ref.current = new PreciseTimer((value) => {
-  44 |         setTimerValue(2, value);
-  45 |         const formatted = formatTime(value);
-  46 |         setFormattedTime2(formatted);
-  47 |         
-  48 |         const currentData = useTimerStore.getState().timerData;
-  49 |         syncToOverlay({
-  50 |           ...currentData,
-  51 |           timer2Value: value,
-  52 |           timer2: formatted,
-  53 |           timer1: formatTime(currentData.timer1Value),
-  54 |         });
-  55 |       });
-  56 |     }
-  57 | 
-  58 |     return () => {
-  59 |       timer1Ref.current?.stop();
-  60 |       timer2Ref.current?.stop();
-  61 |     };
-  62 |   }, [setTimerValue, syncToOverlay]);
-  63 | 
-  64 |   useEffect(() => {
-  65 |     const newTime1 = formatTime(timerData.timer1Value);
-  66 |     const newTime2 = formatTime(timerData.timer2Value);
-  67 |     
-  68 |     setFormattedTime1(newTime1);
-  69 |     setFormattedTime2(newTime2);
-  70 |     
-  71 |     syncToOverlay({
-  72 |       ...timerData,
-  73 |       timer1: newTime1,
-  74 |       timer2: newTime2,
-  75 |     });
-  76 |   }, [
-  77 |     timerData.timer1Value,
-  78 |     timerData.timer2Value,
-  79 |     timerData.player1Name,
-  80 |     timerData.player2Name,
-  81 |     timerData.player1Score,
-  82 |     timerData.player2Score,
-  83 |     timerData.currentTimer,
-  84 |     timerData.isRunning,
-  85 |     timerData.style,
-  86 |     syncToOverlay
-  87 |   ]);
-  88 | 
-  89 |   const startTimer = useCallback(() => {
-  90 |     const currentTimer = timerData.currentTimer;
-  91 |     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-  92 |     const initialValue = currentTimer === 1 ? timerData.timer1Value : timerData.timer2Value;
-  93 | 
-  94 |     if (timerRef && !timerRef.running) {
-  95 |       timerRef.start(initialValue);
-  96 |       setTimerRunning(true);
-  97 |     }
-  98 |   }, [timerData.currentTimer, timerData.timer1Value, timerData.timer2Value, setTimerRunning]);
-  99 | 
- 100 |   const pauseTimer = useCallback(() => {
- 101 |     const currentTimer = timerData.currentTimer;
- 102 |     const timerRef = currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
- 103 | 
- 104 |     if (timerRef && timerRef.running) {
- 105 |       const finalValue = timerRef.pause();
- 106 |       setTimerValue(currentTimer, finalValue);
- 107 |       setTimerRunning(false);
- 108 |     }
- 109 |   }, [timerData.currentTimer, setTimerValue, setTimerRunning]);
- 110 | 
- 111 |   const swapTimer = useCallback(() => {
- 112 |     if (timerData.isRunning) {
- 113 |       pauseTimer();
- 114 |     }
- 115 |     
- 116 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
- 117 |     setCurrentTimer(newTimer);
- 118 |   }, [timerData.currentTimer, timerData.isRunning, pauseTimer, setCurrentTimer]);
- 119 | 
- 120 |   const resetCurrentTimer = useCallback(() => {
- 121 |     if (timerData.isRunning) {
- 122 |       pauseTimer();
- 123 |     }
- 124 |     
- 125 |     resetTimer();
- 126 |     
- 127 |     const timerRef = timerData.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
- 128 |     if (timerRef) {
- 129 |       timerRef.reset();
- 130 |     }
- 131 |   }, [timerData.isRunning, timerData.currentTimer, pauseTimer, resetTimer]);
- 132 | 
- 133 |   const resetAllTimers = useCallback(() => {
- 134 |     timer1Ref.current?.reset();
- 135 |     timer2Ref.current?.reset();
- 136 |     setTimerRunning(false);
- 137 |   }, [setTimerRunning]);
- 138 | 
- 139 |   return {
- 140 |     formattedTime1,
- 141 |     formattedTime2,
- 142 |     isRunning: timerData.isRunning,
- 143 |     currentTimer: timerData.currentTimer,
- 144 |     startTimer,
- 145 |     pauseTimer,
- 146 |     swapTimer,
- 147 |     resetCurrentTimer,
- 148 |     resetAllTimers,
- 149 |   };
- 150 | };
- 151 | 
- 152 | export default useTimer;
+   3 | 
+   4 | const useTimer = () => {
+   5 |   const {
+   6 |     timerData,
+   7 |     setTimerRunning,
+   8 |     setCurrentTimer,
+   9 |     saveToStorage
+  10 |   } = useTimerStore();
+  11 | 
+  12 |   const startTimer = useCallback(() => {
+  13 |     if (!timerData.isRunning) {
+  14 |       console.log('Starting timer, current:', timerData.currentTimer);
+  15 |       setTimerRunning(true);
+  16 |       setTimeout(() => saveToStorage(), 100);
+  17 |     }
+  18 |   }, [timerData.isRunning, timerData.currentTimer, setTimerRunning, saveToStorage]);
+  19 | 
+  20 |   const pauseTimer = useCallback(() => {
+  21 |     if (timerData.isRunning) {
+  22 |       console.log('Pausing timer, current:', timerData.currentTimer);
+  23 |       setTimerRunning(false);
+  24 |       setTimeout(() => saveToStorage(), 100);
+  25 |     }
+  26 |   }, [timerData.isRunning, timerData.currentTimer, setTimerRunning, saveToStorage]);
+  27 | 
+  28 |   const swapTimer = useCallback(() => {
+  29 |     console.log('Swapping timer from', timerData.currentTimer);
+  30 |     
+  31 |     if (timerData.isRunning) {
+  32 |       pauseTimer();
+  33 |     }
+  34 |     
+  35 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
+  36 |     console.log('Swapping to timer:', newTimer);
+  37 |     setCurrentTimer(newTimer);
+  38 |     setTimeout(() => saveToStorage(), 100);
+  39 |   }, [timerData.currentTimer, timerData.isRunning, pauseTimer, setCurrentTimer, saveToStorage]);
+  40 | 
+  41 |   return {
+  42 |     isRunning: timerData.isRunning,
+  43 |     currentTimer: timerData.currentTimer,
+  44 |     startTimer,
+  45 |     pauseTimer,
+  46 |     swapTimer,
+  47 |   };
+  48 | };
+  49 | 
+  50 | export default useTimer;
 
 ```
 
 `dbdoverlaytools-free/src\index.css`:
 
 ```css
-   1 | /* src/index.css */
-   2 | @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Russo+One&display=swap');
-   3 | @tailwind base;
-   4 | @tailwind components;
-   5 | @tailwind utilities;
-   6 | 
-   7 | @font-face {
-   8 |   font-family: 'SquareFont';
-   9 |   src: url('./assets/fonts/SquareFont.ttf') format('truetype');
-  10 |   font-weight: normal;
-  11 |   font-style: normal;
-  12 | }
-  13 | 
-  14 | * {
-  15 |   box-sizing: border-box;
-  16 | }
-  17 | 
-  18 | body {
-  19 |   margin: 0;
-  20 |   font-family: 'Poppins', sans-serif;
-  21 |   -webkit-font-smoothing: antialiased;
-  22 |   -moz-osx-font-smoothing: grayscale;
-  23 |   color: #ffffff;
-  24 |   background: #1a1a1a;
-  25 | }
-  26 | 
-  27 | #root, #overlay-root {
-  28 |   width: 100%;
-  29 |   height: 100%;
-  30 | }
-  31 | 
-  32 | .drag-handle {
-  33 |   -webkit-app-region: drag;
-  34 |   cursor: move;
-  35 | }
-  36 | 
-  37 | .no-drag {
-  38 |   -webkit-app-region: no-drag;
-  39 | }
-  40 | 
-  41 | .timer-glow {
-  42 |   text-shadow: 0 0 10px currentColor;
-  43 | }
-  44 | 
-  45 | .scrolling-text {
-  46 |   white-space: nowrap;
-  47 |   overflow: hidden;
-  48 | }
-  49 | 
-  50 | .scrolling-text.active {
-  51 |   animation: scroll-text 6s linear infinite;
-  52 | }
-  53 | 
-  54 | @keyframes pulse-active {
-  55 |   0%, 100% { 
-  56 |     background: rgba(181, 121, 255, 0.2);
-  57 |     border-color: rgba(181, 121, 255, 0.5);
-  58 |   }
-  59 |   50% { 
-  60 |     background: rgba(181, 121, 255, 0.3);
-  61 |     border-color: rgba(181, 121, 255, 0.7);
-  62 |   }
-  63 | }
-  64 | 
-  65 | .timer-active {
-  66 |   animation: pulse-active 2s ease-in-out infinite;
-  67 | }
+   1 | @tailwind base;
+   2 | @tailwind components;
+   3 | @tailwind utilities;
+   4 | 
+   5 | .dbd-digits {
+   6 |   font-variant-numeric: tabular-nums;
+   7 |   -moz-font-feature-settings: "tnum";
+   8 |   -webkit-font-feature-settings: "tnum";
+   9 |   font-feature-settings: "tnum";
+  10 |   letter-spacing: 0.02em;
+  11 | }
 
 ```
 
 `dbdoverlaytools-free/src\main.tsx`:
 
 ```tsx
-   1 | // src/main.tsx
-   2 | import React from 'react';
-   3 | import ReactDOM from 'react-dom/client';
-   4 | import App from './App';
-   5 | import './index.css';
-   6 | 
-   7 | ReactDOM.createRoot(document.getElementById('root')!).render(
-   8 |   <React.StrictMode>
-   9 |     <App />
-  10 |   </React.StrictMode>
-  11 | );
+   1 | import React from 'react'
+   2 | import ReactDOM from 'react-dom/client'
+   3 | import './index.css'
+   4 | import ControlPanel from './components/ControlPanel'
+   5 | 
+   6 | function useTimerData() {
+   7 |   const [data, setData] = React.useState<{player1:{name:string,score:number}, player2:{name:string,score:number}}>({player1:{name:'Player 1',score:0}, player2:{name:'Player 2',score:0}});
+   8 |   React.useEffect(() => {
+   9 |     (async () => setData(await window.api.timer.get()))();
+  10 |     const off = window.api.timer.onSync((d:any) => setData(d));
+  11 |     return () => { /* ipcRenderer removes automatically on reload */ };
+  12 |   }, []);
+  13 |   const commit = (next:any) => { setData(next); window.api.timer.set(next); };
+  14 |   return [data, commit] as const;
+  15 | }
+  16 | 
+  17 | function NumberField(props:{value:number,onChange:(v:number)=>void}) {
+  18 |   return (
+  19 |     <div className="flex items-center gap-2">
+  20 |       <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>props.onChange(props.value-1)}>-</button>
+  21 |       <div className="min-w-10 text-center">{props.value}</div>
+  22 |       <button className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" onClick={()=>props.onChange(props.value+1)}>+</button>
+  23 |     </div>
+  24 |   )
+  25 | }
+  26 | 
+  27 | function App() {
+  28 |   const [data, setData] = useTimerData();
+  29 |   const [overlayOn, setOverlayOn] = React.useState(false);
+  30 |   const [locked, setLocked] = React.useState(false);
+  31 |   const [scale, setScale] = React.useState(100);
+  32 | 
+  33 |   React.useEffect(() => {
+  34 |     window.api.overlay.onReady((v:boolean) => setOverlayOn(v));
+  35 |   }, []);
+  36 | 
+  37 |   return (
+  38 |     <div className="p-6 max-w-xl mx-auto font-ui">
+  39 |       <h1 className="text-2xl font-semibold mb-4">DBD 1v1 Timer — Control Panel</h1>
+  40 | 
+  41 |       <div className="grid grid-cols-2 gap-6">
+  42 |         <div className="space-y-3">
+  43 |           <label className="block text-sm text-zinc-400">Player 1 name</label>
+  44 |           <input className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
+  45 |             value={data.player1.name}
+  46 |             onChange={e=>setData({...data, player1:{...data.player1, name:e.target.value}})} />
+  47 |           <label className="block text-sm text-zinc-400">Score</label>
+  48 |           <NumberField value={data.player1.score} onChange={(v)=>setData({...data, player1:{...data.player1, score:Math.max(0,v)}})} />
+  49 |         </div>
+  50 | 
+  51 |         <div className="space-y-3">
+  52 |           <label className="block text-sm text-zinc-400">Player 2 name</label>
+  53 |           <input className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
+  54 |             value={data.player2.name}
+  55 |             onChange={e=>setData({...data, player2:{...data.player2, name:e.target.value}})} />
+  56 |           <label className="block text-sm text-zinc-400">Score</label>
+  57 |           <NumberField value={data.player2.score} onChange={(v)=>setData({...data, player2:{...data.player2, score:Math.max(0,v)}})} />
+  58 |         </div>
+  59 |       </div>
+  60 | 
+  61 |       <div className="mt-6 flex items-center gap-3">
+  62 |         {overlayOn ? (
+  63 |           <button className="px-3 py-2 rounded bg-red-700 hover:bg-red-600" onClick={()=>window.api.overlay.hide()}>Hide Overlay</button>
+  64 |         ) : (
+  65 |           <button className="px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600" onClick={()=>window.api.overlay.show()}>Show Overlay</button>
+  66 |         )}
+  67 |         <label className="inline-flex items-center gap-2">
+  68 |           <input type="checkbox" checked={locked} onChange={(e)=>{setLocked(e.target.checked); window.api.overlay.updateSettings({locked:e.target.checked})}} />
+  69 |           <span>Lock (click-through)</span>
+  70 |         </label>
+  71 |         <label className="inline-flex items-center gap-2">
+  72 |           <span>Scale</span>
+  73 |           <input type="range" min={50} max={200} value={scale} onChange={e=>{const v=Number(e.target.value); setScale(v); window.api.overlay.updateSettings({scale:v})}} />
+  74 |         </label>
+  75 |         <label className="inline-flex items-center gap-2">
+  76 |           <input type="checkbox" defaultChecked onChange={(e)=>window.api.overlay.updateSettings({alwaysOnTop:e.target.checked})}/>
+  77 |           <span>Always on top</span>
+  78 |         </label>
+  79 |       </div>
+  80 | 
+  81 |       <div className="mt-6 text-sm text-zinc-400">
+  82 |         Hotkeys: <b>F1</b> start/pause/reset — <b>F2</b> swap active timer.
+  83 |       </div>
+  84 |     </div>
+  85 |   )
+  86 | }
+  87 | 
+  88 | ReactDOM.createRoot(document.getElementById('root')!).render(<ControlPanel />)
 
 ```
 
 `dbdoverlaytools-free/src\overlay.tsx`:
 
 ```tsx
-   1 | // src/overlay.tsx
-   2 | import React from 'react';
-   3 | import ReactDOM from 'react-dom/client';
-   4 | import OverlayApp from './components/OverlayApp';
-   5 | import { useTimerStore } from './store/timerStore';
-   6 | import './index.css';
-   7 | 
-   8 | // Initialize store for overlay
-   9 | const initializeOverlay = async () => {
-  10 |   const store = useTimerStore.getState();
-  11 |   await store.loadFromStorage();
-  12 |   console.log('Overlay initialized with data:', store.timerData);
-  13 | };
-  14 | 
-  15 | // Initialize store
-  16 | initializeOverlay().catch(console.error);
-  17 | 
-  18 | ReactDOM.createRoot(document.getElementById('overlay-root')!).render(
-  19 |   <React.StrictMode>
-  20 |     <OverlayApp />
-  21 |   </React.StrictMode>
-  22 | );
+   1 | import React from 'react'
+   2 | import ReactDOM from 'react-dom/client'
+   3 | import './index.css'
+   4 | import './themes/default.css'
+   5 | import TimerOverlay from './components/overlay/TimerOverlay'
+   6 | 
+   7 | ReactDOM.createRoot(document.getElementById('root')!).render(<TimerOverlay />)
 
 ```
 
 `dbdoverlaytools-free/src\store\timerStore.ts`:
 
 ```ts
-   1 | // src/store/timerStore.ts - Store Zustand
-   2 | import { create } from 'zustand';
-   3 | import { TimerData, OverlaySettings, TimerStyle, DEFAULT_TIMER_DATA, DEFAULT_OVERLAY_SETTINGS } from '../types';
-   4 | 
-   5 | interface TimerStore {
-   6 |   timerData: TimerData;
-   7 |   overlaySettings: OverlaySettings;
-   8 |   isOverlayVisible: boolean;
-   9 |   
-  10 |   updateTimerData: (data: Partial<TimerData>) => void;
-  11 |   updatePlayerName: (player: 1 | 2, name: string) => void;
-  12 |   updatePlayerScore: (player: 1 | 2, delta: number) => void;
-  13 |   setTimerValue: (timer: 1 | 2, value: number) => void;
-  14 |   setCurrentTimer: (timer: 1 | 2) => void;
-  15 |   setTimerRunning: (running: boolean) => void;
-  16 |   swapTimer: () => void;
-  17 |   resetTimer: (timer?: 1 | 2) => void;
-  18 |   resetAllTimers: () => void;
-  19 |   updateHotkeys: (hotkeys: { start?: string; swap?: string }) => void;
-  20 |   updateStyle: (style: TimerStyle) => void;
-  21 |   
-  22 |   updateOverlaySettings: (settings: Partial<OverlaySettings>) => void;
-  23 |   setOverlayVisible: (visible: boolean) => void;
-  24 |   toggleOverlayLock: () => void;
-  25 |   updateOverlayScale: (scale: number) => void;
-  26 |   
-  27 |   loadFromStorage: () => void;
-  28 |   saveToStorage: () => void;
-  29 | }
-  30 | 
-  31 | export const useTimerStore = create<TimerStore>((set, get) => ({
-  32 |   timerData: { ...DEFAULT_TIMER_DATA },
-  33 |   overlaySettings: { ...DEFAULT_OVERLAY_SETTINGS },
-  34 |   isOverlayVisible: false,
-  35 |   
-  36 |   updateTimerData: (data) => {
-  37 |     set((state) => ({
-  38 |       timerData: { ...state.timerData, ...data }
-  39 |     }));
-  40 |   },
-  41 |   
-  42 |   updatePlayerName: (player, name) => {
-  43 |     set((state) => ({
-  44 |       timerData: {
-  45 |         ...state.timerData,
-  46 |         [player === 1 ? 'player1Name' : 'player2Name']: name
-  47 |       }
-  48 |     }));
+   1 | import { create } from 'zustand'
+   2 | import { PreciseTimer } from '@/utils/timer'
+   3 | 
+   4 | type Status = 'stopped'|'running'|'paused'
+   5 | 
+   6 | const t1 = new PreciseTimer()
+   7 | const t2 = new PreciseTimer()
+   8 | 
+   9 | type S = {
+  10 |   active: 1|2
+  11 |   status: Record<1|2, Status>
+  12 |   clicks: Record<1|2, 0|1|2> // press cycles on F1 for the current pause → reset
+  13 |   select: (n:1|2)=>void
+  14 |   toggle: ()=>void // F1 behavior
+  15 |   reset: (n:1|2)=>void
+  16 |   elapsed: (n:1|2)=>number
+  17 | }
+  18 | 
+  19 | export const useTimerStore = create<S>((set, get) => ({
+  20 |   active: 1,
+  21 |   status: { 1: 'stopped', 2: 'stopped' },
+  22 |   clicks: { 1: 0, 2: 0 },
+  23 | 
+  24 |   select: (n) => set((s)=>({ active: n, clicks: { ...s.clicks, [n]: s.clicks[n] as 0|1|2 } })),
+  25 | 
+  26 |   toggle: () => {
+  27 |     const { active, status, clicks } = get()
+  28 |     const timer = active === 1 ? t1 : t2
+  29 |     if (status[active] === 'running') {
+  30 |       timer.pause()
+  31 |       set({ status: { ...status, [active]: 'paused' }, clicks: { ...clicks, [active]: 1 } })
+  32 |       return
+  33 |     }
+  34 |     if (status[active] === 'paused') {
+  35 |       // third press → reset
+  36 |       if (clicks[active] >= 1) {
+  37 |         timer.reset()
+  38 |         set({ status: { ...status, [active]: 'stopped' }, clicks: { ...clicks, [active]: 0 } })
+  39 |       } else {
+  40 |         // safety, but should not happen
+  41 |         timer.start()
+  42 |         set({ status: { ...status, [active]: 'running' }, clicks: { ...clicks, [active]: 0 } })
+  43 |       }
+  44 |       return
+  45 |     }
+  46 |     // stopped → start
+  47 |     timer.start()
+  48 |     set({ status: { ...status, [active]: 'running' }, clicks: { ...clicks, [active]: 0 } })
   49 |   },
-  50 |   
-  51 |   updatePlayerScore: (player, delta) => {
-  52 |     set((state) => {
-  53 |       const currentScore = player === 1 ? state.timerData.player1Score : state.timerData.player2Score;
-  54 |       const newScore = Math.max(0, currentScore + delta);
-  55 |       
-  56 |       return {
-  57 |         timerData: {
-  58 |           ...state.timerData,
-  59 |           [player === 1 ? 'player1Score' : 'player2Score']: newScore
-  60 |         }
-  61 |       };
-  62 |     });
-  63 |   },
-  64 |   
-  65 |   setTimerValue: (timer, value) => {
-  66 |     set((state) => ({
-  67 |       timerData: {
-  68 |         ...state.timerData,
-  69 |         [timer === 1 ? 'timer1Value' : 'timer2Value']: Math.max(0, value)
-  70 |       }
-  71 |     }));
-  72 |   },
-  73 |   
-  74 |   setCurrentTimer: (timer) => {
-  75 |     set((state) => ({
-  76 |       timerData: { ...state.timerData, currentTimer: timer }
-  77 |     }));
-  78 |   },
-  79 |   
-  80 |   setTimerRunning: (running) => {
-  81 |     set((state) => ({
-  82 |       timerData: { ...state.timerData, isRunning: running }
-  83 |     }));
-  84 |   },
-  85 |   
-  86 |   swapTimer: () => {
-  87 |     set((state) => ({
-  88 |       timerData: {
-  89 |         ...state.timerData,
-  90 |         currentTimer: state.timerData.currentTimer === 1 ? 2 : 1,
-  91 |         isRunning: false
-  92 |       }
-  93 |     }));
-  94 |   },
-  95 |   
-  96 |   resetTimer: (timer) => {
-  97 |     set((state) => {
-  98 |       if (timer) {
-  99 |         return {
- 100 |           timerData: {
- 101 |             ...state.timerData,
- 102 |             [timer === 1 ? 'timer1Value' : 'timer2Value']: 0,
- 103 |             isRunning: false
- 104 |           }
- 105 |         };
- 106 |       } else {
- 107 |         return {
- 108 |           timerData: {
- 109 |             ...state.timerData,
- 110 |             [state.timerData.currentTimer === 1 ? 'timer1Value' : 'timer2Value']: 0,
- 111 |             isRunning: false
- 112 |           }
- 113 |         };
- 114 |       }
- 115 |     });
- 116 |   },
- 117 |   
- 118 |   resetAllTimers: () => {
- 119 |     set((state) => ({
- 120 |       timerData: {
- 121 |         ...state.timerData,
- 122 |         timer1Value: 0,
- 123 |         timer2Value: 0,
- 124 |         player1Score: 0,
- 125 |         player2Score: 0,
- 126 |         currentTimer: 1,
- 127 |         isRunning: false
- 128 |       }
- 129 |     }));
- 130 |   },
- 131 |   
- 132 |   updateHotkeys: (hotkeys) => {
- 133 |     set((state) => ({
- 134 |       timerData: {
- 135 |         ...state.timerData,
- 136 |         ...(hotkeys.start && { startHotkey: hotkeys.start }),
- 137 |         ...(hotkeys.swap && { swapHotkey: hotkeys.swap })
- 138 |       }
- 139 |     }));
- 140 |   },
- 141 |   
- 142 |   updateStyle: (style) => {
- 143 |     set((state) => ({
- 144 |       timerData: { ...state.timerData, style }
- 145 |     }));
- 146 |   },
- 147 |   
- 148 |   updateOverlaySettings: (settings) => {
- 149 |     set((state) => ({
- 150 |       overlaySettings: { ...state.overlaySettings, ...settings }
- 151 |     }));
- 152 |   },
- 153 |   
- 154 |   setOverlayVisible: (visible) => {
- 155 |     set({ isOverlayVisible: visible });
- 156 |   },
- 157 |   
- 158 |   toggleOverlayLock: () => {
- 159 |     set((state) => ({
- 160 |       overlaySettings: {
- 161 |         ...state.overlaySettings,
- 162 |         locked: !state.overlaySettings.locked
- 163 |       }
- 164 |     }));
- 165 |   },
- 166 |   
- 167 |   updateOverlayScale: (scale) => {
- 168 |     set((state) => ({
- 169 |       overlaySettings: { ...state.overlaySettings, scale }
- 170 |     }));
- 171 |   },
- 172 |   
- 173 |   loadFromStorage: async () => {
- 174 |     if (typeof window === 'undefined') return;
- 175 |     
- 176 |     try {
- 177 |       // Load from localStorage first
- 178 |       const savedData = localStorage.getItem('dbd-timer-data');
- 179 |       const savedSettings = localStorage.getItem('dbd-overlay-settings');
- 180 |       
- 181 |       if (savedData) {
- 182 |         const timerData = JSON.parse(savedData);
- 183 |         set((state) => ({
- 184 |           timerData: { ...state.timerData, ...timerData }
- 185 |         }));
- 186 |       }
- 187 |       
- 188 |       if (savedSettings) {
- 189 |         const overlaySettings = JSON.parse(savedSettings);
- 190 |         set((state) => ({
- 191 |           overlaySettings: { ...state.overlaySettings, ...overlaySettings }
- 192 |         }));
- 193 |       }
- 194 | 
- 195 |       // Load from Electron store if available
- 196 |       if (window.electronAPI) {
- 197 |         try {
- 198 |           const electronTimerData = await window.electronAPI.store.get('timerData');
- 199 |           const electronOverlaySettings = await window.electronAPI.store.get('overlaySettings');
- 200 |           
- 201 |           if (electronTimerData) {
- 202 |             set((state) => ({
- 203 |               timerData: { ...state.timerData, ...electronTimerData }
- 204 |             }));
- 205 |           }
- 206 |           
- 207 |           if (electronOverlaySettings) {
- 208 |             set((state) => ({
- 209 |               overlaySettings: { ...state.overlaySettings, ...electronOverlaySettings }
- 210 |             }));
- 211 |           }
- 212 |         } catch (error) {
- 213 |           console.warn('Failed to load from Electron store:', error);
- 214 |         }
- 215 |       }
- 216 |     } catch (error) {
- 217 |       console.warn('Failed to load data from storage:', error);
- 218 |     }
- 219 |   },
- 220 |   
- 221 |   saveToStorage: () => {
- 222 |     if (typeof window === 'undefined') return;
- 223 |     
- 224 |     try {
- 225 |       const { timerData, overlaySettings } = get();
- 226 |       localStorage.setItem('dbd-timer-data', JSON.stringify(timerData));
- 227 |       localStorage.setItem('dbd-overlay-settings', JSON.stringify(overlaySettings));
- 228 |       
- 229 |       if (window.electronAPI) {
- 230 |         window.electronAPI.timer.syncData(timerData);
- 231 |         window.electronAPI.store.set('timerData', timerData);
- 232 |         window.electronAPI.store.set('overlaySettings', overlaySettings);
- 233 |       }
- 234 |     } catch (error) {
- 235 |       console.warn('Failed to save data to storage:', error);
- 236 |     }
- 237 |   }
- 238 | }));
+  50 | 
+  51 |   reset: (n) => {
+  52 |     (n===1?t1:t2).reset()
+  53 |     set((s)=>({ status: { ...s.status, [n]: 'stopped' }, clicks: { ...s.clicks, [n]: 0 } }))
+  54 |   },
+  55 | 
+  56 |   elapsed: (n) => (n===1?t1:t2).elapsedMs
+  57 | }))
+
+```
+
+`dbdoverlaytools-free/src\themes\default.css`:
+
+```css
+   1 | /* === Default Theme === */
+   2 | .timer-overlay {
+   3 |   display: grid;
+   4 |   grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr);
+   5 |   grid-template-rows: 50px 1fr;
+   6 |   width: 520px;
+   7 |   height: 120px;
+   8 |   position: relative;
+   9 | }
+  10 | 
+  11 | .drag-handle {
+  12 |   position: absolute; top: 0; left: 0; right: 0; height: 30px;
+  13 |   background: linear-gradient(90deg, rgba(181,121,255,0.15) 0%, rgba(181,121,255,0.25) 50%, rgba(181,121,255,0.15) 100%);
+  14 |   border-bottom: 2px solid rgba(181,121,255,0.4);
+  15 |   box-shadow: 0 2px 10px rgba(181,121,255,0.3);
+  16 |   display: none; align-items: center; justify-content: center;
+  17 |   cursor: move; -webkit-app-region: drag;
+  18 |   font-size: 0.85rem; color: #B579FF; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+  19 |   z-index: 1000;
+  20 | }
+  21 | .drag-handle.visible { display: flex; }
+  22 | 
+  23 | .name, .score-value {
+  24 |   border-bottom: 1px solid rgba(255,255,255,0.32);
+  25 |   background: linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%);
+  26 |   display: flex; align-items: center; justify-content: center;
+  27 |   font-family: 'Poppins', system-ui, sans-serif;
+  28 |   font-size: 22px; font-weight: 500; color: #FFF;
+  29 |   position: relative; overflow: hidden;
+  30 | }
+  31 | .name.left { grid-row: 1; grid-column: 1; font-size: 24px; text-transform: uppercase; text-shadow: 0 0 6px rgba(255,255,255,0.50); }
+  32 | .score-value { 
+  33 |   grid-row: 1; grid-column: 2; font-size: 24px; text-transform: uppercase;
+  34 |   background: linear-gradient(90deg, #274B90 0.06%, #09327E 40.01%, #04296F 79.97%);
+  35 |   padding: 0 15px; min-width: 90px; max-width: 120px;
+  36 | }
+  37 | .name.right { grid-row: 1; grid-column: 3; font-size: 24px; text-transform: uppercase; text-shadow: 0 0 6px rgba(255,255,255,0.50); }
+  38 | 
+  39 | .name .name-scroll { display: inline-block; white-space: nowrap; padding: 0 15px; }
+  40 | .name.scrolling .name-scroll { animation: scroll-text 6s linear infinite; padding: 0 50px; }
+  41 | @keyframes scroll-text { 0%{transform:translateX(80%)} 100%{transform:translateX(-80%)} }
+  42 | 
+  43 | .timer {
+  44 |   display: flex; align-items: center; justify-content: center;
+  45 |   font-family: "Consolas","Monaco","Courier New",monospace;
+  46 |   font-size: 32px; font-weight: 400;
+  47 |   text-shadow: 0 0 6px rgba(190,190,190,0.50);
+  48 |   position: relative; height: 100%; text-align: center; min-width: 160px;
+  49 | }
+  50 | .timer.left { grid-row: 2; grid-column: 1; }
+  51 | .timer.right { grid-row: 2; grid-column: 3; }
+  52 | 
+  53 | .timer-text { display: inline-flex; align-items: center; background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
+  54 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  55 | .timer-char { display: inline-block; width: 22px; text-align: center;
+  56 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  57 | .timer-char.separator { width: 11px; }
+  58 | 
+  59 | .timer.active::before {
+  60 |   content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+  61 |   background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
+  62 |   animation: pulseBar 1s ease-in-out infinite;
+  63 | }
+  64 | @keyframes pulseBar { 0%,100%{opacity:.5} 50%{opacity:1} }
+  65 | 
+  66 | .dbd-digits { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: 0.02em; }
+
+```
+
+`dbdoverlaytools-free/src\types\global.d.ts`:
+
+```ts
+   1 | import type { TimerData } from './index';
+   2 | 
+   3 | declare global {
+   4 |   interface Window {
+   5 |     electronAPI?: {
+   6 |       store: {
+   7 |         get: (key: string) => Promise<any>;
+   8 |         set: (key: string, value: any) => Promise<void>;
+   9 |       };
+  10 |       overlay: {
+  11 |         show: () => Promise<{ success: boolean; error?: string }>;
+  12 |         hide: () => Promise<{ success: boolean; error?: string }>;
+  13 |         updateSettings: (settings: any) => Promise<void>;
+  14 |         styleChange: (style: any) => Promise<void>;
+  15 |         onDataSync: (callback: (data: TimerData) => void) => () => void;
+  16 |         onStyleChange: (callback: (style: any) => void) => () => void;
+  17 |         onReady: (callback: (isReady: boolean) => void) => () => void;
+  18 |       };
+  19 |       timer: {
+  20 |         syncData: (data: TimerData) => Promise<void>;
+  21 |       };
+  22 |       hotkeys: {
+  23 |         register: (hotkeys: { start: string; swap: string }) => Promise<void>;
+  24 |         onPressed: (callback: (action: string) => void) => () => void;
+  25 |       };
+  26 |       removeAllListeners: () => void;
+  27 |     };
+  28 |   }
+  29 | }
 
 ```
 
 `dbdoverlaytools-free/src\types\index.ts`:
 
 ```ts
-   1 | // src/types/index.ts - Types TypeScript
-   2 | export interface TimerData {
-   3 |   player1Name: string;
-   4 |   player2Name: string;
-   5 |   player1Score: number;
-   6 |   player2Score: number;
-   7 |   timer1Value: number; // milliseconds
-   8 |   timer2Value: number; // milliseconds
-   9 |   currentTimer: 1 | 2;
-  10 |   isRunning: boolean;
-  11 |   startHotkey: string;
-  12 |   swapHotkey: string;
-  13 |   style: TimerStyle;
-  14 | }
-  15 | 
-  16 | export type TimerStyle = 'default' | 'minimal' | 'circular' | 'nostalgia';
-  17 | 
-  18 | export interface OverlaySettings {
-  19 |   baseWidth: number;
-  20 |   baseHeight: number;
-  21 |   scale: number;
-  22 |   x: number;
-  23 |   y: number;
-  24 |   locked: boolean;
-  25 |   alwaysOnTop: boolean;
-  26 | }
-  27 | 
-  28 | export interface TimerDisplayData {
-  29 |   timer1: string; // formatted time string
-  30 |   timer2: string; // formatted time string  
-  31 |   currentTimer: 1 | 2;
-  32 |   running: boolean;
-  33 | }
-  34 | 
-  35 | export interface AppState {
-  36 |   timerData: TimerData;
-  37 |   overlaySettings: OverlaySettings;
-  38 |   isOverlayVisible: boolean;
-  39 | }
-  40 | 
-  41 | // IPC Event types
-  42 | export interface IPCEvents {
-  43 |   // Timer events
-  44 |   'timer-start': () => void;
-  45 |   'timer-pause': () => void;
-  46 |   'timer-reset': () => void;
-  47 |   'timer-swap': () => void;
-  48 |   'timer-update-data': (data: Partial<TimerData>) => void;
-  49 |   'timer-update-display': (data: TimerDisplayData) => void;
-  50 |   'timer-style-change': (style: TimerStyle) => void;
-  51 |   
-  52 |   // Overlay events
-  53 |   'overlay-show': () => void;
-  54 |   'overlay-hide': () => void;
-  55 |   'overlay-settings-update': (settings: Partial<OverlaySettings>) => void;
-  56 |   'overlay-lock-toggle': (locked: boolean) => void;
-  57 |   
-  58 |   // Hotkey events
-  59 |   'hotkey-register': (hotkeys: { start: string; swap: string }) => void;
-  60 |   'hotkey-pressed': (action: 'start' | 'swap') => void;
-  61 |   
-  62 |   // Window events
-  63 |   'window-ready': () => void;
-  64 |   'app-quit': () => void;
-  65 | }
-  66 | 
-  67 | // Style-specific dimensions
-  68 | export interface StyleDimensions {
-  69 |   width: number;
-  70 |   height: number;
-  71 | }
-  72 | 
-  73 | export const STYLE_DIMENSIONS: Record<TimerStyle, StyleDimensions> = {
-  74 |   default: { width: 520, height: 120 },
-  75 |   minimal: { width: 400, height: 110 },
-  76 |   circular: { width: 420, height: 160 },
-  77 |   nostalgia: { width: 360, height: 80 }
-  78 | };
-  79 | 
-  80 | // Default values
-  81 | export const DEFAULT_TIMER_DATA: TimerData = {
-  82 |   player1Name: 'PLAYER 1',
-  83 |   player2Name: 'PLAYER 2', 
-  84 |   player1Score: 0,
-  85 |   player2Score: 0,
-  86 |   timer1Value: 0,
-  87 |   timer2Value: 0,
-  88 |   currentTimer: 1,
-  89 |   isRunning: false,
-  90 |   startHotkey: 'F1',
-  91 |   swapHotkey: 'F2',
-  92 |   style: 'default'
-  93 | };
-  94 | 
-  95 | export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
-  96 |   baseWidth: 520,
-  97 |   baseHeight: 120,
-  98 |   scale: 100,
-  99 |   x: 100,
- 100 |   y: 100,
- 101 |   locked: false,
- 102 |   alwaysOnTop: true
- 103 | };
+   1 | export interface TimerData {
+   2 |   player1Name: string;
+   3 |   player2Name: string;
+   4 |   player1Score: number;
+   5 |   player2Score: number;
+   6 | 
+   7 |   timer1Value: number;
+   8 |   timer2Value: number;
+   9 | 
+  10 |   selectedTimer: TimerId;
+  11 |   currentTimer: TimerId;
+  12 |   isRunning: boolean;
+  13 | 
+  14 |   timer1ClickCount: number;
+  15 |   timer2ClickCount: number;
+  16 | 
+  17 |   startHotkey: string;
+  18 |   swapHotkey: string;
+  19 | 
+  20 |   hotkeys?: { start: string; swap: string };
+  21 | }
+  22 | 
+  23 | export type TimerId = 1 | 2;
+  24 | 
+  25 | export interface OverlaySettings {
+  26 |   baseWidth: number;
+  27 |   baseHeight: number;
+  28 |   scale: number;
+  29 |   x: number;
+  30 |   y: number;
+  31 |   locked: boolean;
+  32 |   alwaysOnTop: boolean;
+  33 |   width?: number;
+  34 |   height?: number;
+  35 | }
+  36 | 
+  37 | export interface AppState {
+  38 |   timerData: TimerData;
+  39 |   overlaySettings: OverlaySettings;
+  40 |   isOverlayVisible: boolean;
+  41 | }
+  42 | 
+  43 | export interface IPCResponse {
+  44 |   success: boolean;
+  45 |   error?: string;
+  46 |   data?: any;
+  47 | }
+  48 | 
+  49 | export interface ElectronAPI {
+  50 |   store: {
+  51 |     get: (key: string) => Promise<any>;
+  52 |     set: (key: string, value: any) => Promise<void>;
+  53 |   };
+  54 |   
+  55 |   overlay: {
+  56 |     show: () => Promise<IPCResponse>;
+  57 |     hide: () => Promise<IPCResponse>;
+  58 |     updateSettings: (settings: Partial<OverlaySettings>) => Promise<IPCResponse>;
+  59 |     
+  60 |     onDataSync: (callback: (data: TimerData) => void) => () => void;
+  61 |     onReady: (callback: (isReady: boolean) => void) => () => void;
+  62 |   };
+  63 |   
+  64 |   timer: {
+  65 |     syncData: (data: TimerData) => Promise<IPCResponse>;
+  66 |   };
+  67 |   
+  68 |   hotkeys: {
+  69 |     register: (hotkeys: { start: string; swap: string }) => Promise<IPCResponse>;
+  70 |     onPressed: (callback: (action: 'start' | 'swap') => void) => () => void;
+  71 |   };
+  72 |   
+  73 |   removeAllListeners: () => void;
+  74 | }
+  75 | 
+  76 | declare global {
+  77 |   interface Window {
+  78 |     electronAPI?: ElectronAPI;
+  79 |   }
+  80 | }
+
+```
+
+`dbdoverlaytools-free/src\types\preload.d.ts`:
+
+```ts
+   1 | export {}
+   2 | declare global {
+   3 |   interface Window {
+   4 |     api: {
+   5 |       overlay: {
+   6 |         show(): Promise<any>
+   7 |         hide(): Promise<any>
+   8 |         updateSettings(s: any): Promise<any>
+   9 |         onReady(cb: (v: boolean) => void): void
+  10 |         onSettings(cb: (s: any) => void): void
+  11 |         measure(w: number, h: number): Promise<any>
+  12 |       }
+  13 |       timer: {
+  14 |         get(): Promise<any>
+  15 |         set(d: any): Promise<any>
+  16 |         onSync(cb: (d: any) => void): void
+  17 |       }
+  18 |       hotkeys: {
+  19 |         get(): Promise<{start:number|null, swap:number|null, startLabel?:string, swapLabel?:string, mode?:'pass-through'|'fallback'}>
+  20 |         set(hk: {start?:number|null, swap?:number|null}): Promise<any>
+  21 |         capture(type:'start'|'swap'): Promise<any>
+  22 |         onCaptured(cb: (p:{type:'start'|'swap', keycode?:number|null, label?:string}) => void): void
+  23 |         on(cb: (p: any) => void): void
+  24 |         onMode(cb: (mode:'pass-through'|'fallback') => void): void
+  25 |       }
+  26 |     }
+  27 |   }
+  28 | }
 
 ```
 
@@ -2853,265 +1823,77 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\utils\timer.ts`:
 
 ```ts
-   1 | // src/utils/timer.ts - Utilitaires Timer
-   2 | 
-   3 | /**
-   4 |  * Formats milliseconds to MM:SS.T format
-   5 |  * @param milliseconds - Time in milliseconds
-   6 |  * @returns Formatted time string (e.g., "1:23.4")
-   7 |  */
-   8 | export function formatTime(milliseconds: number): string {
-   9 |   const totalSeconds = Math.floor(milliseconds / 1000);
-  10 |   const minutes = Math.floor(totalSeconds / 60);
-  11 |   const seconds = totalSeconds % 60;
-  12 |   const tenths = Math.floor((milliseconds % 1000) / 100);
-  13 |   
-  14 |   return `${minutes}:${seconds.toString().padStart(2, '0')}.${tenths}`;
-  15 | }
-  16 | 
-  17 | /**
-  18 |  * Parses a formatted time string to milliseconds
-  19 |  * @param timeString - Time string in MM:SS.T format
-  20 |  * @returns Time in milliseconds
-  21 |  */
-  22 | export function parseTimeToMs(timeString: string): number {
-  23 |   const parts = timeString.match(/(\d+):(\d{2})\.(\d)/);
-  24 |   if (!parts) return 0;
-  25 |   
-  26 |   const minutes = parseInt(parts[1]);
-  27 |   const seconds = parseInt(parts[2]);
-  28 |   const tenths = parseInt(parts[3]);
-  29 |   
-  30 |   return (minutes * 60 * 1000) + (seconds * 1000) + (tenths * 100);
-  31 | }
-  32 | 
-  33 | /**
-  34 |  * Timer hook for managing precise timing with requestAnimationFrame
-  35 |  */
-  36 | export class PreciseTimer {
-  37 |   private startTime: number = 0;
-  38 |   private initialValue: number = 0;
-  39 |   private animationId: number | null = null;
-  40 |   private intervalId: number | null = null;
-  41 |   private isRunning: boolean = false;
-  42 |   private onUpdate: (value: number) => void;
-  43 |   private lastUpdateTime: number = 0;
-  44 | 
-  45 |   constructor(onUpdate: (value: number) => void) {
-  46 |     this.onUpdate = onUpdate;
-  47 |   }
-  48 | 
-  49 |   start(initialValue: number = 0) {
-  50 |     if (this.isRunning) return;
-  51 |     
-  52 |     this.startTime = Date.now();
-  53 |     this.initialValue = initialValue;
-  54 |     this.isRunning = true;
-  55 |     this.lastUpdateTime = 0;
-  56 | 
-  57 |     // Use requestAnimationFrame for smooth updates
-  58 |     const updateTimer = () => {
-  59 |       if (!this.isRunning) return;
-  60 | 
-  61 |       const now = Date.now();
-  62 |       const elapsed = now - this.startTime;
-  63 |       const currentValue = this.initialValue + elapsed;
-  64 | 
-  65 |       // Only update display every 100ms to avoid excessive updates
-  66 |       if (now - this.lastUpdateTime >= 100) {
-  67 |         this.onUpdate(currentValue);
-  68 |         this.lastUpdateTime = now;
-  69 |       }
-  70 | 
-  71 |       this.animationId = requestAnimationFrame(updateTimer);
-  72 |     };
-  73 | 
-  74 |     updateTimer();
-  75 | 
-  76 |     // Backup interval for when window is minimized
-  77 |     this.intervalId = window.setInterval(() => {
-  78 |       if (this.isRunning) {
-  79 |         const now = Date.now();
-  80 |         const elapsed = now - this.startTime;
-  81 |         const currentValue = this.initialValue + elapsed;
-  82 |         this.onUpdate(currentValue);
-  83 |       }
-  84 |     }, 100);
-  85 |   }
-  86 | 
-  87 |   pause(): number {
-  88 |     if (!this.isRunning) return this.initialValue;
-  89 | 
-  90 |     const now = Date.now();
-  91 |     const elapsed = now - this.startTime;
-  92 |     const finalValue = this.initialValue + elapsed;
-  93 | 
-  94 |     this.stop();
-  95 |     return finalValue;
-  96 |   }
-  97 | 
-  98 |   stop() {
-  99 |     this.isRunning = false;
- 100 | 
- 101 |     if (this.animationId) {
- 102 |       cancelAnimationFrame(this.animationId);
- 103 |       this.animationId = null;
- 104 |     }
- 105 | 
- 106 |     if (this.intervalId) {
- 107 |       clearInterval(this.intervalId);
- 108 |       this.intervalId = null;
- 109 |     }
- 110 |   }
- 111 | 
- 112 |   reset() {
- 113 |     this.stop();
- 114 |     this.initialValue = 0;
- 115 |     this.onUpdate(0);
- 116 |   }
- 117 | 
- 118 |   get running(): boolean {
- 119 |     return this.isRunning;
- 120 |   }
- 121 | 
- 122 |   get currentValue(): number {
- 123 |     if (!this.isRunning) return this.initialValue;
- 124 |     
- 125 |     const now = Date.now();
- 126 |     const elapsed = now - this.startTime;
- 127 |     return this.initialValue + elapsed;
- 128 |   }
- 129 | }
- 130 | 
- 131 | /**
- 132 |  * Validates and normalizes hotkey string
- 133 |  * @param hotkey - Raw hotkey string
- 134 |  * @returns Normalized hotkey string
- 135 |  */
- 136 | export function normalizeHotkey(hotkey: string): string {
- 137 |   const key = hotkey.trim().toLowerCase();
- 138 |   
- 139 |   // Handle function keys
- 140 |   if (key.startsWith('f') && key.length <= 3) {
- 141 |     const num = key.slice(1);
- 142 |     if (/^\d{1,2}$/.test(num)) {
- 143 |       return key.toUpperCase();
- 144 |     }
- 145 |   }
- 146 |   
- 147 |   // Handle single character keys
- 148 |   if (key.length === 1 && /[a-z0-9]/.test(key)) {
- 149 |     return key.toUpperCase();
- 150 |   }
- 151 |   
- 152 |   // Handle special keys
- 153 |   const specialKeys = ['space', 'enter', 'tab', 'escape', 'backspace'];
- 154 |   if (specialKeys.includes(key)) {
- 155 |     return key.charAt(0).toUpperCase() + key.slice(1);
- 156 |   }
- 157 |   
- 158 |   // Default return
- 159 |   return hotkey.toUpperCase();
- 160 | }
+   1 | export class PreciseTimer {
+   2 |   private _running = false;
+   3 |   private _startedAt = 0;
+   4 |   private _accum = 0;
+   5 | 
+   6 |   start() {
+   7 |     if (this._running) return;
+   8 |     this._startedAt = performance.now();
+   9 |     this._running = true;
+  10 |   }
+  11 |   pause() {
+  12 |     if (!this._running) return;
+  13 |     this._accum += performance.now() - this._startedAt;
+  14 |     this._running = false;
+  15 |   }
+  16 |   reset() {
+  17 |     this._running = false;
+  18 |     this._accum = 0;
+  19 |     this._startedAt = 0;
+  20 |   }
+  21 |   get running() { return this._running; }
+  22 |   get elapsedMs() {
+  23 |     return this._running ? this._accum + (performance.now() - this._startedAt) : this._accum;
+  24 |   }
+  25 | }
+  26 | 
+  27 | export function formatMillis(ms:number) {
+  28 |   // legacy "MM:SS:CC" — conservé si besoin ailleurs
+  29 |   const total = Math.max(0, Math.floor(ms));
+  30 |   const cs = Math.floor((total % 1000) / 10);
+  31 |   const secs = Math.floor(total / 1000) % 60;
+  32 |   const mins = Math.floor(total / 60000);
+  33 |   const pad = (n:number)=>n.toString().padStart(2,'0');
+  34 |   return `${pad(mins)}:${pad(secs)}:${pad(cs)}`;
+  35 | }
+  36 | 
+  37 | // Nouveau : dynamique
+  38 | export function formatMillisDynamic(ms:number) {
+  39 |   const total = Math.max(0, Math.floor(ms));
+  40 |   const cs = Math.floor((total % 1000) / 10);           // 0..99
+  41 |   const secs = Math.floor(total / 1000) % 60;           // 0..59
+  42 |   const mins = Math.floor(total / 60000);               // 0..∞
+  43 | 
+  44 |   const cs2 = cs.toString().padStart(2, '0');
+  45 |   if (mins > 0) {
+  46 |     const ss = secs.toString().padStart(2,'0');
+  47 |     return `${mins}:${ss}.${cs2}`;                      // M:SS.CC (minutes sans zéro superflu)
+  48 |   } else {
+  49 |     // pas de minutes → "S.CC" (et 0.00 au départ)
+  50 |     return `${secs}.${cs2}`;
+  51 |   }
+  52 | }
 
 ```
 
-`dbdoverlaytools-free/tailwind.config.js`:
+`dbdoverlaytools-free/tailwind.config.cjs`:
 
-```js
+```cjs
    1 | /** @type {import('tailwindcss').Config} */
-   2 | export default {
-   3 |   content: [
-   4 |     "./index.html",
-   5 |     "./overlay.html",
-   6 |     "./src/**/*.{js,ts,jsx,tsx}",
-   7 |   ],
-   8 |   theme: {
-   9 |     extend: {
-  10 |       colors: {
-  11 |         primary: {
-  12 |           50: '#f3f0ff',
-  13 |           100: '#e9e2ff',
-  14 |           200: '#d6cbff',
-  15 |           300: '#b8a4ff',
-  16 |           400: '#9571ff',
-  17 |           500: '#7046da',
-  18 |           600: '#5c37b8',
-  19 |           700: '#4c2e96',
-  20 |           800: '#3e2577',
-  21 |           900: '#2a175e',
-  22 |         },
-  23 |         success: {
-  24 |           50: '#f0fdf4',
-  25 |           100: '#dcfce7',
-  26 |           200: '#bbf7d0',
-  27 |           300: '#86efac',
-  28 |           400: '#4ade80',
-  29 |           500: '#44ff41',
-  30 |           600: '#16a34a',
-  31 |           700: '#15803d',
-  32 |           800: '#166534',
-  33 |           900: '#14532d',
-  34 |         },
-  35 |         info: {
-  36 |           50: '#f0f9ff',
-  37 |           100: '#e0f2fe',
-  38 |           200: '#bae6fd',
-  39 |           300: '#7dd3fc',
-  40 |           400: '#38bdf8',
-  41 |           500: '#5ac8ff',
-  42 |           600: '#0284c7',
-  43 |           700: '#0369a1',
-  44 |           800: '#075985',
-  45 |           900: '#0c4a6e',
-  46 |         },
-  47 |         danger: {
-  48 |           50: '#fef2f2',
-  49 |           100: '#fee2e2',
-  50 |           200: '#fecaca',
-  51 |           300: '#fca5a5',
-  52 |           400: '#f87171',
-  53 |           500: '#ff4141',
-  54 |           600: '#dc2626',
-  55 |           700: '#b91c1c',
-  56 |           800: '#991b1b',
-  57 |           900: '#7f1d1d',
-  58 |         }
-  59 |       },
-  60 |       fontFamily: {
-  61 |         'square': ['SquareFont', 'monospace'],
-  62 |         'poppins': ['Poppins', 'sans-serif'],
-  63 |         'russo': ['Russo One', 'sans-serif'],
-  64 |       },
-  65 |       animation: {
-  66 |         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
-  67 |         'scroll-text': 'scroll-text 6s linear infinite',
-  68 |         'warning-pulse': 'warning-pulse 0.5s ease-in-out infinite',
-  69 |       },
-  70 |       keyframes: {
-  71 |         'pulse-glow': {
-  72 |           '0%, 100%': { 
-  73 |             'background': 'linear-gradient(90deg, rgba(181, 121, 255, 0.15) 0%, rgba(181, 121, 255, 0.25) 50%, rgba(181, 121, 255, 0.15) 100%)',
-  74 |             'border-color': 'rgba(181, 121, 255, 0.4)'
-  75 |           },
-  76 |           '50%': { 
-  77 |             'background': 'linear-gradient(90deg, rgba(181, 121, 255, 0.25) 0%, rgba(181, 121, 255, 0.35) 50%, rgba(181, 121, 255, 0.25) 100%)',
-  78 |             'border-color': 'rgba(181, 121, 255, 0.6)'
-  79 |           }
-  80 |         },
-  81 |         'scroll-text': {
-  82 |           '0%': { transform: 'translateX(80%)' },
-  83 |           '100%': { transform: 'translateX(-80%)' }
-  84 |         },
-  85 |         'warning-pulse': {
-  86 |           '0%, 100%': { opacity: '1' },
-  87 |           '50%': { opacity: '0.7' }
-  88 |         }
-  89 |       }
-  90 |     },
-  91 |   },
-  92 |   plugins: [],
-  93 | }
+   2 | module.exports = {
+   3 |   content: ["./index.html", "./overlay.html", "./src/**/*.{ts,tsx}"],
+   4 |   theme: {
+   5 |     extend: {
+   6 |       fontFamily: {
+   7 |         ui: ['Inter', 'system-ui', 'Segoe UI', 'Roboto', 'Arial', 'sans-serif'],
+   8 |         mono: ['ui-monospace','SFMono-Regular','Menlo','Monaco','Consolas','Liberation Mono','monospace']
+   9 |       }
+  10 |     }
+  11 |   },
+  12 |   plugins: []
+  13 | };
 
 ```
 
@@ -3120,43 +1902,24 @@ dbdoverlaytools-free
 ```json
    1 | {
    2 |   "compilerOptions": {
-   3 |     "target": "ES2020",
+   3 |     "target": "ES2021",
    4 |     "useDefineForClassFields": true,
-   5 |     "lib": ["ES2020", "DOM", "DOM.Iterable"],
+   5 |     "lib": ["ES2021", "DOM"],
    6 |     "module": "ESNext",
    7 |     "skipLibCheck": true,
-   8 | 
-   9 |     /* Bundler mode */
-  10 |     "moduleResolution": "bundler",
-  11 |     "allowImportingTsExtensions": true,
-  12 |     "resolveJsonModule": true,
-  13 |     "isolatedModules": true,
-  14 |     "noEmit": true,
-  15 |     "jsx": "react-jsx",
-  16 | 
-  17 |     /* Linting */
-  18 |     "strict": true,
-  19 |     "noUnusedLocals": true,
-  20 |     "noUnusedParameters": true,
-  21 |     "noFallthroughCasesInSwitch": true,
-  22 | 
-  23 |     /* Path mapping */
-  24 |     "baseUrl": ".",
-  25 |     "paths": {
-  26 |       "@/*": ["src/*"],
-  27 |       "@/components/*": ["src/components/*"],
-  28 |       "@/stores/*": ["src/stores/*"],
-  29 |       "@/types/*": ["src/types/*"],
-  30 |       "@/utils/*": ["src/utils/*"]
-  31 |     }
-  32 |   },
-  33 |   "include": [
-  34 |     "src",
-  35 |     "electron",
-  36 |     "vite.config.ts"
-  37 |   ],
-  38 |   "references": [{ "path": "./tsconfig.node.json" }]
-  39 | }
+   8 |     "moduleResolution": "Bundler",
+   9 |     "resolveJsonModule": true,
+  10 |     "isolatedModules": true,
+  11 |     "noEmit": true,
+  12 |     "jsx": "react-jsx",
+  13 |     "baseUrl": ".",
+  14 |     "paths": {
+  15 |       "@/*": ["src/*"]
+  16 |     },
+  17 |     "types": ["vite/client", "node"]
+  18 |   },
+  19 |   "include": ["src", "electron", "vite.config.ts"]
+  20 | }
 
 ```
 
@@ -3178,32 +1941,25 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/vite.config.ts`:
+`dbdoverlaytools-free/vite.config.mts`:
 
-```ts
+```mts
    1 | import { defineConfig } from 'vite'
    2 | import react from '@vitejs/plugin-react'
-   3 | import { resolve } from 'path'
+   3 | import { fileURLToPath, URL } from 'node:url'
    4 | 
    5 | export default defineConfig({
    6 |   plugins: [react()],
-   7 |   base: './',
-   8 |   build: {
-   9 |     outDir: 'dist',
-  10 |     assetsDir: 'assets',
-  11 |     emptyOutDir: true,
-  12 |     rollupOptions: {
-  13 |       input: {
-  14 |         main: resolve(__dirname, 'index.html'),
-  15 |         overlay: resolve(__dirname, 'overlay.html')
-  16 |       }
-  17 |     }
-  18 |   },
-  19 |   server: {
-  20 |     port: 5173,
-  21 |     strictPort: true,
-  22 |     cors: true
-  23 |   }
-  24 | })
+   7 |   server: { port: 5173, strictPort: true },
+   8 |   resolve: {
+   9 |     alias: {
+  10 |       '@': fileURLToPath(new URL('./src', import.meta.url))
+  11 |     }
+  12 |   },
+  13 |   build: {
+  14 |     outDir: 'dist',
+  15 |     sourcemap: true
+  16 |   }
+  17 | })
 
 ```

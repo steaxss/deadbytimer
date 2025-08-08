@@ -1,19 +1,26 @@
-// src/types/index.ts - Types TypeScript
 export interface TimerData {
   player1Name: string;
   player2Name: string;
   player1Score: number;
   player2Score: number;
-  timer1Value: number; // milliseconds
-  timer2Value: number; // milliseconds
-  currentTimer: 1 | 2;
+
+  timer1Value: number;
+  timer2Value: number;
+
+  selectedTimer: TimerId;
+  currentTimer: TimerId;
   isRunning: boolean;
+
+  timer1ClickCount: number;
+  timer2ClickCount: number;
+
   startHotkey: string;
   swapHotkey: string;
-  style: TimerStyle;
+
+  hotkeys?: { start: string; swap: string };
 }
 
-export type TimerStyle = 'default' | 'minimal' | 'circular' | 'nostalgia';
+export type TimerId = 1 | 2;
 
 export interface OverlaySettings {
   baseWidth: number;
@@ -23,13 +30,8 @@ export interface OverlaySettings {
   y: number;
   locked: boolean;
   alwaysOnTop: boolean;
-}
-
-export interface TimerDisplayData {
-  timer1: string; // formatted time string
-  timer2: string; // formatted time string  
-  currentTimer: 1 | 2;
-  running: boolean;
+  width?: number;
+  height?: number;
 }
 
 export interface AppState {
@@ -38,66 +40,41 @@ export interface AppState {
   isOverlayVisible: boolean;
 }
 
-// IPC Event types
-export interface IPCEvents {
-  // Timer events
-  'timer-start': () => void;
-  'timer-pause': () => void;
-  'timer-reset': () => void;
-  'timer-swap': () => void;
-  'timer-update-data': (data: Partial<TimerData>) => void;
-  'timer-update-display': (data: TimerDisplayData) => void;
-  'timer-style-change': (style: TimerStyle) => void;
-  
-  // Overlay events
-  'overlay-show': () => void;
-  'overlay-hide': () => void;
-  'overlay-settings-update': (settings: Partial<OverlaySettings>) => void;
-  'overlay-lock-toggle': (locked: boolean) => void;
-  
-  // Hotkey events
-  'hotkey-register': (hotkeys: { start: string; swap: string }) => void;
-  'hotkey-pressed': (action: 'start' | 'swap') => void;
-  
-  // Window events
-  'window-ready': () => void;
-  'app-quit': () => void;
+export interface IPCResponse {
+  success: boolean;
+  error?: string;
+  data?: any;
 }
 
-// Style-specific dimensions
-export interface StyleDimensions {
-  width: number;
-  height: number;
+export interface ElectronAPI {
+  store: {
+    get: (key: string) => Promise<any>;
+    set: (key: string, value: any) => Promise<void>;
+  };
+  
+  overlay: {
+    show: () => Promise<IPCResponse>;
+    hide: () => Promise<IPCResponse>;
+    updateSettings: (settings: Partial<OverlaySettings>) => Promise<IPCResponse>;
+    
+    onDataSync: (callback: (data: TimerData) => void) => () => void;
+    onReady: (callback: (isReady: boolean) => void) => () => void;
+  };
+  
+  timer: {
+    syncData: (data: TimerData) => Promise<IPCResponse>;
+  };
+  
+  hotkeys: {
+    register: (hotkeys: { start: string; swap: string }) => Promise<IPCResponse>;
+    onPressed: (callback: (action: 'start' | 'swap') => void) => () => void;
+  };
+  
+  removeAllListeners: () => void;
 }
 
-export const STYLE_DIMENSIONS: Record<TimerStyle, StyleDimensions> = {
-  default: { width: 520, height: 120 },
-  minimal: { width: 400, height: 110 },
-  circular: { width: 420, height: 160 },
-  nostalgia: { width: 360, height: 80 }
-};
-
-// Default values
-export const DEFAULT_TIMER_DATA: TimerData = {
-  player1Name: 'PLAYER 1',
-  player2Name: 'PLAYER 2', 
-  player1Score: 0,
-  player2Score: 0,
-  timer1Value: 0,
-  timer2Value: 0,
-  currentTimer: 1,
-  isRunning: false,
-  startHotkey: 'F1',
-  swapHotkey: 'F2',
-  style: 'default'
-};
-
-export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
-  baseWidth: 520,
-  baseHeight: 120,
-  scale: 100,
-  x: 100,
-  y: 100,
-  locked: false,
-  alwaysOnTop: true
-};
+declare global {
+  interface Window {
+    electronAPI?: ElectronAPI;
+  }
+}

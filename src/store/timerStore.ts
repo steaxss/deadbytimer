@@ -1,238 +1,57 @@
-// src/store/timerStore.ts - Store Zustand
-import { create } from 'zustand';
-import { TimerData, OverlaySettings, TimerStyle, DEFAULT_TIMER_DATA, DEFAULT_OVERLAY_SETTINGS } from '../types';
+import { create } from 'zustand'
+import { PreciseTimer } from '@/utils/timer'
 
-interface TimerStore {
-  timerData: TimerData;
-  overlaySettings: OverlaySettings;
-  isOverlayVisible: boolean;
-  
-  updateTimerData: (data: Partial<TimerData>) => void;
-  updatePlayerName: (player: 1 | 2, name: string) => void;
-  updatePlayerScore: (player: 1 | 2, delta: number) => void;
-  setTimerValue: (timer: 1 | 2, value: number) => void;
-  setCurrentTimer: (timer: 1 | 2) => void;
-  setTimerRunning: (running: boolean) => void;
-  swapTimer: () => void;
-  resetTimer: (timer?: 1 | 2) => void;
-  resetAllTimers: () => void;
-  updateHotkeys: (hotkeys: { start?: string; swap?: string }) => void;
-  updateStyle: (style: TimerStyle) => void;
-  
-  updateOverlaySettings: (settings: Partial<OverlaySettings>) => void;
-  setOverlayVisible: (visible: boolean) => void;
-  toggleOverlayLock: () => void;
-  updateOverlayScale: (scale: number) => void;
-  
-  loadFromStorage: () => void;
-  saveToStorage: () => void;
+type Status = 'stopped'|'running'|'paused'
+
+const t1 = new PreciseTimer()
+const t2 = new PreciseTimer()
+
+type S = {
+  active: 1|2
+  status: Record<1|2, Status>
+  clicks: Record<1|2, 0|1|2> // press cycles on F1 for the current pause → reset
+  select: (n:1|2)=>void
+  toggle: ()=>void // F1 behavior
+  reset: (n:1|2)=>void
+  elapsed: (n:1|2)=>number
 }
 
-export const useTimerStore = create<TimerStore>((set, get) => ({
-  timerData: { ...DEFAULT_TIMER_DATA },
-  overlaySettings: { ...DEFAULT_OVERLAY_SETTINGS },
-  isOverlayVisible: false,
-  
-  updateTimerData: (data) => {
-    set((state) => ({
-      timerData: { ...state.timerData, ...data }
-    }));
-  },
-  
-  updatePlayerName: (player, name) => {
-    set((state) => ({
-      timerData: {
-        ...state.timerData,
-        [player === 1 ? 'player1Name' : 'player2Name']: name
-      }
-    }));
-  },
-  
-  updatePlayerScore: (player, delta) => {
-    set((state) => {
-      const currentScore = player === 1 ? state.timerData.player1Score : state.timerData.player2Score;
-      const newScore = Math.max(0, currentScore + delta);
-      
-      return {
-        timerData: {
-          ...state.timerData,
-          [player === 1 ? 'player1Score' : 'player2Score']: newScore
-        }
-      };
-    });
-  },
-  
-  setTimerValue: (timer, value) => {
-    set((state) => ({
-      timerData: {
-        ...state.timerData,
-        [timer === 1 ? 'timer1Value' : 'timer2Value']: Math.max(0, value)
-      }
-    }));
-  },
-  
-  setCurrentTimer: (timer) => {
-    set((state) => ({
-      timerData: { ...state.timerData, currentTimer: timer }
-    }));
-  },
-  
-  setTimerRunning: (running) => {
-    set((state) => ({
-      timerData: { ...state.timerData, isRunning: running }
-    }));
-  },
-  
-  swapTimer: () => {
-    set((state) => ({
-      timerData: {
-        ...state.timerData,
-        currentTimer: state.timerData.currentTimer === 1 ? 2 : 1,
-        isRunning: false
-      }
-    }));
-  },
-  
-  resetTimer: (timer) => {
-    set((state) => {
-      if (timer) {
-        return {
-          timerData: {
-            ...state.timerData,
-            [timer === 1 ? 'timer1Value' : 'timer2Value']: 0,
-            isRunning: false
-          }
-        };
-      } else {
-        return {
-          timerData: {
-            ...state.timerData,
-            [state.timerData.currentTimer === 1 ? 'timer1Value' : 'timer2Value']: 0,
-            isRunning: false
-          }
-        };
-      }
-    });
-  },
-  
-  resetAllTimers: () => {
-    set((state) => ({
-      timerData: {
-        ...state.timerData,
-        timer1Value: 0,
-        timer2Value: 0,
-        player1Score: 0,
-        player2Score: 0,
-        currentTimer: 1,
-        isRunning: false
-      }
-    }));
-  },
-  
-  updateHotkeys: (hotkeys) => {
-    set((state) => ({
-      timerData: {
-        ...state.timerData,
-        ...(hotkeys.start && { startHotkey: hotkeys.start }),
-        ...(hotkeys.swap && { swapHotkey: hotkeys.swap })
-      }
-    }));
-  },
-  
-  updateStyle: (style) => {
-    set((state) => ({
-      timerData: { ...state.timerData, style }
-    }));
-  },
-  
-  updateOverlaySettings: (settings) => {
-    set((state) => ({
-      overlaySettings: { ...state.overlaySettings, ...settings }
-    }));
-  },
-  
-  setOverlayVisible: (visible) => {
-    set({ isOverlayVisible: visible });
-  },
-  
-  toggleOverlayLock: () => {
-    set((state) => ({
-      overlaySettings: {
-        ...state.overlaySettings,
-        locked: !state.overlaySettings.locked
-      }
-    }));
-  },
-  
-  updateOverlayScale: (scale) => {
-    set((state) => ({
-      overlaySettings: { ...state.overlaySettings, scale }
-    }));
-  },
-  
-  loadFromStorage: async () => {
-    if (typeof window === 'undefined') return;
-    
-    try {
-      // Load from localStorage first
-      const savedData = localStorage.getItem('dbd-timer-data');
-      const savedSettings = localStorage.getItem('dbd-overlay-settings');
-      
-      if (savedData) {
-        const timerData = JSON.parse(savedData);
-        set((state) => ({
-          timerData: { ...state.timerData, ...timerData }
-        }));
-      }
-      
-      if (savedSettings) {
-        const overlaySettings = JSON.parse(savedSettings);
-        set((state) => ({
-          overlaySettings: { ...state.overlaySettings, ...overlaySettings }
-        }));
-      }
+export const useTimerStore = create<S>((set, get) => ({
+  active: 1,
+  status: { 1: 'stopped', 2: 'stopped' },
+  clicks: { 1: 0, 2: 0 },
 
-      // Load from Electron store if available
-      if (window.electronAPI) {
-        try {
-          const electronTimerData = await window.electronAPI.store.get('timerData');
-          const electronOverlaySettings = await window.electronAPI.store.get('overlaySettings');
-          
-          if (electronTimerData) {
-            set((state) => ({
-              timerData: { ...state.timerData, ...electronTimerData }
-            }));
-          }
-          
-          if (electronOverlaySettings) {
-            set((state) => ({
-              overlaySettings: { ...state.overlaySettings, ...electronOverlaySettings }
-            }));
-          }
-        } catch (error) {
-          console.warn('Failed to load from Electron store:', error);
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to load data from storage:', error);
+  select: (n) => set((s)=>({ active: n, clicks: { ...s.clicks, [n]: s.clicks[n] as 0|1|2 } })),
+
+  toggle: () => {
+    const { active, status, clicks } = get()
+    const timer = active === 1 ? t1 : t2
+    if (status[active] === 'running') {
+      timer.pause()
+      set({ status: { ...status, [active]: 'paused' }, clicks: { ...clicks, [active]: 1 } })
+      return
     }
+    if (status[active] === 'paused') {
+      // third press → reset
+      if (clicks[active] >= 1) {
+        timer.reset()
+        set({ status: { ...status, [active]: 'stopped' }, clicks: { ...clicks, [active]: 0 } })
+      } else {
+        // safety, but should not happen
+        timer.start()
+        set({ status: { ...status, [active]: 'running' }, clicks: { ...clicks, [active]: 0 } })
+      }
+      return
+    }
+    // stopped → start
+    timer.start()
+    set({ status: { ...status, [active]: 'running' }, clicks: { ...clicks, [active]: 0 } })
   },
-  
-  saveToStorage: () => {
-    if (typeof window === 'undefined') return;
-    
-    try {
-      const { timerData, overlaySettings } = get();
-      localStorage.setItem('dbd-timer-data', JSON.stringify(timerData));
-      localStorage.setItem('dbd-overlay-settings', JSON.stringify(overlaySettings));
-      
-      if (window.electronAPI) {
-        window.electronAPI.timer.syncData(timerData);
-        window.electronAPI.store.set('timerData', timerData);
-        window.electronAPI.store.set('overlaySettings', overlaySettings);
-      }
-    } catch (error) {
-      console.warn('Failed to save data to storage:', error);
-    }
-  }
-}));
+
+  reset: (n) => {
+    (n===1?t1:t2).reset()
+    set((s)=>({ status: { ...s.status, [n]: 'stopped' }, clicks: { ...s.clicks, [n]: 0 } }))
+  },
+
+  elapsed: (n) => (n===1?t1:t2).elapsedMs
+}))

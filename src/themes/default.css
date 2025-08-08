@@ -1,0 +1,66 @@
+/* === Default Theme === */
+.timer-overlay {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr);
+  grid-template-rows: 50px 1fr;
+  width: 520px;
+  height: 120px;
+  position: relative;
+}
+
+.drag-handle {
+  position: absolute; top: 0; left: 0; right: 0; height: 30px;
+  background: linear-gradient(90deg, rgba(181,121,255,0.15) 0%, rgba(181,121,255,0.25) 50%, rgba(181,121,255,0.15) 100%);
+  border-bottom: 2px solid rgba(181,121,255,0.4);
+  box-shadow: 0 2px 10px rgba(181,121,255,0.3);
+  display: none; align-items: center; justify-content: center;
+  cursor: move; -webkit-app-region: drag;
+  font-size: 0.85rem; color: #B579FF; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+  z-index: 1000;
+}
+.drag-handle.visible { display: flex; }
+
+.name, .score-value {
+  border-bottom: 1px solid rgba(255,255,255,0.32);
+  background: linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Poppins', system-ui, sans-serif;
+  font-size: 22px; font-weight: 500; color: #FFF;
+  position: relative; overflow: hidden;
+}
+.name.left { grid-row: 1; grid-column: 1; font-size: 24px; text-transform: uppercase; text-shadow: 0 0 6px rgba(255,255,255,0.50); }
+.score-value { 
+  grid-row: 1; grid-column: 2; font-size: 24px; text-transform: uppercase;
+  background: linear-gradient(90deg, #274B90 0.06%, #09327E 40.01%, #04296F 79.97%);
+  padding: 0 15px; min-width: 90px; max-width: 120px;
+}
+.name.right { grid-row: 1; grid-column: 3; font-size: 24px; text-transform: uppercase; text-shadow: 0 0 6px rgba(255,255,255,0.50); }
+
+.name .name-scroll { display: inline-block; white-space: nowrap; padding: 0 15px; }
+.name.scrolling .name-scroll { animation: scroll-text 6s linear infinite; padding: 0 50px; }
+@keyframes scroll-text { 0%{transform:translateX(80%)} 100%{transform:translateX(-80%)} }
+
+.timer {
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Consolas","Monaco","Courier New",monospace;
+  font-size: 32px; font-weight: 400;
+  text-shadow: 0 0 6px rgba(190,190,190,0.50);
+  position: relative; height: 100%; text-align: center; min-width: 160px;
+}
+.timer.left { grid-row: 2; grid-column: 1; }
+.timer.right { grid-row: 2; grid-column: 3; }
+
+.timer-text { display: inline-flex; align-items: center; background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.timer-char { display: inline-block; width: 22px; text-align: center;
+  background: linear-gradient(180deg, #FFF 0%, #FFF 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.timer-char.separator { width: 11px; }
+
+.timer.active::before {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
+  animation: pulseBar 1s ease-in-out infinite;
+}
+@keyframes pulseBar { 0%,100%{opacity:.5} 50%{opacity:1} }
+
+.dbd-digits { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: 0.02em; }
