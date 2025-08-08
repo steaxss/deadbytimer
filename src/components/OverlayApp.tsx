@@ -1,59 +1,48 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { useTimerStore } from '../store/timerStore';
-import TimerOverlay from './overlay/TimerOverlay';
-import { PreciseTimer } from '../utils/timer';
+import React, { useEffect, useRef, useState } from 'react';
+import { useTimerStore } from '@/store/timerStore';
+import TimerOverlay from '@/components/overlay/TimerOverlay';
+import { PreciseTimer } from '@/utils/timer';
+import type { TimerData } from '@/types';
 
 const OverlayApp: React.FC = () => {
-  const { 
-    loadFromStorage, 
-    timerData, 
-    setTimerValue
-  } = useTimerStore();
+  const { loadFromStorage, timerData } = useTimerStore();
+
   const [isInitialized, setIsInitialized] = useState(false);
-  const [localTimerData, setLocalTimerData] = useState(timerData);
-  
+  const [localTimerData, setLocalTimerData] = useState<TimerData>(timerData);
+
   const timer1Ref = useRef<PreciseTimer | null>(null);
   const timer2Ref = useRef<PreciseTimer | null>(null);
-  const lastStateRef = useRef({ 
-    isRunning: false, 
-    currentTimer: 1,
+  const syncingRef = useRef(false);
+  const lastStateRef = useRef({
+    timer1Running: false,
+    timer2Running: false,
     timer1Value: 0,
     timer2Value: 0
   });
-  const syncingRef = useRef(false);
 
   useEffect(() => {
-    const initializeOverlay = async () => {
-      try {
-        await loadFromStorage();
-        setIsInitialized(true);
-        console.log('Overlay initialized successfully');
-      } catch (error) {
-        console.error('Failed to initialize overlay:', error);
-        setIsInitialized(true);
-      }
+    const run = async () => {
+      await loadFromStorage();
+      setIsInitialized(true);
     };
-
-    initializeOverlay();
+    run();
   }, [loadFromStorage]);
 
   useEffect(() => {
     if (!timer1Ref.current) {
       timer1Ref.current = new PreciseTimer((value) => {
         if (!syncingRef.current) {
-          setLocalTimerData(prev => ({ ...prev, timer1Value: value }));
+          setLocalTimerData((prev) => ({ ...prev, timer1Value: value }));
         }
       });
     }
-
     if (!timer2Ref.current) {
       timer2Ref.current = new PreciseTimer((value) => {
         if (!syncingRef.current) {
-          setLocalTimerData(prev => ({ ...prev, timer2Value: value }));
+          setLocalTimerData((prev) => ({ ...prev, timer2Value: value }));
         }
       });
     }
-
     return () => {
       timer1Ref.current?.stop();
       timer2Ref.current?.stop();
@@ -63,168 +52,94 @@ const OverlayApp: React.FC = () => {
   useEffect(() => {
     if (!isInitialized) return;
 
-    const lastState = lastStateRef.current;
-    const currentState = {
-      isRunning: localTimerData.isRunning,
-      currentTimer: localTimerData.currentTimer,
-      timer1Value: localTimerData.timer1Value,
-      timer2Value: localTimerData.timer2Value
-    };
-
-    console.log('State change detected:', {
-      lastState,
-      currentState,
-      stateChanges: {
-        runningChanged: lastState.isRunning !== currentState.isRunning,
-        timerChanged: lastState.currentTimer !== currentState.currentTimer,
-        timer1ValueChanged: lastState.timer1Value !== currentState.timer1Value,
-        timer2ValueChanged: lastState.timer2Value !== currentState.timer2Value
-      }
-    });
-
-    // Handle timer swap AVANT tout le reste
-    if (lastState.currentTimer !== currentState.currentTimer) {
-      console.log('SWAP DETECTED: from timer', lastState.currentTimer, 'to timer', currentState.currentTimer);
-
-      // Arrêter TOUS les timers lors du swap et sauvegarder leurs valeurs
-      if (timer1Ref.current?.running) {
-        const finalValue1 = timer1Ref.current.pause();
-        console.log('SWAP: Pausing timer 1 at value:', finalValue1);
-        // Utiliser setLocalTimerData pour mettre à jour l'affichage immédiatement
-        setLocalTimerData(prev => ({ ...prev, timer1Value: finalValue1 }));
-      }
-      if (timer2Ref.current?.running) {
-        const finalValue2 = timer2Ref.current.pause();
-        console.log('SWAP: Pausing timer 2 at value:', finalValue2);
-        // Utiliser setLocalTimerData pour mettre à jour l'affichage immédiatement
-        setLocalTimerData(prev => ({ ...prev, timer2Value: finalValue2 }));
-      }
-
-      console.log('SWAP: Timer', currentState.currentTimer, 'is now selected');
-    }
-
-    // Handle running state changes
-    if (lastState.isRunning !== currentState.isRunning) {
-      if (currentState.isRunning) {
-        // Démarrer SEULEMENT le timer actuel
-        console.log('Starting timer', currentState.currentTimer);
-        const timerRef = currentState.currentTimer === 1 ? timer1Ref.current : timer2Ref.current;
-        const resumeValue = currentState.currentTimer === 1 ? currentState.timer1Value : currentState.timer2Value;
-        
-        // S'assurer que l'autre timer est arrêté
-        const otherTimerRef = currentState.currentTimer === 1 ? timer2Ref.current : timer1Ref.current;
-        if (otherTimerRef?.running) {
-          console.log('Stopping other timer before starting current one');
-          const finalValue = otherTimerRef.pause();
-          const otherValueKey = currentState.currentTimer === 1 ? 'timer2Value' : 'timer1Value';
-          setLocalTimerData(prev => ({ ...prev, [otherValueKey]: finalValue }));
-        }
-        
-        console.log('Resuming timer with value:', resumeValue);
-        if (timerRef) {
-          timerRef.start(resumeValue);
-        }
-      } else {
-        // Pause TOUS les timers
-        console.log('Pausing all timers');
-        if (timer1Ref.current?.running) {
-          const finalValue1 = timer1Ref.current.pause();
-          console.log('Paused timer 1 at value:', finalValue1);
-          setLocalTimerData(prev => ({ ...prev, timer1Value: finalValue1 }));
-        }
-        if (timer2Ref.current?.running) {
-          const finalValue2 = timer2Ref.current.pause();
-          console.log('Paused timer 2 at value:', finalValue2);
-          setLocalTimerData(prev => ({ ...prev, timer2Value: finalValue2 }));
-        }
-      }
-    }
-
-    lastStateRef.current = currentState;
-  }, [localTimerData, isInitialized]);
+    setLocalTimerData((prev) => ({
+      ...prev,
+      ...timerData,
+    }));
+  }, [isInitialized, timerData]);
 
   useEffect(() => {
-    if (!window.electronAPI?.overlay) return;
+    if (!isInitialized || !timer1Ref.current || !timer2Ref.current) return;
+    const shouldTimer1Run = localTimerData.isRunning && localTimerData.currentTimer === 1;
+    const shouldTimer2Run = localTimerData.isRunning && localTimerData.currentTimer === 2;
+    
+  // Synchroniser timer 1
+  if (shouldTimer1Run && !timer1Ref.current.running) {
+    timer2Ref.current?.pause();
+    timer1Ref.current.start(localTimerData.timer1Value || 0);
+  } else if (!shouldTimer1Run && timer1Ref.current.running) {
+    timer1Ref.current.pause();
+  }
 
-    const cleanupDataSync = window.electronAPI.overlay.onDataSync((data) => {
-      console.log('Received timer data sync in overlay:', data);
+  // Synchroniser timer 2
+  if (shouldTimer2Run && !timer2Ref.current.running) {
+    timer1Ref.current?.pause();
+    timer2Ref.current.start(localTimerData.timer2Value || 0);
+  } else if (!shouldTimer2Run && timer2Ref.current.running) {
+    timer2Ref.current.pause();
+  }
+
+  // Reset si nécessaire
+  if (localTimerData.timer1Value === 0 && timer1Ref.current.currentValue !== 0) {
+    timer1Ref.current.reset();
+  }
+  if (localTimerData.timer2Value === 0 && timer2Ref.current.currentValue !== 0) {
+    timer2Ref.current.reset();
+  }
+}, [isInitialized, localTimerData]);
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    
+    const offSync = window.electronAPI.overlay.onDataSync((data) => {
       syncingRef.current = true;
-      
-      // Mettre à jour l'état local avec les nouvelles données
       setLocalTimerData(data);
-      
-      // Si les timers tournent, les arrêter d'abord
-      if (timer1Ref.current?.running) {
-        timer1Ref.current.stop();
-      }
-      if (timer2Ref.current?.running) {
-        timer2Ref.current.stop();
-      }
-      
-      setTimeout(() => {
-        syncingRef.current = false;
-      }, 100);
-    });
+      syncingRef.current = false;
 
-    return cleanupDataSync;
+      const shouldTimer1Run = data.isRunning && data.currentTimer === 1;
+      const shouldTimer2Run = data.isRunning && data.currentTimer === 2;
+
+      if (shouldTimer1Run) {
+        timer2Ref.current?.pause();
+        timer1Ref.current?.start(data.timer1Value || 0);
+      } else if (shouldTimer2Run) {
+        timer1Ref.current?.pause();
+        timer2Ref.current?.start(data.timer2Value || 0);
+      } else {
+        timer1Ref.current?.pause();
+        timer2Ref.current?.pause();
+      }
+
+      if (data.timer1Value === 0 && timer1Ref.current) {
+        timer1Ref.current.reset();
+      }
+      if (data.timer2Value === 0 && timer2Ref.current) {
+        timer2Ref.current.reset();
+      }
+
+      lastStateRef.current = {
+        timer1Running: shouldTimer1Run,
+        timer2Running: shouldTimer2Run,
+        timer1Value: data.timer1Value,
+        timer2Value: data.timer2Value
+      };
+    });
+    
+    return () => {
+      offSync?.();
+    };
   }, []);
 
   useEffect(() => {
-    const forceTransparency = () => {
-      const elements = [
-        document.body,
-        document.documentElement,
-        document.getElementById('overlay-root')
-      ].filter(Boolean);
-
-      elements.forEach(el => {
-        if (el) {
-          el.style.background = 'transparent';
-          el.style.backgroundColor = 'transparent';
-          el.style.margin = '0';
-          el.style.padding = '0';
-          el.style.overflow = 'hidden';
-          el.style.border = 'none';
-          el.style.outline = 'none';
-        }
-      });
-    };
-
-    forceTransparency();
-    const interval = setInterval(forceTransparency, 1000);
-
-    return () => clearInterval(interval);
+    const root = document.getElementById('overlay-root');
+    if (root) root.style.background = 'transparent';
   }, []);
 
   if (!isInitialized) {
-    return (
-      <div style={{ 
-        background: 'transparent', 
-        color: 'white', 
-        padding: '20px',
-        fontFamily: 'monospace'
-      }}>
-        Loading overlay...
-      </div>
-    );
+    return null;
   }
 
-  return (
-    <div 
-      className="w-full h-full"
-      style={{ 
-        background: 'transparent',
-        backgroundColor: 'transparent',
-        margin: 0,
-        padding: 0,
-        overflow: 'hidden',
-        border: 'none',
-        outline: 'none'
-      }}
-    >
-      <TimerOverlay timerData={localTimerData} />
-    </div>
-  );
+  return <TimerOverlay timerData={localTimerData} />;
 };
 
 export default OverlayApp;

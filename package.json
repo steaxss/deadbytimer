@@ -1,7 +1,7 @@
 {
   "name": "dbd-timer-overlay",
   "version": "1.0.0",
-  "description": "Dead by Daylight 1v1 Timer Overlay - Lightweight and performant desktop application",
+  "description": "Dead by Daylight 1v1 Timer Overlay",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -11,16 +11,6 @@
     "electron:build": "npm run build && electron-builder",
     "clean": "rimraf dist dist-electron release"
   },
-  "keywords": [
-    "electron",
-    "react",
-    "typescript",
-    "dead-by-daylight",
-    "overlay",
-    "timer"
-  ],
-  "author": "Doc & Steaxs",
-  "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.43",
@@ -34,58 +24,12 @@
     "rimraf": "^5.0.5",
     "tailwindcss": "^3.3.6",
     "typescript": "^5.2.2",
-    "vite": "^5.0.8",
-    "vite-plugin-electron": "^0.28.1",
-    "vite-plugin-electron-renderer": "^0.14.5"
+    "vite": "^5.0.8"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "zustand": "^4.4.7"
-  },
-  "build": {
-    "appId": "com.dbdtools.timer-overlay",
-    "productName": "DBD Timer Overlay",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "node_modules/**/*",
-      "package.json"
-    ],
-    "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
-      ]
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    }
   }
 }

@@ -1,20 +1,26 @@
-// src/types/index.ts
 export interface TimerData {
   player1Name: string;
   player2Name: string;
   player1Score: number;
   player2Score: number;
+
   timer1Value: number;
   timer2Value: number;
-  currentTimer: 1 | 2;
+
+  selectedTimer: TimerId;
+  currentTimer: TimerId;
   isRunning: boolean;
+
+  timer1ClickCount: number;
+  timer2ClickCount: number;
+
   startHotkey: string;
   swapHotkey: string;
-  hotkeys?: {
-    start: string;
-    swap: string;
-  };
+
+  hotkeys?: { start: string; swap: string };
 }
+
+export type TimerId = 1 | 2;
 
 export interface OverlaySettings {
   baseWidth: number;
@@ -26,13 +32,6 @@ export interface OverlaySettings {
   alwaysOnTop: boolean;
   width?: number;
   height?: number;
-}
-
-export interface TimerDisplayData {
-  timer1: string;
-  timer2: string;
-  currentTimer: 1 | 2;
-  running: boolean;
 }
 
 export interface AppState {
@@ -59,7 +58,6 @@ export interface ElectronAPI {
     updateSettings: (settings: Partial<OverlaySettings>) => Promise<IPCResponse>;
     
     onDataSync: (callback: (data: TimerData) => void) => () => void;
-    onScaleChange: (callback: (scale: number) => void) => () => void;
     onReady: (callback: (isReady: boolean) => void) => () => void;
   };
   

@@ -9,41 +9,31 @@ const __dirname = path.dirname(__filename);
 
 console.log('🚀 Starting DBD Timer Overlay...\n');
 
-function waitForServer(port, timeout = 30000) {
+async function waitForServer(port, timeout = 30000) {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
+    let attempts = 0;
     
     const checkServer = () => {
-      const socket = new net.Socket();
+      attempts++;
       
-      socket.setTimeout(1000);
-      socket.on('connect', () => {
-        socket.destroy();
-        console.log(`✅ Server ready on port ${port}`);
-        resolve(true);
-      });
-      
-      socket.on('timeout', () => {
-        socket.destroy();
-        checkAgain();
-      });
-      
-      socket.on('error', () => {
-        checkAgain();
-      });
-      
-      const checkAgain = () => {
-        if (Date.now() - startTime > timeout) {
-          reject(new Error(`Timeout waiting for server on port ${port}`));
-          return;
-        }
-        setTimeout(checkServer, 500);
-      };
-      
-      socket.connect(port, 'localhost');
+      // Vérifier avec fetch au lieu de socket
+      fetch(`http://localhost:${port}`)
+        .then(() => {
+          console.log(`✅ Server ready on port ${port} after ${attempts} attempts`);
+          resolve(true);
+        })
+        .catch(() => {
+          if (Date.now() - startTime > timeout) {
+            reject(new Error(`Timeout waiting for server on port ${port}`));
+            return;
+          }
+          setTimeout(checkServer, 1000);
+        });
     };
     
-    checkServer();
+    // Attendre un peu avant la première vérification
+    setTimeout(checkServer, 2000);
   });
 }
 
