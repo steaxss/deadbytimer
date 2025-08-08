@@ -12,7 +12,8 @@
     "electron:dev": "npm run dev",
     "build": "vite build && npm run obfuscate:dist && electron-builder",
     "build:portable": "vite build && npm run obfuscate:dist && electron-builder --win portable",
-    "obfuscate:dist": "javascript-obfuscator dist --output dist --compact true --control-flow-flattening false --dead-code-injection false --string-array true --string-array-encoding rc4 --string-array-threshold 0.75 --rename-properties false --target browser-no-eval",
+    "build:dir": "vite build && npm run obfuscate:dist && electron-builder --win dir",
+    "obfuscate:dist": "javascript-obfuscator dist --output dist --compact true --control-flow-flattening false --dead-code-injection false --string-array true --string-array-encoding base64 --string-array-threshold 0.5 --rename-properties false --target browser",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
