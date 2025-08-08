@@ -16,11 +16,12 @@ declare global {
         onSync(cb: (d: any) => void): void
       }
       hotkeys: {
-        get(): Promise<{start:number|null, swap:number|null}>
-        set(hk: {start:number|null, swap:number|null}): Promise<any>
+        get(): Promise<{start:number|null, swap:number|null, startLabel?:string, swapLabel?:string, mode?:'pass-through'|'fallback'}>
+        set(hk: {start?:number|null, swap?:number|null}): Promise<any>
         capture(type:'start'|'swap'): Promise<any>
-        onCaptured(cb: (p:{type:'start'|'swap', keycode:number}) => void): void
+        onCaptured(cb: (p:{type:'start'|'swap', keycode?:number|null, label?:string}) => void): void
         on(cb: (p: any) => void): void
+        onMode(cb: (mode:'pass-through'|'fallback') => void): void
       }
     }
   }

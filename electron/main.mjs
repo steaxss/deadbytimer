@@ -13,14 +13,12 @@ let mainWindow = null
 let overlayWindow = null
 let usingUiohook = false
 
-// mesures non-scalées (contenu réel sans la barre de drag)
+// dimensions non-scalées du contenu (hors drag bar)
 let baseDims = { width: 520, height: 120 }
 
-// hotkeys stockées
-// - numériques (uiohook) : {start, swap} -> keycode uiohook
-// - chaînes (fallback globalShortcut) : {start, swap} -> 'F1', 'KeyX', etc.
+// hotkeys: codes (uiohook) + labels (fallback/affichage)
 let hotkeys = store.get('hotkeys') || { start: null, swap: null }
-let hotkeysStr = store.get('hotkeysStr') || { start: 'F1', swap: 'F2' }
+let hotkeysLabel = store.get('hotkeysLabel') || { start: 'F1', swap: 'F2' }
 
 let capturing = null // 'start' | 'swap' | null
 
@@ -34,20 +32,26 @@ function applyAlwaysOnTop(win, on) {
 
 function sendOverlaySettings() {
   if (overlayWindow && !overlayWindow.isDestroyed()) {
-    const s = store.get('overlaySettings', { x: 0, y: 0, scale: 100, locked: false, alwaysOnTop: true })
+    const s = store.get('overlaySettings', { x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true })
     overlayWindow.webContents.send('overlay-settings', s)
   }
 }
 
 function recomputeOverlaySize() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return
-  const s = store.get('overlaySettings', { scale: 100, locked: false })
+  const s = store.get('overlaySettings', { scale: 100, locked: true })
   const dragH = s.locked ? 0 : 30
   const scale = (s.scale || 100) / 100
   const w = Math.ceil(baseDims.width * scale)
   const h = Math.ceil((baseDims.height + dragH) * scale)
   overlayWindow.setContentSize(w, h)
   sendOverlaySettings()
+}
+
+function sendHotkeysMode() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('hotkeys-mode', usingUiohook ? 'pass-through' : 'fallback')
+  }
 }
 
 function createMainWindow() {
@@ -84,7 +88,9 @@ function createMainWindow() {
 function createOverlayWindow() {
   if (overlayWindow && !overlayWindow.isDestroyed()) { overlayWindow.show(); overlayWindow.focus(); return }
   const display = screen.getPrimaryDisplay().workAreaSize
-  const s = store.get('overlaySettings', { x: Math.floor(display.width/2-260), y: 100, scale: 100, locked: false, alwaysOnTop: true })
+  const s = store.get('overlaySettings', {
+    x: Math.floor(display.width/2-260), y: 100, scale: 100, locked: true, alwaysOnTop: true
+  })
   const dragH = s.locked ? 0 : 30
   const scale = (s.scale || 100) / 100
 
@@ -95,7 +101,7 @@ function createOverlayWindow() {
     frame: false, transparent: true, resizable: false,
     hasShadow: false,
     skipTaskbar: false,
-    focusable: true,                // OBS capture + Alt-Tab
+    focusable: true,
     title: 'DBD Timer Overlay',
     acceptFirstMouse: true,
     backgroundColor: '#00000000',
@@ -108,6 +114,8 @@ function createOverlayWindow() {
     }
   })
 
+  // lock initial: click-through si locked
+  overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true })
   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop)
 
   const url = isDev ? 'http://localhost:5173/overlay.html' : join(__dirname, '../dist/overlay.html')
@@ -115,10 +123,7 @@ function createOverlayWindow() {
 
   overlayWindow.on('closed', () => {
     overlayWindow = null
-    // important : dire au panneau que l’overlay est caché
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('overlay-ready', false)
-    }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('overlay-ready', false)
   })
   overlayWindow.on('move', () => {
     const b = overlayWindow.getBounds()
@@ -143,7 +148,6 @@ function setupIPC() {
   ipcMain.handle('overlay-hide', () => {
     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close()
     overlayWindow = null
-    // notifier explicitement le panneau
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('overlay-ready', false)
     return true
   })
@@ -153,6 +157,7 @@ function setupIPC() {
     const next = { ...current, ...settings }
     store.set('overlaySettings', next)
     if (!overlayWindow || overlayWindow.isDestroyed()) return true
+
     if (settings.locked !== undefined) {
       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true })
       overlayWindow.setFocusable(true) // OBS/Alt-Tab
@@ -174,7 +179,7 @@ function setupIPC() {
     return true
   })
 
-  // Timer data (noms/scores)
+  // Timer data
   ipcMain.handle('timer-data-get', () => store.get('timerData') || { player1: { name: 'Player 1', score: 0 }, player2: { name: 'Player 2', score: 0 } })
   ipcMain.handle('timer-data-set', (_evt, data) => {
     store.set('timerData', data)
@@ -182,71 +187,48 @@ function setupIPC() {
     return true
   })
 
-  // hotkeys config (UI du panneau utilise window.api.hotkeys.*)
-  ipcMain.handle('hotkeys-get', () => {
-    // si codes numériques manquants, tenter de déduire depuis la string (F1..F24)
-    const norm = { ...hotkeys }
-    const fNum = f => (f >= 1 && f <= 24) ? (59 + (f - 1)) : null // approx uiohook
-    if (norm.start == null && /^F(\d+)$/.test(hotkeysStr.start || '')) {
-      norm.start = fNum(Number(RegExp.$1))
-    }
-    if (norm.swap == null && /^F(\d+)$/.test(hotkeysStr.swap || '')) {
-      norm.swap = fNum(Number(RegExp.$1))
-    }
-    return norm
-  })
+  // Hotkeys API
+  ipcMain.handle('hotkeys-get', () => ({
+    start: hotkeys.start, swap: hotkeys.swap,
+    startLabel: hotkeysLabel.start, swapLabel: hotkeysLabel.swap,
+    mode: usingUiohook ? 'pass-through' : 'fallback'
+  }))
 
   ipcMain.handle('hotkeys-set', (_evt, hk) => {
-    // on enregistre ce qui vient du panneau (numérique), on garde aussi une string par défaut si possible
-    hotkeys = { ...hotkeys, ...hk }
-    // garder une string raisonnable si c’est une touche F*
-    const revF = code => {
-      const base = 59
-      if (typeof code === 'number' && code >= base && code <= base + 23) return `F${code - base + 1}`
-      return null
-    }
-    const sStart = revF(hk.start)
-    const sSwap  = revF(hk.swap)
-    hotkeysStr = { ...hotkeysStr, ...(sStart?{start:sStart}:{}) , ...(sSwap?{swap:sSwap}:{}) }
-
+    hotkeys = { ...hotkeys, ...hk } // num codes si fournis
     store.set('hotkeys', hotkeys)
-    store.set('hotkeysStr', hotkeysStr)
     refreshHotkeyEngine()
     return true
   })
 
   ipcMain.handle('hotkeys-capture', (_evt, type) => {
-    // démarrer une capture : via uiohook si dispo, sinon via before-input-event (panneau focus)
-    capturing = (type === 'start' || type === 'swap') ? type : null
-    if (!capturing) return true
+    if (!(type === 'start' || type === 'swap')) { capturing = null; return true }
+    capturing = type
 
-    if (!usingUiohook && mainWindow && !mainWindow.isDestroyed()) {
+    // 1) capturer un label lisible via before-input-event (panel focus)
+    if (mainWindow && !mainWindow.isDestroyed()) {
       const once = (event, input) => {
-        if (!capturing) return
+        if (!capturing) { mainWindow.webContents.removeListener('before-input-event', once); return }
         if (input.type !== 'keyDown') return
-        const label = input.key || input.code || ''
-        let savedNumeric = null
-        let savedString = label
+        // label utilisateur propre
+        let label = input.key || input.code || ''
+        // uniformiser quelques cas
+        if (/^Key[A-Z]$/.test(input.code)) label = input.code.replace('Key','')
+        if (/^Digit\d$/.test(input.code)) label = input.code.replace('Digit','')
+        if (/^F\d{1,2}$/.test(input.key)) label = input.key
 
-        const m = /^F(\d+)$/.exec(label)
-        if (m) {
-          const f = Number(m[1])
-          if (f >= 1 && f <= 24) {
-            savedNumeric = 59 + (f - 1)
-            savedString = `F${f}`
-          }
-        }
+        hotkeysLabel = { ...hotkeysLabel, [capturing]: label || 'Key' }
+        store.set('hotkeysLabel', hotkeysLabel)
 
-        hotkeys = { ...hotkeys, [capturing]: savedNumeric }
-        hotkeysStr = { ...hotkeysStr, [capturing]: savedString }
-        store.set('hotkeys', hotkeys)
-        store.set('hotkeysStr', hotkeysStr)
-        refreshHotkeyEngine()
+        // notifier immédiatement l’UI avec label (même si le code num arrive après via uiohook)
+        mainWindow.webContents.send('hotkeys-captured', { type: capturing, keycode: hotkeys[capturing], label })
+        // si on est en fallback, activer tout de suite globalShortcut
+        if (!usingUiohook) refreshHotkeyEngine()
 
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('hotkeys-captured', { type: capturing, keycode: savedNumeric })
-        }
-        capturing = null
+        // on NE clôture PAS ici: on laisse uiohook nous donner le code num si dispo
+        // sécurité: si uiohook ne vient pas, on clôture la capture après 1s
+        setTimeout(() => { if (capturing === type) capturing = null }, 1000)
+
         mainWindow.webContents.removeListener('before-input-event', once)
       }
       mainWindow.webContents.on('before-input-event', once)
@@ -257,14 +239,13 @@ function setupIPC() {
 }
 
 function refreshHotkeyEngine() {
-  // En fallback, on utilise globalShortcut avec les chaînes (F1, F2, ...)
-  if (usingUiohook) return
+  if (usingUiohook) return // pass-through → rien à enregistrer côté Electron
   try { globalShortcut.unregisterAll() } catch {}
   const RATE = 180
   let lastT = 0, lastS = 0
 
-  const sKey = hotkeysStr.start || 'F1'
-  const wKey = hotkeysStr.swap  || 'F2'
+  const sKey = hotkeysLabel.start || 'F1'
+  const wKey = hotkeysLabel.swap  || 'F2'
 
   try {
     globalShortcut.register(sKey, () => {
@@ -272,7 +253,6 @@ function refreshHotkeyEngine() {
       overlayWindow?.webContents.send('global-hotkey', { type: 'toggle' })
     })
   } catch {}
-
   try {
     globalShortcut.register(wKey, () => {
       const now = Date.now(); if (now - lastS < RATE) return; lastS = now
@@ -284,18 +264,18 @@ function refreshHotkeyEngine() {
 // uiohook global (pass-through)
 function setupUiohook() {
   try {
-    // charge dynamiquement
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const lib = require('uiohook-napi')
     uIOhook = lib.uIOhook
   } catch (e) {
-    console.warn('[hotkeys] uiohook non disponible, fallback globalShortcut (pass-through approximatif).', e?.message || e)
     usingUiohook = false
+    sendHotkeysMode()
     refreshHotkeyEngine()
     return
   }
 
   usingUiohook = true
+  sendHotkeysMode()
+
   let lastToggle = 0
   let lastSwap = 0
   const RATE = 180
@@ -303,21 +283,17 @@ function setupUiohook() {
   uIOhook.on('keydown', (e) => {
     if (capturing) {
       const type = capturing
-      capturing = null
+      // stocker le code num pour uiohook
       hotkeys = { ...hotkeys, [type]: e.keycode }
-      // essayer de déduire une string lisible (F*)
-      const base = 59
-      if (e.keycode >= base && e.keycode <= base + 23) {
-        const f = e.keycode - base + 1
-        hotkeysStr = { ...hotkeysStr, [type]: `F${f}` }
-      }
       store.set('hotkeys', hotkeys)
-      store.set('hotkeysStr', hotkeysStr)
+      // notifier UI (on garde le label déjà envoyé)
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('hotkeys-captured', { type, keycode: e.keycode })
+        mainWindow.webContents.send('hotkeys-captured', { type, keycode: e.keycode, label: hotkeysLabel[type] })
       }
+      capturing = null
       return
     }
+
     if (!overlayWindow || overlayWindow.isDestroyed()) return
     const now = Date.now()
     if (hotkeys.start && e.keycode === hotkeys.start) {
@@ -329,9 +305,9 @@ function setupUiohook() {
     }
   })
 
-  try { uIOhook.start() } catch (e) {
-    console.warn('[hotkeys] uiohook start a échoué, fallback globalShortcut.', e?.message || e)
+  try { uIOhook.start() } catch {
     usingUiohook = false
+    sendHotkeysMode()
     refreshHotkeyEngine()
   }
 }

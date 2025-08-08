@@ -1,34 +1,34 @@
 import React, { useEffect, useState } from 'react';
 
-type HK = { start: number|null, swap: number|null }
-
-function keycodeLabel(kc: number|null) {
-  if (kc == null) return 'Not set';
-  const F_BASE = 59; // approx uiohook F1..F24
-  if (kc >= F_BASE && kc <= F_BASE + 23) return `F${kc - F_BASE + 1}`;
-  return `Keycode ${kc}`;
-}
+type HKGet = { start:number|null, swap:number|null, startLabel?:string, swapLabel?:string, mode?:'pass-through'|'fallback' }
+type HKSet = { start?:number|null, swap?:number|null }
 
 const ControlPanel: React.FC = () => {
-  const [overlayOn, setOverlayOn] = useState(false);
-  const [locked, setLocked] = useState(false);
-  const [scale, setScale] = useState(100);
-  const [players, setPlayers] = useState({ player1:{name:'PLAYER 1',score:0}, player2:{name:'PLAYER 2',score:0} });
-  const [hotkeys, setHotkeys] = useState<HK>({ start: null, swap: null });
-  const [capturing, setCapturing] = useState<null|'start'|'swap'>(null);
+  const [overlayOn, setOverlayOn]     = useState(false);
+  const [locked, setLocked]           = useState(true);
+  const [scale, setScale]             = useState(100);
+  const [players, setPlayers]         = useState({ player1:{name:'PLAYER 1',score:0}, player2:{name:'PLAYER 2',score:0} });
+  const [hkCodes, setHkCodes]         = useState<{start:number|null, swap:number|null}>({ start: null, swap: null });
+  const [hkLabels, setHkLabels]       = useState<{start:string, swap:string}>({ start: 'F1', swap: 'F2' });
+  const [capturing, setCapturing]     = useState<null|'start'|'swap'>(null);
+  const [mode, setMode]               = useState<'pass-through'|'fallback'>('fallback');
 
-  // init
   useEffect(() => {
     window.api.timer.get().then(setPlayers);
-    window.api.hotkeys.get().then((hk:HK) => setHotkeys(hk || {start:null, swap:null}));
+    window.api.hotkeys.get().then((h:HKGet) => {
+      setHkCodes({ start: h.start ?? null, swap: h.swap ?? null });
+      setHkLabels({ start: h.startLabel || 'F1', swap: h.swapLabel || 'F2' });
+      if (h.mode) setMode(h.mode);
+    });
     window.api.overlay.onReady((v:boolean)=>setOverlayOn(v));
     window.api.overlay.onSettings((s:any)=>{ setLocked(!!s.locked); setScale(s.scale||100); });
     window.api.timer.onSync((d:any)=>setPlayers(d));
-
-    window.api.hotkeys.onCaptured(({type, keycode}:{type:'start'|'swap', keycode:number})=>{
-      setHotkeys(h=>({...h, [type]: keycode}));
+    window.api.hotkeys.onCaptured((p:{type:'start'|'swap', keycode?:number|null, label?:string})=>{
+      if (p.keycode != null) setHkCodes(prev => ({ ...prev, [p.type]: p.keycode! }));
+      if (p.label) setHkLabels(prev => ({ ...prev, [p.type]: p.label! }));
       setCapturing(null);
     })
+    window.api.hotkeys.onMode((m:'pass-through'|'fallback') => setMode(m))
   }, []);
 
   const savePlayers = (next:any) => {
@@ -39,18 +39,24 @@ const ControlPanel: React.FC = () => {
   const toggleOverlay = async () => {
     if (overlayOn) {
       await window.api.overlay.hide();
-      setOverlayOn(false); // optimiste; onReady(false) confirmera
+      setOverlayOn(false);
     } else {
       await window.api.overlay.show();
-      // l’overlay enverra overlay-ready:true une fois chargé
-      // on peut mettre true optimiste pour le bouton
       setOverlayOn(true);
     }
   };
 
+  const saveHotkeys = async () => {
+    const payload: HKSet = { start: hkCodes.start ?? null, swap: hkCodes.swap ?? null }
+    await window.api.hotkeys.set(payload)
+  }
+
   return (
     <div className="p-6 max-w-xl mx-auto font-ui">
-      <h1 className="text-2xl font-semibold mb-4">DBD 1v1 Timer — Control Panel</h1>
+      <h1 className="text-2xl font-semibold mb-1">DBD 1v1 Timer — Control Panel</h1>
+      <div className={`text-sm mb-4 ${mode==='pass-through' ? 'text-emerald-400' : 'text-amber-400'}`}>
+        Hotkeys mode: <b>{mode==='pass-through' ? 'Pass-through (uiohook)' : 'Fallback (intercept)'}</b>
+      </div>
 
       <div className="grid grid-cols-2 gap-6">
         <div className="space-y-3">
@@ -110,7 +116,7 @@ const ControlPanel: React.FC = () => {
             className={`w-full px-3 py-2 rounded ${capturing==='start' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'}`}
             onClick={() => { setCapturing('start'); window.api.hotkeys.capture('start') }}
           >
-            {capturing==='start' ? 'Press a key…' : keycodeLabel(hotkeys.start)}
+            {capturing==='start' ? 'Press a key…' : hkLabels.start}
           </button>
         </div>
         <div className="bg-zinc-900 border border-zinc-800 rounded p-3">
@@ -119,7 +125,7 @@ const ControlPanel: React.FC = () => {
             className={`w-full px-3 py-2 rounded ${capturing==='swap' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'}`}
             onClick={() => { setCapturing('swap'); window.api.hotkeys.capture('swap') }}
           >
-            {capturing==='swap' ? 'Press a key…' : keycodeLabel(hotkeys.swap)}
+            {capturing==='swap' ? 'Press a key…' : hkLabels.swap}
           </button>
         </div>
       </div>
@@ -127,11 +133,13 @@ const ControlPanel: React.FC = () => {
       <div className="mt-3">
         <button
           className="px-4 py-2 rounded bg-violet-700 hover:bg-violet-600"
-          onClick={() => window.api.hotkeys.set(hotkeys)}
+          onClick={saveHotkeys}
         >
           Save hotkeys
         </button>
-        <span className="ml-3 text-sm text-zinc-500">Global, pass-through (uiohook); fallback globalShortcut si besoin</span>
+        <span className="ml-3 text-sm text-zinc-500">
+          {mode==='pass-through' ? 'Pass-through activé (uiohook).' : 'Fallback intercept (globalShortcut).'}
+        </span>
       </div>
     </div>
   )
