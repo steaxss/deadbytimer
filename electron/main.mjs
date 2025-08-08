@@ -247,14 +247,21 @@ function createOverlayWindow() {
     overlayWindow.focus();
     return;
   }
-  const display = screen.getPrimaryDisplay().workAreaSize;
-  const s = store.get("overlaySettings", {
-    x: Math.floor(display.width / 2 - 260),
-    y: 100,
-    scale: 100,
-    locked: true,
-    alwaysOnTop: true,
-  });
+
+  let s = store.get("overlaySettings");
+    if (!s) {
+       const pd = screen.getPrimaryDisplay();
+       const origin = pd.workArea ?? pd.bounds; // haut-gauche de l’écran principal
+       s = {
+        x: origin.x,         // 0 le plus souvent, mais correct aussi si écrans négatifs
+        y: origin.y,         // 0
+        scale: 100,
+        locked: true,
+        alwaysOnTop: true,
+      };
+      store.set("overlaySettings", s);
+     }
+
   const dragH = s.locked ? 0 : 30;
   const scale = (s.scale || 100) / 100;
 
@@ -404,7 +411,20 @@ function setupIPC() {
   ipcMain.handle("hotkeys-set", (_evt, hk) => {
     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
     store.set("hotkeys", hotkeys);
-    refreshHotkeyEngine();
+    const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
+    if (uIOhook && haveCodes) {
+      try{
+        globalShortcut.unregisterAll(); // on quitte le fallback
+      } catch {}
+      if (!usingUiohook) {
+        try { uIOhook.start(); } catch {}
+      }
+      usingUiohook = true;
+      sendHotkeysMode();
+      } else {
+        usingUiohook = false;
+        refreshHotkeyEngine(); // rester / revenir en fallback labels (F1/F2)
+      }
     return true;
   });
 
@@ -560,11 +580,11 @@ function setupUiohook() {
     return;
   }
 
-  usingUiohook = true;
+  const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
+  usingUiohook = !!haveCodes;
   sendHotkeysMode();
 
-  let lastToggle = 0;
-  let lastSwap = 0;
+  let lastToggle = 0, lastSwap = 0;
   const RATE = 180;
 
   uIOhook.on("keydown", (e) => {
@@ -617,8 +637,18 @@ function setupUiohook() {
   });
 
   try {
-    uIOhook.start();
-    logHK("uiohook started");
+    if (usingUiohook) {
+      try {
+        uIOhook.start();
+        logHK("uiohook started (codes present)");
+      } catch (e) {
+        usingUiohook = false;
+      }
+    } else {
+      // Pas de codes -> fallback immédiat
+      refreshHotkeyEngine(); // F1/F2 labels
+      logHK("uiohook not started (no codes) -> fallback");
+    }
   } catch (e) {
     logHK("uiohook START failed -> fallback", e?.message || e);
     usingUiohook = false;
