@@ -1,15 +1,15 @@
-import { app, BrowserWindow, ipcMain, screen, globalShortcut } from "electron";
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, session } from "electron";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import Store from "electron-store";
 import { createRequire } from "node:module";
 
-const require = createRequire(import.meta.url);
-let uIOhook = null;
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === "development";
+const require = createRequire(import.meta.url);
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const store = new Store();
 
+let uIOhook = null;
 let mainWindow = null;
 let overlayWindow = null;
 let usingUiohook = false;
@@ -169,6 +169,9 @@ function createMainWindow() {
     },
   });
 
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
     mainWindow.webContents.openDevTools({ mode: "detach" });
@@ -280,27 +283,30 @@ function setupIPC() {
     return true;
   });
 
-  ipcMain.handle("overlay-settings-update", (_evt, settings) => {
-    const current = store.get("overlaySettings", {});
-    const next = { ...current, ...settings };
-    store.set("overlaySettings", next);
-    if (!overlayWindow || overlayWindow.isDestroyed()) return true;
+ipcMain.handle("overlay-settings-update", (_evt, s = {}) => {
+  const allow = {};
+  if (typeof s.x === "number")   allow.x = Math.round(s.x);
+  if (typeof s.y === "number")   allow.y = Math.round(s.y);
+  if (typeof s.locked === "boolean") allow.locked = s.locked;
+  if (typeof s.alwaysOnTop === "boolean") allow.alwaysOnTop = s.alwaysOnTop;
+  if (typeof s.scale === "number") allow.scale = Math.min(200, Math.max(50, Math.round(s.scale)));
 
-    if (settings.locked !== undefined) {
-      overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
-      overlayWindow.setFocusable(true); // OBS/Alt-Tab
-    }
-    if (settings.alwaysOnTop !== undefined)
-      applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
-    if (settings.x !== undefined || settings.y !== undefined) {
+  const current = store.get("overlaySettings", {});
+  const next = { ...current, ...allow };
+  store.set("overlaySettings", next);
+
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    if ("locked" in allow) overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
+    if ("alwaysOnTop" in allow) applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
+    if ("x" in allow || "y" in allow) {
       const b = overlayWindow.getBounds();
-      overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
+      overlayWindow.setPosition(allow.x ?? b.x, allow.y ?? b.y);
     }
-    if (settings.scale !== undefined || settings.locked !== undefined)
-      recomputeOverlaySize();
+    if ("scale" in allow || "locked" in allow) recomputeOverlaySize();
     sendOverlaySettings();
-    return true;
-  });
+  }
+  return true;
+});
 
   ipcMain.handle("overlay-measure", (_evt, dims) => {
     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
@@ -564,8 +570,24 @@ function setupUiohook() {
   }
 }
 
+if (!app.requestSingleInstanceLock()) { app.quit(); } 
+else {
+  app.on('second-instance', () => {
+    if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); }
+  });
+}
+
+function applyProdCSP(){
+  if (isDev) return;
+  session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+    const csp = "default-src 'self' data: blob:; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';";
+    cb({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [csp] } });
+  });
+}
+
 /* -------------------- lifecycle -------------------- */
 app.whenReady().then(() => {
+  applyProdCSP();
   createMainWindow();
   setupIPC();
   setupUiohook();

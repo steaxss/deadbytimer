@@ -204,439 +204,590 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/electron\main.mjs`:
 
 ```mjs
-   1 | import { app, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
-   2 | import { join, dirname } from 'node:path'
-   3 | import { fileURLToPath } from 'node:url'
-   4 | import Store from 'electron-store'
-   5 | import { createRequire } from 'node:module'
-   6 | const require = createRequire(import.meta.url)
-   7 | 
-   8 | let uIOhook = null
-   9 | 
-  10 | const __dirname = dirname(fileURLToPath(import.meta.url))
-  11 | const isDev = process.env.NODE_ENV === 'development'
-  12 | const store = new Store()
-  13 | 
-  14 | let mainWindow = null
-  15 | let overlayWindow = null
-  16 | let usingUiohook = false
-  17 | 
-  18 | // dimensions non-scalées du contenu (hors drag bar)
-  19 | let baseDims = { width: 520, height: 120 }
-  20 | 
-  21 | // hotkeys: codes (uiohook) + labels (affichage & fallback)
-  22 | let hotkeys = store.get('hotkeys') || { start: null, swap: null }
-  23 | let hotkeysLabel = store.get('hotkeysLabel') || { start: 'F1', swap: 'F2' }
-  24 | 
-  25 | // état de capture transactionnelle
-  26 | let captureState = null // { type:'start'|'swap', label:null|string, code:null|number, primaryTimer:any, secondaryTimer:any }
-  27 | let captureWaitUntil = 0 // time (ms) jusqu’auquel on ne dispatch pas aux timers (évite side-effects pendant capture)
-  28 | 
-  29 | // ===== debug =====
-  30 | const DEBUG_HK = true
-  31 | const logHK = (...args) => { if (DEBUG_HK) console.log('[HK]', ...args) }
-  32 | 
-  33 | /* -------------------- utils -------------------- */
-  34 | function applyAlwaysOnTop(win, on) {
-  35 |   try {
-  36 |     win.setAlwaysOnTop(!!on, 'screen-saver')
-  37 |     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  38 |     win.setFullScreenable(false)
-  39 |   } catch {}
-  40 | }
-  41 | function sendOverlaySettings() {
-  42 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
-  43 |     const s = store.get('overlaySettings', { x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true })
-  44 |     overlayWindow.webContents.send('overlay-settings', s)
-  45 |   }
-  46 | }
-  47 | function recomputeOverlaySize() {
-  48 |   if (!overlayWindow || overlayWindow.isDestroyed()) return
-  49 |   const s = store.get('overlaySettings', { scale: 100, locked: true })
-  50 |   const dragH = s.locked ? 0 : 30
-  51 |   const scale = (s.scale || 100) / 100
-  52 |   const w = Math.ceil(baseDims.width * scale)
-  53 |   const h = Math.ceil((baseDims.height + dragH) * scale)
-  54 |   overlayWindow.setContentSize(w, h)
-  55 |   sendOverlaySettings()
-  56 | }
-  57 | function sendHotkeysMode() {
-  58 |   if (mainWindow && !mainWindow.isDestroyed()) {
-  59 |     mainWindow.webContents.send('hotkeys-mode', usingUiohook ? 'pass-through' : 'fallback')
-  60 |   }
-  61 | }
-  62 | function makeLabelFromBeforeInput(input) {
-  63 |   let k = input.key || ''
-  64 |   if (/^F\d{1,2}$/.test(k)) return k
-  65 |   if (/^[a-z]$/.test(k)) return k.toUpperCase()
-  66 |   if (/^\d$/.test(k)) return k
-  67 |   if (k === ' ') return 'SPACE'
-  68 |   const map = {
-  69 |     Escape:'ESC', Tab:'TAB', Enter:'ENTER', Backspace:'BACKSPACE',
-  70 |     Shift:'SHIFT', Control:'CTRL', Alt:'ALT', Meta:'META',
-  71 |     ArrowUp:'UP', ArrowDown:'DOWN', ArrowLeft:'LEFT', ArrowRight:'RIGHT',
-  72 |   }
-  73 |   if (map[k]) return map[k]
-  74 |   const code = input.code || ''
-  75 |   if (/^Key[A-Z]$/.test(code)) return code.slice(3,4)
-  76 |   if (/^Digit\d$/.test(code)) return code.slice(5)
-  77 |   return (k && k.length <= 6) ? k.toUpperCase() : (code || 'KEY')
-  78 | }
-  79 | 
-  80 | function clearCaptureTimers() {
-  81 |   if (!captureState) return
-  82 |   if (captureState.primaryTimer) { clearTimeout(captureState.primaryTimer); captureState.primaryTimer = null }
-  83 |   if (captureState.secondaryTimer) { clearTimeout(captureState.secondaryTimer); captureState.secondaryTimer = null }
-  84 | }
-  85 | 
-  86 | function finalizeCapture(reason='done') {
-  87 |   if (!captureState) return
-  88 |   const { type, label, code } = captureState
-  89 |   clearCaptureTimers()
-  90 | 
-  91 |   logHK('CAPTURE FINALIZE', { reason, type, label, code })
-  92 | 
-  93 |   // Persistance si on a reçu des infos
-  94 |   if (label) {
-  95 |     hotkeysLabel = { ...hotkeysLabel, [type]: label }
-  96 |     store.set('hotkeysLabel', hotkeysLabel)
-  97 |   }
-  98 |   if (typeof code === 'number') {
-  99 |     hotkeys = { ...hotkeys, [type]: code }
- 100 |     store.set('hotkeys', hotkeys)
- 101 |   }
- 102 | 
- 103 |   // Notifie le panel uniquement si on a reçu label ou code (sinon on ne change rien à l’UI)
- 104 |   if (mainWindow && !mainWindow.isDestroyed() && (label || typeof code === 'number')) {
- 105 |     const payload = { type }
- 106 |     if (label) payload.label = label
- 107 |     if (typeof code === 'number') payload.keycode = code
- 108 |     mainWindow.webContents.send('hotkeys-captured', payload)
+   1 | import { app, BrowserWindow, ipcMain, screen, globalShortcut } from "electron";
+   2 | import { join, dirname } from "node:path";
+   3 | import { fileURLToPath } from "node:url";
+   4 | import Store from "electron-store";
+   5 | import { createRequire } from "node:module";
+   6 | 
+   7 | const require = createRequire(import.meta.url);
+   8 | let uIOhook = null;
+   9 | const __dirname = dirname(fileURLToPath(import.meta.url));
+  10 | const isDev = process.env.NODE_ENV === "development";
+  11 | const store = new Store();
+  12 | 
+  13 | let mainWindow = null;
+  14 | let overlayWindow = null;
+  15 | let usingUiohook = false;
+  16 | 
+  17 | // dimensions non-scalées du contenu (hors drag bar)
+  18 | let baseDims = { width: 520, height: 120 };
+  19 | 
+  20 | // hotkeys: codes (uiohook) + labels (affichage & fallback)
+  21 | let hotkeys = store.get("hotkeys") || { start: null, swap: null };
+  22 | let hotkeysLabel = store.get("hotkeysLabel") || { start: "F1", swap: "F2" };
+  23 | 
+  24 | // état de capture transactionnelle
+  25 | let captureState = null; // { type:'start'|'swap', label:null|string, code:null|number, primaryTimer:any, secondaryTimer:any }
+  26 | let captureWaitUntil = 0; // time (ms) jusqu’auquel on ne dispatch pas aux timers (évite side-effects pendant capture)
+  27 | 
+  28 | // ===== debug =====
+  29 | 
+  30 | const DEBUG_HK = !!(isDev && process.env.DEBUG_HK === "1"); // logs uiohook off par défaut
+  31 | const logHK = (...args) => {
+  32 |   if (DEBUG_HK) console.log("[HK]", ...args);
+  33 | };
+  34 | 
+  35 | /* -------------------- utils -------------------- */
+  36 | function applyAlwaysOnTop(win, on) {
+  37 |   try {
+  38 |     win.setAlwaysOnTop(!!on, "screen-saver");
+  39 |     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  40 |     win.setFullScreenable(false);
+  41 |   } catch {}
+  42 | }
+  43 | function sendOverlaySettings() {
+  44 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
+  45 |     const s = store.get("overlaySettings", {
+  46 |       x: 0,
+  47 |       y: 0,
+  48 |       scale: 100,
+  49 |       locked: true,
+  50 |       alwaysOnTop: true,
+  51 |     });
+  52 |     overlayWindow.webContents.send("overlay-settings", s);
+  53 |   }
+  54 | }
+  55 | function recomputeOverlaySize() {
+  56 |   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  57 |   const s = store.get("overlaySettings", { scale: 100, locked: true });
+  58 |   const dragH = s.locked ? 0 : 30;
+  59 |   const scale = (s.scale || 100) / 100;
+  60 |   const w = Math.ceil(baseDims.width * scale);
+  61 |   const h = Math.ceil((baseDims.height + dragH) * scale);
+  62 |   overlayWindow.setContentSize(w, h);
+  63 |   sendOverlaySettings();
+  64 | }
+  65 | function sendHotkeysMode() {
+  66 |   if (mainWindow && !mainWindow.isDestroyed()) {
+  67 |     mainWindow.webContents.send(
+  68 |       "hotkeys-mode",
+  69 |       usingUiohook ? "pass-through" : "fallback"
+  70 |     );
+  71 |   }
+  72 | }
+  73 | function makeLabelFromBeforeInput(input) {
+  74 |   let k = input.key || "";
+  75 |   if (/^F\d{1,2}$/.test(k)) return k;
+  76 |   if (/^[a-z]$/.test(k)) return k.toUpperCase();
+  77 |   if (/^\d$/.test(k)) return k;
+  78 |   if (k === " ") return "SPACE";
+  79 |   const map = {
+  80 |     Escape: "ESC",
+  81 |     Tab: "TAB",
+  82 |     Enter: "ENTER",
+  83 |     Backspace: "BACKSPACE",
+  84 |     Shift: "SHIFT",
+  85 |     Control: "CTRL",
+  86 |     Alt: "ALT",
+  87 |     Meta: "META",
+  88 |     ArrowUp: "UP",
+  89 |     ArrowDown: "DOWN",
+  90 |     ArrowLeft: "LEFT",
+  91 |     ArrowRight: "RIGHT",
+  92 |   };
+  93 |   if (map[k]) return map[k];
+  94 |   const code = input.code || "";
+  95 |   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
+  96 |   if (/^Digit\d$/.test(code)) return code.slice(5);
+  97 |   return k && k.length <= 6 ? k.toUpperCase() : code || "KEY";
+  98 | }
+  99 | 
+ 100 | function clearCaptureTimers() {
+ 101 |   if (!captureState) return;
+ 102 |   if (captureState.primaryTimer) {
+ 103 |     clearTimeout(captureState.primaryTimer);
+ 104 |     captureState.primaryTimer = null;
+ 105 |   }
+ 106 |   if (captureState.secondaryTimer) {
+ 107 |     clearTimeout(captureState.secondaryTimer);
+ 108 |     captureState.secondaryTimer = null;
  109 |   }
- 110 | 
- 111 |   // Reset capture
- 112 |   captureState = null
- 113 |   captureWaitUntil = 0
- 114 | 
- 115 |   // Réarmer fallback si nécessaire
- 116 |   if (!usingUiohook) refreshHotkeyEngine()
- 117 | }
+ 110 | }
+ 111 | 
+ 112 | function finalizeCapture(reason = "done") {
+ 113 |   if (!captureState) return;
+ 114 |   const { type, label, code } = captureState;
+ 115 |   clearCaptureTimers();
+ 116 | 
+ 117 |   logHK("CAPTURE FINALIZE", { reason, type, label, code });
  118 | 
- 119 | /* -------------------- windows -------------------- */
- 120 | function createMainWindow() {
- 121 |   const saved = store.get('windowState') || {}
- 122 |   mainWindow = new BrowserWindow({
- 123 |     width: saved.width || 900,
- 124 |     height: saved.height || 640,
- 125 |     x: saved.x, y: saved.y,
- 126 |     minWidth: 700, minHeight: 480,
- 127 |     show: false,
- 128 |     autoHideMenuBar: true,
- 129 |     webPreferences: {
- 130 |       nodeIntegration: false,
- 131 |       contextIsolation: true,
- 132 |       preload: join(__dirname, 'preload.cjs'),
- 133 |     }
- 134 |   })
- 135 | 
- 136 |   if (isDev) {
- 137 |     mainWindow.loadURL('http://localhost:5173')
- 138 |     mainWindow.webContents.openDevTools({ mode: 'detach' })
- 139 |   } else {
- 140 |     mainWindow.loadFile(join(__dirname, '../dist/index.html'))
- 141 |   }
- 142 | 
- 143 |   mainWindow.once('ready-to-show', () => mainWindow.show())
- 144 |   mainWindow.on('close', () => {
- 145 |     const b = mainWindow.getBounds()
- 146 |     store.set('windowState', b)
- 147 |   })
- 148 |   mainWindow.on('closed', () => { mainWindow = null; if (overlayWindow) overlayWindow.close() })
- 149 | }
- 150 | 
- 151 | function createOverlayWindow() {
- 152 |   if (overlayWindow && !overlayWindow.isDestroyed()) { overlayWindow.show(); overlayWindow.focus(); return }
- 153 |   const display = screen.getPrimaryDisplay().workAreaSize
- 154 |   const s = store.get('overlaySettings', { x: Math.floor(display.width/2-260), y: 100, scale: 100, locked: true, alwaysOnTop: true })
- 155 |   const dragH = s.locked ? 0 : 30
- 156 |   const scale = (s.scale || 100) / 100
- 157 | 
- 158 |   overlayWindow = new BrowserWindow({
- 159 |     width: Math.ceil(baseDims.width * scale),
- 160 |     height: Math.ceil((baseDims.height + dragH) * scale),
- 161 |     x: s.x, y: s.y,
- 162 |     frame: false, transparent: true, resizable: false,
- 163 |     hasShadow: false,
- 164 |     skipTaskbar: false,
- 165 |     focusable: true,
- 166 |     title: 'DBD Timer Overlay',
- 167 |     acceptFirstMouse: true,
- 168 |     backgroundColor: '#00000000',
- 169 |     useContentSize: true,
- 170 |     webPreferences: {
- 171 |       nodeIntegration: false,
- 172 |       contextIsolation: true,
- 173 |       preload: join(__dirname, 'preload.cjs'),
- 174 |       backgroundThrottling: false
- 175 |     }
- 176 |   })
- 177 | 
- 178 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true })
- 179 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop)
- 180 | 
- 181 |   const url = isDev ? 'http://localhost:5173/overlay.html' : join(__dirname, '../dist/overlay.html')
- 182 |   if (isDev) overlayWindow.loadURL(url); else overlayWindow.loadFile(url)
- 183 | 
- 184 |   overlayWindow.on('closed', () => {
- 185 |     overlayWindow = null
- 186 |     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('overlay-ready', false)
- 187 |   })
- 188 |   overlayWindow.on('move', () => {
- 189 |     const b = overlayWindow.getBounds()
- 190 |     store.set('overlaySettings.x', b.x)
- 191 |     store.set('overlaySettings.y', b.y)
- 192 |   })
- 193 | 
- 194 |   overlayWindow.webContents.on('did-finish-load', () => {
- 195 |     const data = store.get('timerData') || {
- 196 |       player1: { name: 'Player 1', score: 0 },
- 197 |       player2: { name: 'Player 2', score: 0 }
- 198 |     }
- 199 |     overlayWindow.webContents.send('timer-data-sync', data)
- 200 |     sendOverlaySettings()
- 201 |     if (mainWindow) mainWindow.webContents.send('overlay-ready', true)
- 202 |     setTimeout(() => recomputeOverlaySize(), 50)
- 203 |   })
- 204 | }
- 205 | 
- 206 | /* -------------------- IPC -------------------- */
- 207 | function setupIPC() {
- 208 |   ipcMain.handle('overlay-show', () => { createOverlayWindow(); return true })
- 209 |   ipcMain.handle('overlay-hide', () => {
- 210 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close()
- 211 |     overlayWindow = null
- 212 |     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('overlay-ready', false)
- 213 |     return true
- 214 |   })
- 215 | 
- 216 |   ipcMain.handle('overlay-settings-update', (_evt, settings) => {
- 217 |     const current = store.get('overlaySettings', {})
- 218 |     const next = { ...current, ...settings }
- 219 |     store.set('overlaySettings', next)
- 220 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true
- 221 | 
- 222 |     if (settings.locked !== undefined) {
- 223 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true })
- 224 |       overlayWindow.setFocusable(true) // OBS/Alt-Tab
- 225 |     }
- 226 |     if (settings.alwaysOnTop !== undefined) applyAlwaysOnTop(overlayWindow, next.alwaysOnTop)
- 227 |     if (settings.x !== undefined || settings.y !== undefined) {
- 228 |       const b = overlayWindow.getBounds()
- 229 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y)
- 230 |     }
- 231 |     if (settings.scale !== undefined || settings.locked !== undefined) recomputeOverlaySize()
- 232 |     sendOverlaySettings()
- 233 |     return true
- 234 |   })
- 235 | 
- 236 |   ipcMain.handle('overlay-measure', (_evt, dims) => {
- 237 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height)) return false
- 238 |     baseDims = { width: Math.max(1, Math.floor(dims.width)), height: Math.max(1, Math.floor(dims.height)) }
- 239 |     recomputeOverlaySize()
- 240 |     return true
- 241 |   })
- 242 | 
- 243 |   // Timer data
- 244 |   ipcMain.handle('timer-data-get', () => store.get('timerData') || { player1: { name: 'Player 1', score: 0 }, player2: { name: 'Player 2', score: 0 } })
- 245 |   ipcMain.handle('timer-data-set', (_evt, data) => {
- 246 |     store.set('timerData', data)
- 247 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.webContents.send('timer-data-sync', data)
- 248 |     return true
- 249 |   })
- 250 | 
- 251 |   // Hotkeys API
- 252 |   ipcMain.handle('hotkeys-get', () => ({
- 253 |     start: hotkeys.start, swap: hotkeys.swap,
- 254 |     startLabel: hotkeysLabel.start, swapLabel: hotkeysLabel.swap,
- 255 |     mode: usingUiohook ? 'pass-through' : 'fallback'
- 256 |   }))
- 257 | 
- 258 |   ipcMain.handle('hotkeys-set', (_evt, hk) => {
- 259 |     hotkeys = { ...hotkeys, ...hk } // codes uiohook si fournis
- 260 |     store.set('hotkeys', hotkeys)
- 261 |     refreshHotkeyEngine()
- 262 |     return true
- 263 |   })
- 264 | 
- 265 |   // 🚀 capture 100% main-process, transactionnelle (pas de timeout tant qu'aucune touche n'a été frappée)
- 266 |   ipcMain.handle('hotkeys-capture', (_evt, type) => {
- 267 |     if (!(type === 'start' || type === 'swap')) { finalizeCapture('cancel'); return true }
+ 119 |   // Persistance si on a reçu des infos
+ 120 |   if (label) {
+ 121 |     hotkeysLabel = { ...hotkeysLabel, [type]: label };
+ 122 |     store.set("hotkeysLabel", hotkeysLabel);
+ 123 |   }
+ 124 |   if (typeof code === "number") {
+ 125 |     hotkeys = { ...hotkeys, [type]: code };
+ 126 |     store.set("hotkeys", hotkeys);
+ 127 |   }
+ 128 | 
+ 129 |   // Notifie le panel uniquement si on a reçu label ou code (sinon on ne change rien à l’UI)
+ 130 |   if (
+ 131 |     mainWindow &&
+ 132 |     !mainWindow.isDestroyed() &&
+ 133 |     (label || typeof code === "number")
+ 134 |   ) {
+ 135 |     const payload = { type };
+ 136 |     if (label) payload.label = label;
+ 137 |     if (typeof code === "number") payload.keycode = code;
+ 138 |     mainWindow.webContents.send("hotkeys-captured", payload);
+ 139 |   }
+ 140 | 
+ 141 |   // Reset capture
+ 142 |   captureState = null;
+ 143 |   captureWaitUntil = 0;
+ 144 | 
+ 145 |   // Réarmer fallback si nécessaire
+ 146 |   if (!usingUiohook) refreshHotkeyEngine();
+ 147 | }
+ 148 | 
+ 149 | /* -------------------- windows -------------------- */
+ 150 | function createMainWindow() {
+ 151 |   const saved = store.get("windowState") || {};
+ 152 |   const width = Math.max(saved.width || 1120, 980);
+ 153 |   const height = Math.max(saved.height || 820, 720);
+ 154 | 
+ 155 |   mainWindow = new BrowserWindow({
+ 156 |     width,
+ 157 |     height,
+ 158 |     x: saved.x,
+ 159 |     y: saved.y,
+ 160 |     minWidth: 980,
+ 161 |     minHeight: 720,
+ 162 |     show: false,
+ 163 |     autoHideMenuBar: true,
+ 164 |     webPreferences: {
+ 165 |       nodeIntegration: false,
+ 166 |       contextIsolation: true,
+ 167 |       preload: join(__dirname, "preload.cjs"),
+ 168 |       devTools: isDev,
+ 169 |     },
+ 170 |   });
+ 171 | 
+ 172 |   if (isDev) {
+ 173 |     mainWindow.loadURL("http://localhost:5173");
+ 174 |     mainWindow.webContents.openDevTools({ mode: "detach" });
+ 175 |   } else {
+ 176 |     mainWindow.loadFile(join(__dirname, "../dist/index.html"));
+ 177 |     mainWindow.webContents.on("before-input-event", (e, input) => {
+ 178 |       const combo =
+ 179 |         (input.control || input.meta) &&
+ 180 |         input.shift &&
+ 181 |         input.key?.toLowerCase() === "i";
+ 182 |       if (combo || input.key === "F12") e.preventDefault();
+ 183 |     });
+ 184 |   }
+ 185 | 
+ 186 |   mainWindow.once("ready-to-show", () => mainWindow.show());
+ 187 |   mainWindow.on("close", () => {
+ 188 |     const b = mainWindow.getBounds();
+ 189 |     store.set("windowState", b);
+ 190 |   });
+ 191 |   mainWindow.on("closed", () => {
+ 192 |     mainWindow = null;
+ 193 |     if (overlayWindow) overlayWindow.close();
+ 194 |   });
+ 195 | }
+ 196 | 
+ 197 | function createOverlayWindow() {
+ 198 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
+ 199 |     overlayWindow.show();
+ 200 |     overlayWindow.focus();
+ 201 |     return;
+ 202 |   }
+ 203 |   const display = screen.getPrimaryDisplay().workAreaSize;
+ 204 |   const s = store.get("overlaySettings", {
+ 205 |     x: Math.floor(display.width / 2 - 260),
+ 206 |     y: 100,
+ 207 |     scale: 100,
+ 208 |     locked: true,
+ 209 |     alwaysOnTop: true,
+ 210 |   });
+ 211 |   const dragH = s.locked ? 0 : 30;
+ 212 |   const scale = (s.scale || 100) / 100;
+ 213 | 
+ 214 |   overlayWindow = new BrowserWindow({
+ 215 |     width: Math.ceil(baseDims.width * scale),
+ 216 |     height: Math.ceil((baseDims.height + dragH) * scale),
+ 217 |     x: s.x,
+ 218 |     y: s.y,
+ 219 |     frame: false,
+ 220 |     transparent: true,
+ 221 |     resizable: false,
+ 222 |     hasShadow: false,
+ 223 |     skipTaskbar: false,
+ 224 |     focusable: true,
+ 225 |     title: "DBD Timer Overlay",
+ 226 |     acceptFirstMouse: true,
+ 227 |     backgroundColor: "#00000000",
+ 228 |     useContentSize: true,
+ 229 |     webPreferences: {
+ 230 |       nodeIntegration: false,
+ 231 |       contextIsolation: true,
+ 232 |       preload: join(__dirname, "preload.cjs"),
+ 233 |       backgroundThrottling: false,
+ 234 |     },
+ 235 |   });
+ 236 | 
+ 237 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
+ 238 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
+ 239 | 
+ 240 |   const url = isDev
+ 241 |     ? "http://localhost:5173/overlay.html"
+ 242 |     : join(__dirname, "../dist/overlay.html");
+ 243 |   if (isDev) overlayWindow.loadURL(url);
+ 244 |   else overlayWindow.loadFile(url);
+ 245 | 
+ 246 |   overlayWindow.on("closed", () => {
+ 247 |     overlayWindow = null;
+ 248 |     if (mainWindow && !mainWindow.isDestroyed())
+ 249 |       mainWindow.webContents.send("overlay-ready", false);
+ 250 |   });
+ 251 |   overlayWindow.on("move", () => {
+ 252 |     const b = overlayWindow.getBounds();
+ 253 |     store.set("overlaySettings.x", b.x);
+ 254 |     store.set("overlaySettings.y", b.y);
+ 255 |   });
+ 256 | 
+ 257 |   overlayWindow.webContents.on("did-finish-load", () => {
+ 258 |     const data = store.get("timerData") || {
+ 259 |       player1: { name: "Player 1", score: 0 },
+ 260 |       player2: { name: "Player 2", score: 0 },
+ 261 |     };
+ 262 |     overlayWindow.webContents.send("timer-data-sync", data);
+ 263 |     sendOverlaySettings();
+ 264 |     if (mainWindow) mainWindow.webContents.send("overlay-ready", true);
+ 265 |     setTimeout(() => recomputeOverlaySize(), 50);
+ 266 |   });
+ 267 | }
  268 | 
- 269 |     logHK('CAPTURE BEGIN', { type, mode: usingUiohook ? 'pass-through' : 'fallback' })
- 270 | 
- 271 |     // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
- 272 |     captureWaitUntil = Date.now() + 15000
- 273 | 
- 274 |     // Reset/annule capture précédente si elle existe
- 275 |     if (captureState) { clearCaptureTimers(); captureState = null }
- 276 | 
- 277 |     // État de capture : pas de timer court au début; on attend la première frappe
- 278 |     captureState = {
- 279 |       type,
- 280 |       label: null,
- 281 |       code: null,
- 282 |       primaryTimer: setTimeout(() => {
- 283 |         // Annule la capture si l'utilisateur oublie (15s)
- 284 |         logHK('CAPTURE PRIMARY TIMEOUT — cancel')
- 285 |         finalizeCapture('primary-timeout')
- 286 |       }, 15000),
- 287 |       secondaryTimer: null
- 288 |     }
- 289 | 
- 290 |     // focus le panneau
- 291 |     try { mainWindow?.focus(); logHK('focused mainWindow?', mainWindow?.isFocused()) } catch (e) { logHK('focus error', e?.message || e) }
- 292 | 
- 293 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
- 294 |     if (!usingUiohook) {
- 295 |       try { globalShortcut.unregisterAll(); logHK('fallback: unregistered to let key through') } catch {}
- 296 |     }
- 297 | 
- 298 |     // écouter une fois la prochaine touche (pour le label layout-aware)
- 299 |     const once = (event, input) => {
- 300 |       if (!captureState) return
- 301 |       if (input.type !== 'keyDown' || input.isAutoRepeat) return
- 302 |       logHK('before-input-event keyDown', { key: input.key, code: input.code })
- 303 |       const label = makeLabelFromBeforeInput(input)
+ 269 | /* -------------------- IPC -------------------- */
+ 270 | function setupIPC() {
+ 271 |   ipcMain.handle("overlay-show", () => {
+ 272 |     createOverlayWindow();
+ 273 |     return true;
+ 274 |   });
+ 275 |   ipcMain.handle("overlay-hide", () => {
+ 276 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
+ 277 |     overlayWindow = null;
+ 278 |     if (mainWindow && !mainWindow.isDestroyed())
+ 279 |       mainWindow.webContents.send("overlay-ready", false);
+ 280 |     return true;
+ 281 |   });
+ 282 | 
+ 283 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
+ 284 |     const current = store.get("overlaySettings", {});
+ 285 |     const next = { ...current, ...settings };
+ 286 |     store.set("overlaySettings", next);
+ 287 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
+ 288 | 
+ 289 |     if (settings.locked !== undefined) {
+ 290 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
+ 291 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
+ 292 |     }
+ 293 |     if (settings.alwaysOnTop !== undefined)
+ 294 |       applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
+ 295 |     if (settings.x !== undefined || settings.y !== undefined) {
+ 296 |       const b = overlayWindow.getBounds();
+ 297 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
+ 298 |     }
+ 299 |     if (settings.scale !== undefined || settings.locked !== undefined)
+ 300 |       recomputeOverlaySize();
+ 301 |     sendOverlaySettings();
+ 302 |     return true;
+ 303 |   });
  304 | 
- 305 |       captureState.label = label
- 306 |       hotkeysLabel = { ...hotkeysLabel, [type]: label }
- 307 |       store.set('hotkeysLabel', hotkeysLabel)
- 308 | 
- 309 |       // notifie instantanément le panel (affichage immédiat)
- 310 |       mainWindow?.webContents.send('hotkeys-captured', { type, label })
- 311 |       logHK('label captured (instant)', { type, label })
- 312 | 
- 313 |       // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
- 314 |       if (typeof captureState.code === 'number') {
- 315 |         finalizeCapture('have both')
- 316 |       } else {
- 317 |         if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer)
- 318 |         captureState.secondaryTimer = setTimeout(() => finalizeCapture('after-label-wait'), 500)
- 319 |       }
- 320 | 
- 321 |       mainWindow?.webContents.removeListener('before-input-event', once)
- 322 |     }
- 323 |     mainWindow?.webContents.on('before-input-event', once)
- 324 |     logHK('before-input-event listener ARMED')
- 325 | 
- 326 |     return true
- 327 |   })
- 328 | }
- 329 | 
- 330 | /* -------------------- Hotkeys engines -------------------- */
- 331 | function refreshHotkeyEngine() {
- 332 |   if (usingUiohook) { logHK('refreshHotkeyEngine: pass-through (no globalShortcut)'); return }
- 333 |   try { globalShortcut.unregisterAll(); logHK('globalShortcut: unregistered all') } catch {}
- 334 |   const RATE = 180
- 335 |   let lastT = 0, lastS = 0
- 336 | 
- 337 |   const sKey = hotkeysLabel.start || 'F1'
- 338 |   const wKey = hotkeysLabel.swap  || 'F2'
- 339 |   logHK('globalShortcut: registering', { start: sKey, swap: wKey })
+ 305 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
+ 306 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
+ 307 |       return false;
+ 308 |     baseDims = {
+ 309 |       width: Math.max(1, Math.floor(dims.width)),
+ 310 |       height: Math.max(1, Math.floor(dims.height)),
+ 311 |     };
+ 312 |     recomputeOverlaySize();
+ 313 |     return true;
+ 314 |   });
+ 315 | 
+ 316 |   // Timer data
+ 317 |   ipcMain.handle(
+ 318 |     "timer-data-get",
+ 319 |     () =>
+ 320 |       store.get("timerData") || {
+ 321 |         player1: { name: "Player 1", score: 0 },
+ 322 |         player2: { name: "Player 2", score: 0 },
+ 323 |       }
+ 324 |   );
+ 325 |   ipcMain.handle("timer-data-set", (_evt, data) => {
+ 326 |     store.set("timerData", data);
+ 327 |     if (overlayWindow && !overlayWindow.isDestroyed())
+ 328 |       overlayWindow.webContents.send("timer-data-sync", data);
+ 329 |     return true;
+ 330 |   });
+ 331 | 
+ 332 |   // Hotkeys API
+ 333 |   ipcMain.handle("hotkeys-get", () => ({
+ 334 |     start: hotkeys.start,
+ 335 |     swap: hotkeys.swap,
+ 336 |     startLabel: hotkeysLabel.start,
+ 337 |     swapLabel: hotkeysLabel.swap,
+ 338 |     mode: usingUiohook ? "pass-through" : "fallback",
+ 339 |   }));
  340 | 
- 341 |   try {
- 342 |     globalShortcut.register(sKey, () => {
- 343 |       if (Date.now() < captureWaitUntil) { logHK('fallback toggle skipped (capturing)'); return }
- 344 |       const now = Date.now(); if (now - lastT < RATE) return; lastT = now
- 345 |       logHK('DISPATCH toggle via globalShortcut')
- 346 |       overlayWindow?.webContents.send('global-hotkey', { type: 'toggle' })
- 347 |     })
- 348 |   } catch (e) { logHK('register start failed', e?.message || e) }
- 349 | 
- 350 |   try {
- 351 |     globalShortcut.register(wKey, () => {
- 352 |       if (Date.now() < captureWaitUntil) { logHK('fallback swap skipped (capturing)'); return }
- 353 |       const now = Date.now(); if (now - lastS < RATE) return; lastS = now
- 354 |       logHK('DISPATCH swap via globalShortcut')
- 355 |       overlayWindow?.webContents.send('global-hotkey', { type: 'swap' })
- 356 |     })
- 357 |   } catch (e) { logHK('register swap failed', e?.message || e) }
- 358 | }
+ 341 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
+ 342 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
+ 343 |     store.set("hotkeys", hotkeys);
+ 344 |     refreshHotkeyEngine();
+ 345 |     return true;
+ 346 |   });
+ 347 | 
+ 348 |   // 🚀 capture 100% main-process, transactionnelle (pas de timeout tant qu'aucune touche n'a été frappée)
+ 349 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
+ 350 |     if (!(type === "start" || type === "swap")) {
+ 351 |       finalizeCapture("cancel");
+ 352 |       return true;
+ 353 |     }
+ 354 | 
+ 355 |     logHK("CAPTURE BEGIN", {
+ 356 |       type,
+ 357 |       mode: usingUiohook ? "pass-through" : "fallback",
+ 358 |     });
  359 | 
- 360 | // uiohook global (pass-through)
- 361 | function setupUiohook() {
- 362 |   try {
- 363 |     logHK('Trying to load uiohook-napi…')
- 364 |     const lib = require('uiohook-napi')
- 365 |     uIOhook = lib.uIOhook
- 366 |     logHK('uiohook loaded OK')
- 367 |   } catch (e) {
- 368 |     logHK('uiohook FAILED to load -> fallback', e?.message || e)
- 369 |     usingUiohook = false
- 370 |     sendHotkeysMode()
- 371 |     refreshHotkeyEngine()
- 372 |     return
- 373 |   }
- 374 | 
- 375 |   usingUiohook = true
- 376 |   sendHotkeysMode()
- 377 | 
- 378 |   let lastToggle = 0
- 379 |   let lastSwap = 0
- 380 |   const RATE = 180
+ 360 |     // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
+ 361 |     captureWaitUntil = Date.now() + 15000;
+ 362 | 
+ 363 |     // Reset/annule capture précédente si elle existe
+ 364 |     if (captureState) {
+ 365 |       clearCaptureTimers();
+ 366 |       captureState = null;
+ 367 |     }
+ 368 | 
+ 369 |     // État de capture : pas de timer court au début; on attend la première frappe
+ 370 |     captureState = {
+ 371 |       type,
+ 372 |       label: null,
+ 373 |       code: null,
+ 374 |       primaryTimer: setTimeout(() => {
+ 375 |         // Annule la capture si l'utilisateur oublie (15s)
+ 376 |         logHK("CAPTURE PRIMARY TIMEOUT — cancel");
+ 377 |         finalizeCapture("primary-timeout");
+ 378 |       }, 15000),
+ 379 |       secondaryTimer: null,
+ 380 |     };
  381 | 
- 382 |   uIOhook.on('keydown', (e) => {
- 383 |     logHK('uiohook keydown', { keycode: e.keycode, captureState: !!captureState, now: Date.now(), blockUntil: captureWaitUntil })
- 384 | 
- 385 |     // si on est en capture : stocker le code; finaliser si label déjà là, sinon attendre un chouïa
- 386 |     if (captureState) {
- 387 |       captureState.code = e.keycode
- 388 |       logHK('code captured (uiohook)', { type: captureState.type, code: e.keycode })
- 389 |       if (captureState.label) {
- 390 |         finalizeCapture('have both')
- 391 |       } else {
- 392 |         if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer)
- 393 |         captureState.secondaryTimer = setTimeout(() => finalizeCapture('after-code-wait'), 600)
- 394 |       }
- 395 |       return
+ 382 |     // focus le panneau
+ 383 |     try {
+ 384 |       mainWindow?.focus();
+ 385 |       logHK("focused mainWindow?", mainWindow?.isFocused());
+ 386 |     } catch (e) {
+ 387 |       logHK("focus error", e?.message || e);
+ 388 |     }
+ 389 | 
+ 390 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
+ 391 |     if (!usingUiohook) {
+ 392 |       try {
+ 393 |         globalShortcut.unregisterAll();
+ 394 |         logHK("fallback: unregistered to let key through");
+ 395 |       } catch {}
  396 |     }
  397 | 
- 398 |     // normal: déclenchement (pass-through)
- 399 |     if (!overlayWindow || overlayWindow.isDestroyed()) return
- 400 |     if (Date.now() < captureWaitUntil) { logHK('DISPATCH BLOCKED (capturing)'); return }
- 401 | 
- 402 |     const now = Date.now()
- 403 |     if (hotkeys.start && e.keycode === hotkeys.start) {
- 404 |       if (now - lastToggle < RATE) return; lastToggle = now
- 405 |       logHK('DISPATCH toggle via uiohook')
- 406 |       overlayWindow.webContents.send('global-hotkey', { type: 'toggle' })
- 407 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
- 408 |       if (now - lastSwap < RATE) return; lastSwap = now
- 409 |       logHK('DISPATCH swap via uiohook')
- 410 |       overlayWindow.webContents.send('global-hotkey', { type: 'swap' })
- 411 |     }
- 412 |   })
- 413 | 
- 414 |   try { uIOhook.start(); logHK('uiohook started') } catch (e) {
- 415 |     logHK('uiohook START failed -> fallback', e?.message || e)
- 416 |     usingUiohook = false
- 417 |     sendHotkeysMode()
- 418 |     refreshHotkeyEngine()
- 419 |   }
- 420 | }
- 421 | 
- 422 | /* -------------------- lifecycle -------------------- */
- 423 | app.whenReady().then(() => {
- 424 |   createMainWindow()
- 425 |   setupIPC()
- 426 |   setupUiohook()
- 427 |   if (isDev) setTimeout(createOverlayWindow, 800)
- 428 | })
- 429 | app.on('will-quit', () => {
- 430 |   try { if (usingUiohook) uIOhook.stop() } catch {}
- 431 |   try { globalShortcut.unregisterAll() } catch {}
- 432 | })
- 433 | app.on('window-all-closed', () => { app.quit() })
+ 398 |     // écouter une fois la prochaine touche (pour le label layout-aware)
+ 399 |     const once = (event, input) => {
+ 400 |       if (!captureState) return;
+ 401 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
+ 402 |       logHK("before-input-event keyDown", { key: input.key, code: input.code });
+ 403 |       const label = makeLabelFromBeforeInput(input);
+ 404 | 
+ 405 |       captureState.label = label;
+ 406 |       hotkeysLabel = { ...hotkeysLabel, [type]: label };
+ 407 |       store.set("hotkeysLabel", hotkeysLabel);
+ 408 | 
+ 409 |       // notifie instantanément le panel (affichage immédiat)
+ 410 |       mainWindow?.webContents.send("hotkeys-captured", { type, label });
+ 411 |       logHK("label captured (instant)", { type, label });
+ 412 | 
+ 413 |       // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
+ 414 |       if (typeof captureState.code === "number") {
+ 415 |         finalizeCapture("have both");
+ 416 |       } else {
+ 417 |         if (captureState.secondaryTimer)
+ 418 |           clearTimeout(captureState.secondaryTimer);
+ 419 |         captureState.secondaryTimer = setTimeout(
+ 420 |           () => finalizeCapture("after-label-wait"),
+ 421 |           500
+ 422 |         );
+ 423 |       }
+ 424 | 
+ 425 |       mainWindow?.webContents.removeListener("before-input-event", once);
+ 426 |     };
+ 427 |     mainWindow?.webContents.on("before-input-event", once);
+ 428 |     logHK("before-input-event listener ARMED");
+ 429 | 
+ 430 |     return true;
+ 431 |   });
+ 432 | }
+ 433 | 
+ 434 | /* -------------------- Hotkeys engines -------------------- */
+ 435 | function refreshHotkeyEngine() {
+ 436 |   if (usingUiohook) {
+ 437 |     logHK("refreshHotkeyEngine: pass-through (no globalShortcut)");
+ 438 |     return;
+ 439 |   }
+ 440 |   try {
+ 441 |     globalShortcut.unregisterAll();
+ 442 |     logHK("globalShortcut: unregistered all");
+ 443 |   } catch {}
+ 444 |   const RATE = 180;
+ 445 |   let lastT = 0,
+ 446 |     lastS = 0;
+ 447 | 
+ 448 |   const sKey = hotkeysLabel.start || "F1";
+ 449 |   const wKey = hotkeysLabel.swap || "F2";
+ 450 |   logHK("globalShortcut: registering", { start: sKey, swap: wKey });
+ 451 | 
+ 452 |   try {
+ 453 |     globalShortcut.register(sKey, () => {
+ 454 |       if (Date.now() < captureWaitUntil) {
+ 455 |         logHK("fallback toggle skipped (capturing)");
+ 456 |         return;
+ 457 |       }
+ 458 |       const now = Date.now();
+ 459 |       if (now - lastT < RATE) return;
+ 460 |       lastT = now;
+ 461 |       logHK("DISPATCH toggle via globalShortcut");
+ 462 |       overlayWindow?.webContents.send("global-hotkey", { type: "toggle" });
+ 463 |     });
+ 464 |   } catch (e) {
+ 465 |     logHK("register start failed", e?.message || e);
+ 466 |   }
+ 467 | 
+ 468 |   try {
+ 469 |     globalShortcut.register(wKey, () => {
+ 470 |       if (Date.now() < captureWaitUntil) {
+ 471 |         logHK("fallback swap skipped (capturing)");
+ 472 |         return;
+ 473 |       }
+ 474 |       const now = Date.now();
+ 475 |       if (now - lastS < RATE) return;
+ 476 |       lastS = now;
+ 477 |       logHK("DISPATCH swap via globalShortcut");
+ 478 |       overlayWindow?.webContents.send("global-hotkey", { type: "swap" });
+ 479 |     });
+ 480 |   } catch (e) {
+ 481 |     logHK("register swap failed", e?.message || e);
+ 482 |   }
+ 483 | }
+ 484 | 
+ 485 | // uiohook global (pass-through)
+ 486 | function setupUiohook() {
+ 487 |   try {
+ 488 |     logHK("Trying to load uiohook-napi…");
+ 489 |     const lib = require("uiohook-napi");
+ 490 |     uIOhook = lib.uIOhook;
+ 491 |     logHK("uiohook loaded OK");
+ 492 |   } catch (e) {
+ 493 |     logHK("uiohook FAILED to load -> fallback", e?.message || e);
+ 494 |     usingUiohook = false;
+ 495 |     sendHotkeysMode();
+ 496 |     refreshHotkeyEngine();
+ 497 |     return;
+ 498 |   }
+ 499 | 
+ 500 |   usingUiohook = true;
+ 501 |   sendHotkeysMode();
+ 502 | 
+ 503 |   let lastToggle = 0;
+ 504 |   let lastSwap = 0;
+ 505 |   const RATE = 180;
+ 506 | 
+ 507 |   uIOhook.on("keydown", (e) => {
+ 508 |     logHK("uiohook keydown", {
+ 509 |       keycode: e.keycode,
+ 510 |       captureState: !!captureState,
+ 511 |       now: Date.now(),
+ 512 |       blockUntil: captureWaitUntil,
+ 513 |     });
+ 514 | 
+ 515 |     // si on est en capture : stocker le code; finaliser si label déjà là, sinon attendre un chouïa
+ 516 |     if (captureState) {
+ 517 |       captureState.code = e.keycode;
+ 518 |       logHK("code captured (uiohook)", {
+ 519 |         type: captureState.type,
+ 520 |         code: e.keycode,
+ 521 |       });
+ 522 |       if (captureState.label) {
+ 523 |         finalizeCapture("have both");
+ 524 |       } else {
+ 525 |         if (captureState.secondaryTimer)
+ 526 |           clearTimeout(captureState.secondaryTimer);
+ 527 |         captureState.secondaryTimer = setTimeout(
+ 528 |           () => finalizeCapture("after-code-wait"),
+ 529 |           600
+ 530 |         );
+ 531 |       }
+ 532 |       return;
+ 533 |     }
+ 534 | 
+ 535 |     // normal: déclenchement (pass-through)
+ 536 |     if (!overlayWindow || overlayWindow.isDestroyed()) return;
+ 537 |     if (Date.now() < captureWaitUntil) {
+ 538 |       logHK("DISPATCH BLOCKED (capturing)");
+ 539 |       return;
+ 540 |     }
+ 541 | 
+ 542 |     const now = Date.now();
+ 543 |     if (hotkeys.start && e.keycode === hotkeys.start) {
+ 544 |       if (now - lastToggle < RATE) return;
+ 545 |       lastToggle = now;
+ 546 |       logHK("DISPATCH toggle via uiohook");
+ 547 |       overlayWindow.webContents.send("global-hotkey", { type: "toggle" });
+ 548 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
+ 549 |       if (now - lastSwap < RATE) return;
+ 550 |       lastSwap = now;
+ 551 |       logHK("DISPATCH swap via uiohook");
+ 552 |       overlayWindow.webContents.send("global-hotkey", { type: "swap" });
+ 553 |     }
+ 554 |   });
+ 555 | 
+ 556 |   try {
+ 557 |     uIOhook.start();
+ 558 |     logHK("uiohook started");
+ 559 |   } catch (e) {
+ 560 |     logHK("uiohook START failed -> fallback", e?.message || e);
+ 561 |     usingUiohook = false;
+ 562 |     sendHotkeysMode();
+ 563 |     refreshHotkeyEngine();
+ 564 |   }
+ 565 | }
+ 566 | 
+ 567 | /* -------------------- lifecycle -------------------- */
+ 568 | app.whenReady().then(() => {
+ 569 |   createMainWindow();
+ 570 |   setupIPC();
+ 571 |   setupUiohook();
+ 572 |   if (isDev) setTimeout(createOverlayWindow, 800);
+ 573 | });
+ 574 | app.on("will-quit", () => {
+ 575 |   try {
+ 576 |     if (usingUiohook) uIOhook.stop();
+ 577 |   } catch {}
+ 578 |   try {
+ 579 |     globalShortcut.unregisterAll();
+ 580 |   } catch {}
+ 581 | });
+ 582 | app.on("window-all-closed", () => {
+ 583 |   app.quit();
+ 584 | });
 
 ```
 
@@ -701,7 +852,7 @@ dbdoverlaytools-free
    4 |     <meta charset="UTF-8" />
    5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'inline-speculation-rules'">
    6 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-   7 |     <title>DBD Timer - Control Panel</title>
+   7 |     <title>DBD Timer - Control Panel by Steaxs & Doc</title>
    8 |   </head>
    9 |   <body class="bg-zinc-950 text-zinc-100">
   10 |     <div id="root"></div>
@@ -883,367 +1034,452 @@ dbdoverlaytools-free
    1 | import React from 'react';
    2 | import ControlPanel from './components/ControlPanel';
    3 | 
-   4 | /** App shell — layout responsive + footer réparé (pas d'absolu) */
-   5 | const App: React.FC = () => {
-   6 |   return (
-   7 |     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
-   8 |       <main className="flex-1">
-   9 |         <div className="mx-auto max-w-6xl p-6">
-  10 |           <header className="mb-6 text-center">
-  11 |             <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">You are not logged in</div>
-  12 |             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#B579FF]">DBD OVERLAY TOOLS</h1>
-  13 |           </header>
-  14 | 
-  15 |           <ControlPanel />
-  16 |         </div>
-  17 |       </main>
-  18 | 
-  19 |       {/* Footer fixe et propre */}
-  20 |       <footer className="mt-8">
-  21 |         <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-400">
-  22 |           <div className="uppercase tracking-wider">
-  23 |             © by <b>DOC</b> &amp; <b>STEAXS</b> — 2025
-  24 |           </div>
-  25 |           <div className="text-xs mt-1 text-zinc-500">
-  26 |             Hotkeys: <b>F1</b> start/pause/reset — <b>F2</b> swap active timer
-  27 |           </div>
-  28 |         </div>
-  29 |       </footer>
-  30 |     </div>
-  31 |   );
-  32 | };
-  33 | 
-  34 | export default App;
+   4 | const App: React.FC = () => {
+   5 |   return (
+   6 |     <div className="min-h-dvh bg-[#0A0A0A] text-white flex flex-col">
+   7 |       <main className="flex-1">
+   8 |         <div className="mx-auto max-w-6xl p-6">
+   9 |           <header className="mb-6 text-center">
+  10 |             <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">
+  11 |               You are not logged in
+  12 |             </div>
+  13 |             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#B579FF]">
+  14 |               DBD OVERLAY TOOLS
+  15 |             </h1>
+  16 |           </header>
+  17 | 
+  18 |           <ControlPanel />
+  19 |         </div>
+  20 |       </main>
+  21 |     </div>
+  22 |   );
+  23 | };
+  24 | 
+  25 | export default App;
 
 ```
 
 `dbdoverlaytools-free/src\components\ControlPanel.tsx`:
 
 ```tsx
-   1 | import React, { useEffect, useState } from 'react';
+   1 | import React, { useEffect, useState } from "react";
    2 | 
-   3 | /** Types hotkeys (codes + labels) */
-   4 | type HKGet = {
-   5 |   start: number | null;
-   6 |   swap: number | null;
-   7 |   startLabel?: string;
-   8 |   swapLabel?: string;
-   9 | };
-  10 | type HKSet = { start?: number | null; swap?: number | null };
-  11 | 
-  12 | /** UI de contrôle — uniquement du style, aucune logique cassée */
-  13 | const ControlPanel: React.FC = () => {
-  14 |   // Overlay
-  15 |   const [overlayOn, setOverlayOn] = useState(false);
-  16 |   const [locked, setLocked] = useState(true);
-  17 |   const [scale, setScale] = useState(100);
-  18 | 
-  19 |   // Joueurs
-  20 |   const [players, setPlayers] = useState({
-  21 |     player1: { name: 'PLAYER 1', score: 0 },
-  22 |     player2: { name: 'PLAYER 2', score: 0 },
-  23 |   });
-  24 | 
-  25 |   // Hotkeys
-  26 |   const [hkCodes, setHkCodes] = useState<{ start: number | null; swap: number | null }>({
-  27 |     start: null,
-  28 |     swap: null,
-  29 |   });
-  30 |   const [hkLabels, setHkLabels] = useState<{ start: string; swap: string }>({
-  31 |     start: 'F1',
-  32 |     swap: 'F2',
-  33 |   });
-  34 |   const [capturing, setCapturing] = useState<null | 'start' | 'swap'>(null);
-  35 | 
-  36 |   // Init : récupère les états existants + s'abonne aux updates
-  37 |   useEffect(() => {
-  38 |     // Timer data (noms/scores)
-  39 |     window.api.timer.get().then((d) => {
-  40 |       if (d?.player1 && d?.player2) setPlayers(d);
-  41 |     });
-  42 | 
-  43 |     // Hotkeys configurées
-  44 |     window.api.hotkeys.get().then((h: HKGet) => {
-  45 |       setHkCodes({ start: h.start ?? null, swap: h.swap ?? null });
-  46 |       setHkLabels({ start: h.startLabel || 'F1', swap: h.swapLabel || 'F2' });
-  47 |     });
-  48 | 
-  49 |     // Overlay : état + settings
-  50 |     window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
-  51 |     window.api.overlay.onSettings((s: any) => {
-  52 |       if (typeof s.locked === 'boolean') setLocked(!!s.locked);
-  53 |       if (typeof s.scale === 'number') setScale(s.scale);
-  54 |     });
-  55 | 
-  56 |     // Sync timer (scores/noms) poussé depuis le main
-  57 |     window.api.timer.onSync((d: any) => {
-  58 |       if (d?.player1 && d?.player2) setPlayers(d);
-  59 |     });
-  60 | 
-  61 |     // Fin de capture hotkey -> applique label/code
-  62 |     window.api.hotkeys.onCaptured((p: { type: 'start' | 'swap'; keycode?: number | null; label?: string }) => {
-  63 |       if (p.label) setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
-  64 |       if (typeof p.keycode !== 'undefined') {
-  65 |         setHkCodes((prev) => ({ ...prev, [p.type]: p.keycode ?? null }));
-  66 |       }
-  67 |       setCapturing(null);
-  68 |     });
-  69 |   }, []);
-  70 | 
-  71 |   // Helpers
-  72 |   const savePlayers = (next: typeof players) => {
-  73 |     setPlayers(next);
-  74 |     window.api.timer.set(next); // ne change que noms/scores côté main
-  75 |   };
-  76 | 
-  77 |   const toggleOverlay = async () => {
-  78 |     if (overlayOn) {
-  79 |       await window.api.overlay.hide();
-  80 |       setOverlayOn(false);
-  81 |     } else {
-  82 |       await window.api.overlay.show();
-  83 |       setOverlayOn(true);
-  84 |     }
+   3 | type HKGet = {
+   4 |   start: number | null;
+   5 |   swap: number | null;
+   6 |   startLabel?: string;
+   7 |   swapLabel?: string;
+   8 | };
+   9 | 
+  10 | const ControlPanel: React.FC = () => {
+  11 |   // Overlay
+  12 |   const [overlayOn, setOverlayOn] = useState(false);
+  13 |   const [locked, setLocked] = useState(true);
+  14 |   const [scale, setScale] = useState(100);
+  15 | 
+  16 |   // Players
+  17 |   const [players, setPlayers] = useState({
+  18 |     player1: { name: "PLAYER 1", score: 0 },
+  19 |     player2: { name: "PLAYER 2", score: 0 },
+  20 |   });
+  21 | 
+  22 |   // Hotkeys
+  23 |   const [hkLabels, setHkLabels] = useState<{ start: string; swap: string }>({
+  24 |     start: "F1",
+  25 |     swap: "F2",
+  26 |   });
+  27 |   const [capturing, setCapturing] = useState<null | "start" | "swap">(null);
+  28 | 
+  29 |   useEffect(() => {
+  30 |     window.api.timer.get().then((d) => {
+  31 |       if (d?.player1 && d?.player2) setPlayers(d);
+  32 |     });
+  33 | 
+  34 |     window.api.hotkeys.get().then((h: HKGet) => {
+  35 |       setHkLabels({ start: h.startLabel || "F1", swap: h.swapLabel || "F2" });
+  36 |     });
+  37 | 
+  38 |     window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
+  39 |     window.api.overlay.onSettings((s: any) => {
+  40 |       if (typeof s.locked === "boolean") setLocked(!!s.locked);
+  41 |       if (typeof s.scale === "number") setScale(s.scale);
+  42 |     });
+  43 | 
+  44 |     window.api.timer.onSync((d: any) => {
+  45 |       if (d?.player1 && d?.player2) setPlayers(d);
+  46 |     });
+  47 | 
+  48 |     window.api.hotkeys.onCaptured(
+  49 |       (p: {
+  50 |         type: "start" | "swap";
+  51 |         keycode?: number | null;
+  52 |         label?: string;
+  53 |       }) => {
+  54 |         if (p.label) setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
+  55 |         setCapturing(null);
+  56 |       }
+  57 |     );
+  58 | 
+  59 |     // Always on top (UI toggle removed)
+  60 |     window.api.overlay.updateSettings({ alwaysOnTop: true });
+  61 |   }, []);
+  62 | 
+  63 |   // Helpers
+  64 |   const savePlayers = (next: typeof players) => {
+  65 |     setPlayers(next);
+  66 |     window.api.timer.set(next);
+  67 |   };
+  68 | 
+  69 |   const onOverlayToggle = async (checked: boolean) => {
+  70 |     setOverlayOn(checked);
+  71 |     if (checked) await window.api.overlay.show();
+  72 |     else await window.api.overlay.hide();
+  73 |   };
+  74 | 
+  75 |   const onScale = (e: React.ChangeEvent<HTMLInputElement>) => {
+  76 |     const v = Number(e.target.value);
+  77 |     setScale(v);
+  78 |     window.api.overlay.updateSettings({ scale: v });
+  79 |   };
+  80 | 
+  81 |   const onLock = (e: React.ChangeEvent<HTMLInputElement>) => {
+  82 |     const v = e.target.checked;
+  83 |     setLocked(v);
+  84 |     window.api.overlay.updateSettings({ locked: v });
   85 |   };
   86 | 
-  87 |   const saveHotkeys = async () => {
-  88 |     const payload: HKSet = { start: hkCodes.start ?? null, swap: hkCodes.swap ?? null };
-  89 |     await window.api.hotkeys.set(payload);
-  90 |   };
-  91 | 
-  92 |   const onScale = (e: React.ChangeEvent<HTMLInputElement>) => {
-  93 |     const v = Number(e.target.value);
-  94 |     setScale(v);
-  95 |     window.api.overlay.updateSettings({ scale: v });
-  96 |   };
-  97 | 
-  98 |   const onLock = (e: React.ChangeEvent<HTMLInputElement>) => {
-  99 |     const v = e.target.checked;
- 100 |     setLocked(v);
- 101 |     window.api.overlay.updateSettings({ locked: v });
- 102 |   };
- 103 | 
- 104 |   const onTop = (e: React.ChangeEvent<HTMLInputElement>) => {
- 105 |     window.api.overlay.updateSettings({ alwaysOnTop: e.target.checked });
- 106 |   };
- 107 | 
- 108 |   const handleResetAll = () => {
- 109 |     const next = {
- 110 |       ...players,
- 111 |       player1: { ...players.player1, score: 0 },
- 112 |       player2: { ...players.player2, score: 0 },
- 113 |     };
- 114 |     savePlayers(next);
- 115 |     // Les timers se réinitialisent comme d’habitude via F1 (on ne modifie pas la logique ici)
- 116 |   };
- 117 | 
- 118 |   return (
- 119 |     <div className="mx-auto max-w-5xl p-6 text-zinc-100">
- 120 |       {/* Header */}
- 121 |       <header className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 flex items-center justify-between">
- 122 |         <div>
- 123 |           <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">1v1 Overlay</div>
- 124 |           <h1 className="text-xl font-semibold tracking-tight">DBD Overlay Tools</h1>
- 125 |         </div>
- 126 | 
- 127 |         <div className="flex items-center gap-3">
- 128 |           <button
- 129 |             onClick={toggleOverlay}
- 130 |             className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
- 131 |               overlayOn ? 'bg-zinc-800 hover:bg-zinc-700' : 'bg-violet-600 hover:bg-violet-500'
- 132 |             }`}
- 133 |           >
- 134 |             {overlayOn ? 'Hide Overlay' : 'Show Overlay'}
- 135 |           </button>
- 136 |           <button onClick={saveHotkeys} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium hover:bg-violet-500 transition">
- 137 |             Save hotkeys
- 138 |           </button>
- 139 |         </div>
- 140 |       </header>
- 141 | 
- 142 |       {/* Styles (UI only) */}
- 143 |       <section className="mb-6">
- 144 |         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">Select Timer Style</h2>
- 145 |         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
- 146 |           {[
- 147 |             { label: 'Default', desc: 'Default Style', premium: false },
- 148 |             { label: 'Glass', desc: '👑 Minimal Glass', premium: true },
- 149 |             { label: 'VS', desc: '👑 Circular Progress', premium: true },
- 150 |           ].map((s, i) => (
- 151 |             <div
- 152 |               key={i}
- 153 |               className="rounded-xl border border-white/10 bg-white/5 p-4 ring-1 ring-white/10 hover:ring-violet-500/40 transition backdrop-blur"
- 154 |             >
- 155 |               <div className="mb-2 flex items-center justify-between">
- 156 |                 <span className="text-sm font-medium">{s.label}</span>
- 157 |                 {s.premium && <span className="text-xs text-zinc-400">UI</span>}
- 158 |               </div>
- 159 |               <div className="text-xs text-zinc-400">{s.desc}</div>
- 160 |             </div>
- 161 |           ))}
- 162 |         </div>
- 163 |       </section>
- 164 | 
- 165 |       {/* Hotkeys */}
- 166 |       <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
- 167 |         <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
- 168 |           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
- 169 |           <button
- 170 |             className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
- 171 |               capturing === 'start' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'
- 172 |             }`}
- 173 |             onClick={() => {
- 174 |               setCapturing('start');
- 175 |               window.api.hotkeys.capture('start');
- 176 |             }}
- 177 |           >
- 178 |             {capturing === 'start' ? 'Press a key…' : hkLabels.start}
- 179 |           </button>
- 180 |         </div>
- 181 | 
- 182 |         <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
- 183 |           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
- 184 |           <button
- 185 |             className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
- 186 |               capturing === 'swap' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'
- 187 |             }`}
- 188 |             onClick={() => {
- 189 |               setCapturing('swap');
- 190 |               window.api.hotkeys.capture('swap');
- 191 |             }}
- 192 |           >
- 193 |             {capturing === 'swap' ? 'Press a key…' : hkLabels.swap}
- 194 |           </button>
- 195 |         </div>
- 196 |       </section>
- 197 | 
- 198 |       {/* Joueurs */}
- 199 |       <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
- 200 |         {/* Player 1 */}
- 201 |         <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 202 |           <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 1</div>
- 203 |           <input
- 204 |             className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
- 205 |             value={players.player1.name}
- 206 |             onChange={(e) => savePlayers({ ...players, player1: { ...players.player1, name: e.target.value } })}
- 207 |           />
- 208 |           <div className="text-xs text-zinc-400">Score</div>
- 209 |           <div className="mt-2 flex items-center gap-2">
- 210 |             <button
- 211 |               className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
- 212 |               onClick={() =>
- 213 |                 savePlayers({
- 214 |                   ...players,
- 215 |                   player1: { ...players.player1, score: Math.max(0, players.player1.score - 1) },
- 216 |                 })
- 217 |               }
- 218 |             >
- 219 |               −1
- 220 |             </button>
- 221 |             <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player1.score}</div>
- 222 |             <button
- 223 |               className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
- 224 |               onClick={() =>
- 225 |                 savePlayers({
- 226 |                   ...players,
- 227 |                   player1: { ...players.player1, score: players.player1.score + 1 },
- 228 |                 })
- 229 |               }
- 230 |             >
- 231 |               +1
- 232 |             </button>
- 233 |           </div>
- 234 |         </div>
- 235 | 
- 236 |         {/* Player 2 */}
- 237 |         <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 238 |           <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 2</div>
- 239 |           <input
- 240 |             className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
- 241 |             value={players.player2.name}
- 242 |             onChange={(e) => savePlayers({ ...players, player2: { ...players.player2, name: e.target.value } })}
- 243 |           />
- 244 |           <div className="text-xs text-zinc-400">Score</div>
- 245 |           <div className="mt-2 flex items-center gap-2">
- 246 |             <button
- 247 |               className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
- 248 |               onClick={() =>
- 249 |                 savePlayers({
- 250 |                   ...players,
- 251 |                   player2: { ...players.player2, score: Math.max(0, players.player2.score - 1) },
- 252 |                 })
- 253 |               }
- 254 |             >
- 255 |               −1
- 256 |             </button>
- 257 |             <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player2.score}</div>
- 258 |             <button
- 259 |               className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
- 260 |               onClick={() =>
- 261 |                 savePlayers({
- 262 |                   ...players,
- 263 |                   player2: { ...players.player2, score: players.player2.score + 1 },
- 264 |                 })
- 265 |               }
- 266 |             >
- 267 |               +1
- 268 |             </button>
- 269 |           </div>
- 270 |         </div>
- 271 |       </section>
- 272 | 
- 273 |       {/* Actions globales */}
- 274 |       <div className="mb-6 flex justify-center">
- 275 |         <button onClick={handleResetAll} className="rounded-lg border border-[#FF4141]/30 bg-[#FF4141]/15 text-[#FF4141] font-bold uppercase tracking-wide px-5 py-2">
- 276 |           Reset all timers & scores
- 277 |         </button>
- 278 |       </div>
- 279 | 
- 280 |       {/* Overlay Settings */}
- 281 |       <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 282 |         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Overlay Settings</h2>
- 283 | 
- 284 |         <div className="mb-6">
- 285 |           <div className="mb-2 flex items-center justify-between text-sm">
- 286 |             <span>Scale</span>
- 287 |             <span className="font-semibold text-[#5AC8FF]">{scale}%</span>
- 288 |           </div>
- 289 |           <input type="range" min={50} max={200} value={scale} onChange={onScale} className="w-full [accent-color:#5AC8FF]" />
- 290 |         </div>
- 291 | 
- 292 |         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
- 293 |           <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
- 294 |             <span className="text-sm">
- 295 |               Lock Overlay Position <span className="opacity-50">🔓</span>
- 296 |             </span>
- 297 |             <input type="checkbox" checked={locked} onChange={onLock} className="h-5 w-9 accent-violet-500" />
- 298 |           </label>
- 299 | 
- 300 |           <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
- 301 |             <span className="text-sm">Overlay stays above all windows</span>
- 302 |             <input type="checkbox" defaultChecked onChange={onTop} className="h-5 w-9 accent-violet-500" />
- 303 |           </label>
- 304 |         </div>
- 305 | 
- 306 |         <div
- 307 |           className={`mt-4 rounded-lg border p-3 text-sm ${
- 308 |             locked
- 309 |               ? 'border-[#44FF41]/40 bg-[#44FF41]/10 text-[#44FF41]'
- 310 |               : 'border-violet-500/40 bg-violet-500/10 text-violet-300'
- 311 |           }`}
- 312 |         >
- 313 |           {locked ? 'Overlay is locked – clicks will go through.' : 'Overlay is unlocked – drag the purple bar to reposition.'}
- 314 |         </div>
- 315 | 
- 316 |         <p className="mt-3 text-center text-xs text-zinc-500">
- 317 |           Astuce : l’overlay peut être minimisé et reste dans la barre des tâches lorsqu’il est déverrouillé.
- 318 |         </p>
- 319 |       </section>
- 320 |     </div>
- 321 |   );
- 322 | };
- 323 | 
- 324 | export default ControlPanel;
+  87 |   const handleResetAll = () => {
+  88 |     const next = {
+  89 |       ...players,
+  90 |       player1: { ...players.player1, score: 0 },
+  91 |       player2: { ...players.player2, score: 0 },
+  92 |     };
+  93 |     savePlayers(next);
+  94 |   };
+  95 | 
+  96 |   return (
+  97 |     <div className="mx-auto max-w-5xl p-6 text-zinc-100">
+  98 |       {/* Header */}
+  99 |       <header className="mb-4 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 flex items-center justify-between">
+ 100 |         <div>
+ 101 |           <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">
+ 102 |             1v1 Overlay
+ 103 |           </div>
+ 104 |           <h1 className="text-xl font-semibold tracking-tight">
+ 105 |             DBD Overlay Tools
+ 106 |           </h1>
+ 107 |         </div>
+ 108 | 
+ 109 |         {/* iOS toggle + status */}
+ 110 |         <div className="flex items-center gap-3">
+ 111 |           <span
+ 112 |             className={`text-sm font-medium ${
+ 113 |               overlayOn
+ 114 |                 ? "text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,.8)]"
+ 115 |                 : "text-zinc-400"
+ 116 |             }`}
+ 117 |           >
+ 118 |             {overlayOn ? "Overlay Active" : "Overlay Hidden"}
+ 119 |           </span>
+ 120 |           <label className="relative inline-flex h-6 w-11 cursor-pointer items-center">
+ 121 |             <input
+ 122 |               type="checkbox"
+ 123 |               className="peer sr-only"
+ 124 |               checked={overlayOn}
+ 125 |               onChange={(e) => onOverlayToggle(e.target.checked)}
+ 126 |             />
+ 127 |             <span className="absolute inset-0 rounded-full bg-zinc-700 transition peer-checked:bg-emerald-500/70" />
+ 128 |             <span className="absolute h-5 w-5 translate-x-1 rounded-full bg-white transition peer-checked:translate-x-6" />
+ 129 |           </label>
+ 130 |         </div>
+ 131 |       </header>
+ 132 | 
+ 133 |       <div className="scroll-thin pr-1">
+ 134 |         {/* Hotkeys */}
+ 135 |         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+ 136 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 137 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+ 138 |               Start/Stop/Reset Key
+ 139 |             </div>
+ 140 |             <button
+ 141 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 142 |                 capturing === "start"
+ 143 |                   ? "bg-violet-600"
+ 144 |                   : "bg-zinc-800 hover:bg-zinc-700"
+ 145 |               }`}
+ 146 |               onClick={() => {
+ 147 |                 setCapturing("start");
+ 148 |                 window.api.hotkeys.capture("start");
+ 149 |               }}
+ 150 |             >
+ 151 |               {capturing === "start" ? "Press a key…" : hkLabels.start}
+ 152 |             </button>
+ 153 |           </div>
+ 154 | 
+ 155 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 156 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+ 157 |               Swap Timer Key
+ 158 |             </div>
+ 159 |             <button
+ 160 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 161 |                 capturing === "swap"
+ 162 |                   ? "bg-violet-600"
+ 163 |                   : "bg-zinc-800 hover:bg-zinc-700"
+ 164 |               }`}
+ 165 |               onClick={() => {
+ 166 |                 setCapturing("swap");
+ 167 |                 window.api.hotkeys.capture("swap");
+ 168 |               }}
+ 169 |             >
+ 170 |               {capturing === "swap" ? "Press a key…" : hkLabels.swap}
+ 171 |             </button>
+ 172 |           </div>
+ 173 |         </section>
+ 174 | 
+ 175 |         {/* Players */}
+ 176 |         <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+ 177 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 178 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">
+ 179 |               Player 1
+ 180 |             </div>
+ 181 |             <input
+ 182 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
+ 183 |               value={players.player1.name}
+ 184 |               onChange={(e) =>
+ 185 |                 savePlayers({
+ 186 |                   ...players,
+ 187 |                   player1: { ...players.player1, name: e.target.value },
+ 188 |                 })
+ 189 |               }
+ 190 |             />
+ 191 |             <div className="text-xs text-zinc-400">Score</div>
+ 192 |             <div className="mt-2 flex items-center gap-2">
+ 193 |               <button
+ 194 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
+ 195 |                 onClick={() =>
+ 196 |                   savePlayers({
+ 197 |                     ...players,
+ 198 |                     player1: {
+ 199 |                       ...players.player1,
+ 200 |                       score: Math.max(0, players.player1.score - 1),
+ 201 |                     },
+ 202 |                   })
+ 203 |                 }
+ 204 |               >
+ 205 |                 −1
+ 206 |               </button>
+ 207 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">
+ 208 |                 {players.player1.score}
+ 209 |               </div>
+ 210 |               <button
+ 211 |                 className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
+ 212 |                 onClick={() =>
+ 213 |                   savePlayers({
+ 214 |                     ...players,
+ 215 |                     player1: {
+ 216 |                       ...players.player1,
+ 217 |                       score: players.player1.score + 1,
+ 218 |                     },
+ 219 |                   })
+ 220 |                 }
+ 221 |               >
+ 222 |                 +1
+ 223 |               </button>
+ 224 |             </div>
+ 225 |           </div>
+ 226 | 
+ 227 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 228 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">
+ 229 |               Player 2
+ 230 |             </div>
+ 231 |             <input
+ 232 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
+ 233 |               value={players.player2.name}
+ 234 |               onChange={(e) =>
+ 235 |                 savePlayers({
+ 236 |                   ...players,
+ 237 |                   player2: { ...players.player2, name: e.target.value },
+ 238 |                 })
+ 239 |               }
+ 240 |             />
+ 241 |             <div className="text-xs text-zinc-400">Score</div>
+ 242 |             <div className="mt-2 flex items-center gap-2">
+ 243 |               <button
+ 244 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
+ 245 |                 onClick={() =>
+ 246 |                   savePlayers({
+ 247 |                     ...players,
+ 248 |                     player2: {
+ 249 |                       ...players.player2,
+ 250 |                       score: Math.max(0, players.player2.score - 1),
+ 251 |                     },
+ 252 |                   })
+ 253 |                 }
+ 254 |               >
+ 255 |                 −1
+ 256 |               </button>
+ 257 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">
+ 258 |                 {players.player2.score}
+ 259 |               </div>
+ 260 |               <button
+ 261 |                 className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
+ 262 |                 onClick={() =>
+ 263 |                   savePlayers({
+ 264 |                     ...players,
+ 265 |                     player2: {
+ 266 |                       ...players.player2,
+ 267 |                       score: players.player2.score + 1,
+ 268 |                     },
+ 269 |                   })
+ 270 |                 }
+ 271 |               >
+ 272 |                 +1
+ 273 |               </button>
+ 274 |             </div>
+ 275 |           </div>
+ 276 |         </section>
+ 277 | 
+ 278 |         {/* Global actions */}
+ 279 |         <div className="mb-6 flex justify-center">
+ 280 |           <button
+ 281 |             className="rounded-lg border border-[#FF4141]/30 bg-[#FF4141]/15 text-[#FF4141] font-bold uppercase tracking-wide px-5 py-2"
+ 282 |             onClick={handleResetAll}
+ 283 |           >
+ 284 |             Reset all timers & scores
+ 285 |           </button>
+ 286 |         </div>
+ 287 | 
+ 288 |         {/* Overlay Settings (no always-on-top toggle) */}
+ 289 |         <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 290 |           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+ 291 |             Overlay Settings
+ 292 |           </h2>
+ 293 | 
+ 294 |           <div className="mb-6">
+ 295 |             <div className="mb-2 flex items-center justify-between text-sm">
+ 296 |               <span>Scale</span>
+ 297 |               <span className="font-semibold text-[#5AC8FF]">{scale}%</span>
+ 298 |             </div>
+ 299 |             <input
+ 300 |               type="range"
+ 301 |               min={50}
+ 302 |               max={200}
+ 303 |               value={scale}
+ 304 |               onChange={onScale}
+ 305 |               className="w-full [accent-color:#5AC8FF]"
+ 306 |             />
+ 307 |           </div>
+ 308 | 
+ 309 |           <div className="grid grid-cols-1">
+ 310 |             <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
+ 311 |               <span className="text-sm">
+ 312 |                 Lock Overlay Position <span className="opacity-50">🔓</span>
+ 313 |               </span>
+ 314 |               <input
+ 315 |                 type="checkbox"
+ 316 |                 checked={locked}
+ 317 |                 onChange={onLock}
+ 318 |                 className="h-5 w-9 accent-violet-500"
+ 319 |               />
+ 320 |             </label>
+ 321 |           </div>
+ 322 | 
+ 323 |           <div
+ 324 |             className={`mt-4 rounded-lg border p-3 text-sm ${
+ 325 |               locked
+ 326 |                 ? "border-[#44FF41]/40 bg-[#44FF41]/10 text-[#44FF41]"
+ 327 |                 : "border-violet-500/40 bg-violet-500/10 text-violet-300"
+ 328 |             }`}
+ 329 |           >
+ 330 |             {locked
+ 331 |               ? "Overlay is locked – clicks will go through."
+ 332 |               : "Overlay is unlocked – drag the purple bar to reposition."}
+ 333 |           </div>
+ 334 |         </section>
+ 335 | 
+ 336 |         {/* Discord CTA — Premium overlays */}
+ 337 |         <section className="mt-8 relative overflow-hidden rounded-3xl border border-violet-500/30 bg-gradient-to-br from-violet-600/10 via-fuchsia-600/10 to-emerald-500/10 p-5">
+ 338 |           <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full blur-3xl bg-violet-500/30" />
+ 339 |           <div className="pointer-events-none absolute -bottom-20 -left-24 h-72 w-72 rounded-full blur-3xl bg-emerald-400/20" />
+ 340 |           <div className="relative">
+ 341 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">
+ 342 |               👑 Premium Overlays
+ 343 |             </div>
+ 344 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">
+ 345 |               Unlock more overlays & tools
+ 346 |             </h3>
+ 347 |             <p className="mt-2 text-sm text-zinc-200">
+ 348 |               Join our Discord to get the premium version: <b>killer streaks</b>
+ 349 |               , <b>survivor streaks</b>, <b>win/loss counter</b>,{" "}
+ 350 |               <b>tournament overlay</b>, and more!
+ 351 |             </p>
+ 352 | 
+ 353 |             <a
+ 354 |               href="http://discord.com/invite/aVdT8rRJKc"
+ 355 |               target="_blank"
+ 356 |               rel="noreferrer"
+ 357 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
+ 358 |             >
+ 359 |               Join the Discord
+ 360 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
+ 361 |                 <path
+ 362 |                   d="M7 17L17 7M17 7H8M17 7v9"
+ 363 |                   stroke="currentColor"
+ 364 |                   strokeWidth="1.8"
+ 365 |                   strokeLinecap="round"
+ 366 |                   strokeLinejoin="round"
+ 367 |                 />
+ 368 |               </svg>
+ 369 |             </a>
+ 370 |           </div>
+ 371 |         </section>
+ 372 | 
+ 373 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-cyan-400/30 bg-gradient-to-tr from-cyan-400/10 via-sky-500/10 to-indigo-500/10 p-5">
+ 374 |           <div className="pointer-events-none absolute -top-16 right-0 h-64 w-64 rounded-full blur-3xl bg-cyan-400/30" />
+ 375 |           <div className="relative">
+ 376 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">
+ 377 |               🎨 ReShade Filters
+ 378 |             </div>
+ 379 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">
+ 380 |               GET STEAXS RESHADES
+ 381 |             </h3>
+ 382 |             <p className="mt-2 text-sm text-zinc-200">
+ 383 |               Competitive ReShade presets tailored for Dead by Daylight. Sharper
+ 384 |               visibility, clean colors, and a consistent look across maps.
+ 385 |             </p>
+ 386 |             <a
+ 387 |               href="https://discord.com/invite/6RHPNNVtKw"
+ 388 |               target="_blank"
+ 389 |               rel="noreferrer"
+ 390 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
+ 391 |             >
+ 392 |               Get the Presets
+ 393 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
+ 394 |                 <path
+ 395 |                   d="M7 17L17 7M17 7H8M17 7v9"
+ 396 |                   stroke="currentColor"
+ 397 |                   strokeWidth="1.8"
+ 398 |                   strokeLinecap="round"
+ 399 |                   strokeLinejoin="round"
+ 400 |                 />
+ 401 |               </svg>
+ 402 |             </a>
+ 403 |           </div>
+ 404 |         </section>
+ 405 |         {/* Footer */}
+ 406 |         <footer className="mt-4">
+ 407 |           <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-300">
+ 408 |             <div className="uppercase tracking-wider">
+ 409 |               © BY <b>STEAXS</b> &amp; <b>DOC</b> — 2025
+ 410 |             </div>
+ 411 |           </div>
+ 412 |         </footer>
+ 413 |       </div>
+ 414 |     </div>
+ 415 |   );
+ 416 | };
+ 417 | 
+ 418 | export default ControlPanel;
 
 ```
 
@@ -1864,34 +2100,54 @@ dbdoverlaytools-free
   11 |   --red:#FF4141;    /* reset / danger */   /* figma */
   12 | }
   13 | 
-  14 | /* Fond app + radiaux (optionnels) */
-  15 | @layer utilities {
-  16 |   .bg-app { @apply bg-[#0A0A0A]; }
-  17 |   .card     { @apply rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)]; }
-  18 |   .subcard  { @apply rounded-xl border border-white/5  bg-white/5; }
-  19 |   .tag      { @apply text-[13px] uppercase tracking-wide font-semibold text-[color:var(--violet)]; }
-  20 |   .overtag  { @apply text-[13px] uppercase tracking-wider font-bold text-[color:var(--pink)]; }
-  21 |   .pill     { @apply rounded-lg px-3 py-2 border; }
-  22 |   .pill-on  { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10 text-[color:var(--green)]; }
-  23 |   .pill-off { @apply border-white/20 bg-white/10 text-zinc-400; }
-  24 | 
-  25 |   .btn-primary { @apply rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium px-4 py-2 transition; }
-  26 |   .btn-ghost   { @apply rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2; }
-  27 |   .btn-reset   { @apply rounded-lg border border-[color:var(--red)]/30 bg-[color:var(--red)]/15 text-[color:var(--red)] font-bold uppercase tracking-wide px-5 py-2; }
-  28 | 
-  29 |   .field      { @apply w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-[color:var(--violet)]; }
-  30 |   .keybtn     { @apply w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition; }
-  31 |   .keybtn-idle{ @apply bg-zinc-800 hover:bg-zinc-700; }
-  32 |   .keybtn-cap { @apply bg-violet-600; }
-  33 | 
-  34 |   /* Interrupteurs façon Figma */
-  35 |   .switch      { @apply relative inline-flex h-6 w-12 items-center rounded-full border transition; }
-  36 |   .switch-dot  { @apply absolute h-5 w-5 rounded-full transition; }
-  37 |   .switch-on   { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10; }
-  38 |   .switch-on .switch-dot  { @apply translate-x-6 bg-[color:var(--green)]; }
-  39 |   .switch-off  { @apply border-white/20 bg-white/10; }
-  40 |   .switch-off .switch-dot { @apply translate-x-1 bg-zinc-500; }
-  41 | }
+  14 | @layer base {
+  15 |   html, body, #root { height: 100%; }
+  16 |   body {
+  17 |     scrollbar-width: thin;                                /* Firefox */
+  18 |     scrollbar-color: rgba(255,255,255,.18) transparent;   /* Firefox */
+  19 |   }
+  20 |   body::-webkit-scrollbar { width: 10px; }                /* Chrome/Edge */
+  21 |   body::-webkit-scrollbar-track { background: transparent; }
+  22 |   body::-webkit-scrollbar-thumb {
+  23 |     background-color: rgba(255,255,255,.12);
+  24 |     border-radius: 9999px;
+  25 |     border: 2px solid transparent;                        /* anneau = plus léger visuellement */
+  26 |     background-clip: content-box;
+  27 |   }
+  28 |   body:hover::-webkit-scrollbar-thumb {
+  29 |     background-color: rgba(255,255,255,.22);
+  30 |   }
+  31 | }
+  32 | 
+  33 | /* Fond app + radiaux (optionnels) */
+  34 | @layer utilities {
+  35 |   .bg-app { @apply bg-[#0A0A0A]; }
+  36 |   .card     { @apply rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)]; }
+  37 |   .subcard  { @apply rounded-xl border border-white/5  bg-white/5; }
+  38 |   .tag      { @apply text-[13px] uppercase tracking-wide font-semibold text-[color:var(--violet)]; }
+  39 |   .overtag  { @apply text-[13px] uppercase tracking-wider font-bold text-[color:var(--pink)]; }
+  40 |   .pill     { @apply rounded-lg px-3 py-2 border; }
+  41 |   .pill-on  { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10 text-[color:var(--green)]; }
+  42 |   .pill-off { @apply border-white/20 bg-white/10 text-zinc-400; }
+  43 | 
+  44 |   .btn-primary { @apply rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium px-4 py-2 transition; }
+  45 |   .btn-ghost   { @apply rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2; }
+  46 |   .btn-reset   { @apply rounded-lg border border-[color:var(--red)]/30 bg-[color:var(--red)]/15 text-[color:var(--red)] font-bold uppercase tracking-wide px-5 py-2; }
+  47 | 
+  48 |   .field      { @apply w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-[color:var(--violet)]; }
+  49 |   .keybtn     { @apply w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition; }
+  50 |   .keybtn-idle{ @apply bg-zinc-800 hover:bg-zinc-700; }
+  51 |   .keybtn-cap { @apply bg-violet-600; }
+  52 | 
+  53 |   /* Interrupteurs façon Figma */
+  54 |   .switch      { @apply relative inline-flex h-6 w-12 items-center rounded-full border transition; }
+  55 |   .switch-dot  { @apply absolute h-5 w-5 rounded-full transition; }
+  56 |   .switch-on   { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10; }
+  57 |   .switch-on .switch-dot  { @apply translate-x-6 bg-[color:var(--green)]; }
+  58 |   .switch-off  { @apply border-white/20 bg-white/10; }
+  59 |   .switch-off .switch-dot { @apply translate-x-1 bg-zinc-500; }
+  60 | 
+  61 | }
 
 ```
 
