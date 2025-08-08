@@ -127,14 +127,26 @@ function setupIPC() {
 
 function setupHotkeys() {
   try { globalShortcut.unregisterAll() } catch { /* noop */ }
-  // F1 = toggle (start → pause → reset) on active timer
+
+  // Anti double-tap (auto-repeat)
+  const last = { toggle: 0, swap: 0 }
+  const RATE = 200 // ms
+
+  // F1 = toggle start/pause/(3e press) reset on active timer
   globalShortcut.register('F1', () => {
+    const now = Date.now()
+    if (now - last.toggle < RATE) return
+    last.toggle = now
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.webContents.send('global-hotkey', { type: 'toggle' })
     }
   })
+
   // F2 = swap active timer
   globalShortcut.register('F2', () => {
+    const now = Date.now()
+    if (now - last.swap < RATE) return
+    last.swap = now
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.webContents.send('global-hotkey', { type: 'swap' })
     }
