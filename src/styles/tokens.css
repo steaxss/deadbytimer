@@ -11,6 +11,25 @@
   --red:#FF4141;    /* reset / danger */   /* figma */
 }
 
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    scrollbar-width: thin;                                /* Firefox */
+    scrollbar-color: rgba(255,255,255,.18) transparent;   /* Firefox */
+  }
+  body::-webkit-scrollbar { width: 10px; }                /* Chrome/Edge */
+  body::-webkit-scrollbar-track { background: transparent; }
+  body::-webkit-scrollbar-thumb {
+    background-color: rgba(255,255,255,.12);
+    border-radius: 9999px;
+    border: 2px solid transparent;                        /* anneau = plus léger visuellement */
+    background-clip: content-box;
+  }
+  body:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(255,255,255,.22);
+  }
+}
+
 /* Fond app + radiaux (optionnels) */
 @layer utilities {
   .bg-app { @apply bg-[#0A0A0A]; }
@@ -38,4 +57,5 @@
   .switch-on .switch-dot  { @apply translate-x-6 bg-[color:var(--green)]; }
   .switch-off  { @apply border-white/20 bg-white/10; }
   .switch-off .switch-dot { @apply translate-x-1 bg-zinc-500; }
+
 }

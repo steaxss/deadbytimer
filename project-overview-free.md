@@ -19,6 +19,7 @@ dbdoverlaytools-free
 │   ├── App.tsx
 │   ├── components
 │   │   ├── ControlPanel.tsx
+│   │   ├── Footer.tsx
 │   │   ├── OverlayApp.tsx
 │   │   └── overlay
 │   │       ├── DragHandle.tsx
@@ -30,6 +31,8 @@ dbdoverlaytools-free
 │   ├── overlay.tsx
 │   ├── store
 │   │   └── timerStore.ts
+│   ├── styles
+│   │   └── tokens.css
 │   ├── themes
 │   │   └── default.css
 │   ├── types
@@ -747,28 +750,29 @@ dbdoverlaytools-free
   15 |   },
   16 |   "dependencies": {
   17 |     "electron-store": "^9.0.0",
-  18 |     "react": "^18.3.1",
-  19 |     "react-dom": "^18.3.1",
-  20 |     "uiohook-napi": "^1.5.4",
-  21 |     "zustand": "^4.5.2"
-  22 |   },
-  23 |   "devDependencies": {
-  24 |     "@types/node": "^20.12.12",
-  25 |     "@types/react": "^18.3.3",
-  26 |     "@types/react-dom": "^18.3.0",
-  27 |     "@vitejs/plugin-react": "^4.3.1",
-  28 |     "autoprefixer": "^10.4.19",
-  29 |     "concurrently": "^9.0.1",
-  30 |     "cross-env": "^7.0.3",
-  31 |     "electron": "^30.0.9",
-  32 |     "electron-builder": "^24.13.3",
-  33 |     "postcss": "^8.4.38",
-  34 |     "tailwindcss": "^3.4.7",
-  35 |     "typescript": "^5.5.4",
-  36 |     "vite": "^5.4.19",
-  37 |     "wait-on": "^7.2.0"
-  38 |   }
-  39 | }
+  18 |     "lucide-react": "^0.539.0",
+  19 |     "react": "^18.3.1",
+  20 |     "react-dom": "^18.3.1",
+  21 |     "uiohook-napi": "^1.5.4",
+  22 |     "zustand": "^4.5.2"
+  23 |   },
+  24 |   "devDependencies": {
+  25 |     "@types/node": "^20.12.12",
+  26 |     "@types/react": "^18.3.3",
+  27 |     "@types/react-dom": "^18.3.0",
+  28 |     "@vitejs/plugin-react": "^4.3.1",
+  29 |     "autoprefixer": "^10.4.19",
+  30 |     "concurrently": "^9.0.1",
+  31 |     "cross-env": "^7.0.3",
+  32 |     "electron": "^30.0.9",
+  33 |     "electron-builder": "^24.13.3",
+  34 |     "postcss": "^8.4.38",
+  35 |     "tailwindcss": "^3.4.7",
+  36 |     "typescript": "^5.5.4",
+  37 |     "vite": "^5.4.19",
+  38 |     "wait-on": "^7.2.0"
+  39 |   }
+  40 | }
 
 ```
 
@@ -876,65 +880,40 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/src\App.tsx`:
 
 ```tsx
-   1 | import React, { useEffect, useState } from 'react';
-   2 | import { useTimerStore } from './store/timerStore';
-   3 | import ControlPanel from './components/ControlPanel';
-   4 | import useGlobalHotkeys from './hooks/useGlobalHotkeys';
-   5 | 
-   6 | const App: React.FC = () => {
-   7 |   const { loadFromStorage } = useTimerStore();
-   8 |   const [isInitialized, setIsInitialized] = useState(false);
-   9 | 
-  10 |   useGlobalHotkeys();
-  11 | 
-  12 |   useEffect(() => {
-  13 |     const initializeApp = async () => {
-  14 |       try {
-  15 |         await loadFromStorage();
-  16 |         setIsInitialized(true);
-  17 |         console.log('App initialized successfully');
-  18 |       } catch (error) {
-  19 |         console.error('Failed to initialize app:', error);
-  20 |         setIsInitialized(true);
-  21 |       }
-  22 |     };
-  23 | 
-  24 |     initializeApp();
-  25 |   }, [loadFromStorage]);
-  26 | 
-  27 |   if (!isInitialized) {
-  28 |     return (
-  29 |       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-  30 |         <div className="text-white text-lg">Loading...</div>
-  31 |       </div>
-  32 |     );
-  33 |   }
-  34 | 
-  35 |   return (
-  36 |     <div className="min-h-screen bg-gray-900 text-white">
-  37 |       <div className="container mx-auto p-6">
-  38 |         <header className="text-center mb-8">
-  39 |           <h1 className="text-4xl font-bold text-primary-400 mb-2">
-  40 |             DBD Timer Overlay
-  41 |           </h1>
-  42 |           <p className="text-gray-400">
-  43 |             Professional timer overlay for Dead by Daylight 1v1 matches
-  44 |           </p>
-  45 |         </header>
-  46 | 
-  47 |         <main>
-  48 |           <ControlPanel />
-  49 |         </main>
-  50 | 
-  51 |         <footer className="text-center mt-8 text-gray-500 text-sm">
-  52 |           <p>Press your configured hotkeys to control timers globally</p>
-  53 |         </footer>
-  54 |       </div>
-  55 |     </div>
-  56 |   );
-  57 | };
-  58 | 
-  59 | export default App;
+   1 | import React from 'react';
+   2 | import ControlPanel from './components/ControlPanel';
+   3 | 
+   4 | /** App shell — layout responsive + footer réparé (pas d'absolu) */
+   5 | const App: React.FC = () => {
+   6 |   return (
+   7 |     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
+   8 |       <main className="flex-1">
+   9 |         <div className="mx-auto max-w-6xl p-6">
+  10 |           <header className="mb-6 text-center">
+  11 |             <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">You are not logged in</div>
+  12 |             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#B579FF]">DBD OVERLAY TOOLS</h1>
+  13 |           </header>
+  14 | 
+  15 |           <ControlPanel />
+  16 |         </div>
+  17 |       </main>
+  18 | 
+  19 |       {/* Footer fixe et propre */}
+  20 |       <footer className="mt-8">
+  21 |         <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-400">
+  22 |           <div className="uppercase tracking-wider">
+  23 |             © by <b>DOC</b> &amp; <b>STEAXS</b> — 2025
+  24 |           </div>
+  25 |           <div className="text-xs mt-1 text-zinc-500">
+  26 |             Hotkeys: <b>F1</b> start/pause/reset — <b>F2</b> swap active timer
+  27 |           </div>
+  28 |         </div>
+  29 |       </footer>
+  30 |     </div>
+  31 |   );
+  32 | };
+  33 | 
+  34 | export default App;
 
 ```
 
@@ -943,263 +922,345 @@ dbdoverlaytools-free
 ```tsx
    1 | import React, { useEffect, useState } from 'react';
    2 | 
-   3 | type HKGet = {
-   4 |   start: number | null;
-   5 |   swap: number | null;
-   6 |   startLabel?: string;
-   7 |   swapLabel?: string;
-   8 |   mode?: 'pass-through' | 'fallback';
+   3 | /** Types hotkeys (codes + labels) */
+   4 | type HKGet = {
+   5 |   start: number | null;
+   6 |   swap: number | null;
+   7 |   startLabel?: string;
+   8 |   swapLabel?: string;
    9 | };
   10 | type HKSet = { start?: number | null; swap?: number | null };
   11 | 
-  12 | const ControlPanel: React.FC = () => {
-  13 |   const [overlayOn, setOverlayOn] = useState(false);
-  14 |   const [locked, setLocked] = useState(true);
-  15 |   const [scale, setScale] = useState(100);
-  16 |   const [players, setPlayers] = useState({
-  17 |     player1: { name: 'PLAYER 1', score: 0 },
-  18 |     player2: { name: 'PLAYER 2', score: 0 },
-  19 |   });
-  20 | 
-  21 |   const [hkCodes, setHkCodes] = useState<{ start: number | null; swap: number | null }>({
-  22 |     start: null,
-  23 |     swap: null,
-  24 |   });
-  25 |   const [hkLabels, setHkLabels] = useState<{ start: string; swap: string }>({
-  26 |     start: 'F1',
-  27 |     swap: 'F2',
-  28 |   });
-  29 | 
-  30 |   const [capturing, setCapturing] = useState<null | 'start' | 'swap'>(null);
-  31 |   const [mode, setMode] = useState<'pass-through' | 'fallback'>('fallback');
-  32 | 
-  33 |   // INIT
-  34 |   useEffect(() => {
-  35 |     window.api.timer.get().then(setPlayers);
-  36 |     window.api.hotkeys.get().then((h: HKGet) => {
-  37 |       setHkCodes({ start: h.start ?? null, swap: h.swap ?? null });
-  38 |       setHkLabels({ start: h.startLabel || 'F1', swap: h.swapLabel || 'F2' });
-  39 |       if (h.mode) setMode(h.mode);
-  40 |     });
-  41 |     window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
-  42 |     window.api.overlay.onSettings((s: any) => {
-  43 |       setLocked(!!s.locked);
-  44 |       setScale(s.scale || 100);
-  45 |     });
-  46 |     window.api.timer.onSync((d: any) => setPlayers(d));
-  47 | 
-  48 |     // ✅ Le main envoie instantanément label + (plus tard) code
-  49 |     window.api.hotkeys.onCaptured(
-  50 |       (p: { type: 'start' | 'swap'; keycode?: number | null; label?: string }) => {
-  51 |         if (p.label) setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
-  52 |         if (p.keycode != null) setHkCodes((prev) => ({ ...prev, [p.type]: p.keycode! }));
-  53 |         setCapturing(null);
-  54 |       },
-  55 |     );
-  56 |     window.api.hotkeys.onMode((m: 'pass-through' | 'fallback') => setMode(m));
-  57 |   }, []);
-  58 | 
-  59 |   const savePlayers = (next: any) => {
-  60 |     setPlayers(next);
-  61 |     window.api.timer.set(next);
-  62 |   };
-  63 | 
-  64 |   const toggleOverlay = async () => {
-  65 |     if (overlayOn) {
-  66 |       await window.api.overlay.hide();
-  67 |       setOverlayOn(false);
-  68 |     } else {
-  69 |       await window.api.overlay.show();
-  70 |       setOverlayOn(true);
-  71 |     }
-  72 |   };
-  73 | 
-  74 |   const saveHotkeys = async () => {
-  75 |     const payload: HKSet = { start: hkCodes.start ?? null, swap: hkCodes.swap ?? null };
-  76 |     await window.api.hotkeys.set(payload);
-  77 |   };
-  78 | 
-  79 |   return (
-  80 |     <div className="p-6 max-w-xl mx-auto font-ui">
-  81 |       <h1 className="text-2xl font-semibold mb-1">DBD 1v1 Timer — Control Panel</h1>
-  82 |       <div className={`text-sm mb-4 ${mode === 'pass-through' ? 'text-emerald-400' : 'text-amber-400'}`}>
-  83 |         Hotkeys mode:{' '}
-  84 |         <b>{mode === 'pass-through' ? 'Pass-through (uiohook)' : 'Fallback (intercept)'}</b>
-  85 |       </div>
+  12 | /** UI de contrôle — uniquement du style, aucune logique cassée */
+  13 | const ControlPanel: React.FC = () => {
+  14 |   // Overlay
+  15 |   const [overlayOn, setOverlayOn] = useState(false);
+  16 |   const [locked, setLocked] = useState(true);
+  17 |   const [scale, setScale] = useState(100);
+  18 | 
+  19 |   // Joueurs
+  20 |   const [players, setPlayers] = useState({
+  21 |     player1: { name: 'PLAYER 1', score: 0 },
+  22 |     player2: { name: 'PLAYER 2', score: 0 },
+  23 |   });
+  24 | 
+  25 |   // Hotkeys
+  26 |   const [hkCodes, setHkCodes] = useState<{ start: number | null; swap: number | null }>({
+  27 |     start: null,
+  28 |     swap: null,
+  29 |   });
+  30 |   const [hkLabels, setHkLabels] = useState<{ start: string; swap: string }>({
+  31 |     start: 'F1',
+  32 |     swap: 'F2',
+  33 |   });
+  34 |   const [capturing, setCapturing] = useState<null | 'start' | 'swap'>(null);
+  35 | 
+  36 |   // Init : récupère les états existants + s'abonne aux updates
+  37 |   useEffect(() => {
+  38 |     // Timer data (noms/scores)
+  39 |     window.api.timer.get().then((d) => {
+  40 |       if (d?.player1 && d?.player2) setPlayers(d);
+  41 |     });
+  42 | 
+  43 |     // Hotkeys configurées
+  44 |     window.api.hotkeys.get().then((h: HKGet) => {
+  45 |       setHkCodes({ start: h.start ?? null, swap: h.swap ?? null });
+  46 |       setHkLabels({ start: h.startLabel || 'F1', swap: h.swapLabel || 'F2' });
+  47 |     });
+  48 | 
+  49 |     // Overlay : état + settings
+  50 |     window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
+  51 |     window.api.overlay.onSettings((s: any) => {
+  52 |       if (typeof s.locked === 'boolean') setLocked(!!s.locked);
+  53 |       if (typeof s.scale === 'number') setScale(s.scale);
+  54 |     });
+  55 | 
+  56 |     // Sync timer (scores/noms) poussé depuis le main
+  57 |     window.api.timer.onSync((d: any) => {
+  58 |       if (d?.player1 && d?.player2) setPlayers(d);
+  59 |     });
+  60 | 
+  61 |     // Fin de capture hotkey -> applique label/code
+  62 |     window.api.hotkeys.onCaptured((p: { type: 'start' | 'swap'; keycode?: number | null; label?: string }) => {
+  63 |       if (p.label) setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
+  64 |       if (typeof p.keycode !== 'undefined') {
+  65 |         setHkCodes((prev) => ({ ...prev, [p.type]: p.keycode ?? null }));
+  66 |       }
+  67 |       setCapturing(null);
+  68 |     });
+  69 |   }, []);
+  70 | 
+  71 |   // Helpers
+  72 |   const savePlayers = (next: typeof players) => {
+  73 |     setPlayers(next);
+  74 |     window.api.timer.set(next); // ne change que noms/scores côté main
+  75 |   };
+  76 | 
+  77 |   const toggleOverlay = async () => {
+  78 |     if (overlayOn) {
+  79 |       await window.api.overlay.hide();
+  80 |       setOverlayOn(false);
+  81 |     } else {
+  82 |       await window.api.overlay.show();
+  83 |       setOverlayOn(true);
+  84 |     }
+  85 |   };
   86 | 
-  87 |       {/* Players */}
-  88 |       <div className="grid grid-cols-2 gap-6">
-  89 |         <div className="space-y-3">
-  90 |           <label className="block text-sm text-zinc-400">Player 1 name</label>
-  91 |           <input
-  92 |             className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
-  93 |             value={players.player1.name}
-  94 |             onChange={(e) =>
-  95 |               savePlayers({ ...players, player1: { ...players.player1, name: e.target.value } })
-  96 |             }
-  97 |           />
-  98 |           <label className="block text-sm text-zinc-400">Score</label>
-  99 |           <div className="flex items-center gap-2">
- 100 |             <button
- 101 |               className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
- 102 |               onClick={() =>
- 103 |                 savePlayers({
- 104 |                   ...players,
- 105 |                   player1: { ...players.player1, score: Math.max(0, players.player1.score - 1) },
- 106 |                 })
- 107 |               }
- 108 |             >
- 109 |               -
- 110 |             </button>
- 111 |             <div className="min-w-10 text-center">{players.player1.score}</div>
- 112 |             <button
- 113 |               className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
- 114 |               onClick={() =>
- 115 |                 savePlayers({
- 116 |                   ...players,
- 117 |                   player1: { ...players.player1, score: players.player1.score + 1 },
- 118 |                 })
- 119 |               }
- 120 |             >
- 121 |               +
- 122 |             </button>
- 123 |           </div>
- 124 |         </div>
- 125 | 
- 126 |         <div className="space-y-3">
- 127 |           <label className="block text-sm text-zinc-400">Player 2 name</label>
- 128 |           <input
- 129 |             className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 outline-none"
- 130 |             value={players.player2.name}
- 131 |             onChange={(e) =>
- 132 |               savePlayers({ ...players, player2: { ...players.player2, name: e.target.value } })
- 133 |             }
- 134 |           />
- 135 |           <label className="block text-sm text-zinc-400">Score</label>
- 136 |           <div className="flex items-center gap-2">
- 137 |             <button
- 138 |               className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
- 139 |               onClick={() =>
- 140 |                 savePlayers({
- 141 |                   ...players,
- 142 |                   player2: { ...players.player2, score: Math.max(0, players.player2.score - 1) },
- 143 |                 })
- 144 |               }
- 145 |             >
- 146 |               -
- 147 |             </button>
- 148 |             <div className="min-w-10 text-center">{players.player2.score}</div>
- 149 |             <button
- 150 |               className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
- 151 |               onClick={() =>
- 152 |                 savePlayers({
- 153 |                   ...players,
- 154 |                   player2: { ...players.player2, score: players.player2.score + 1 },
- 155 |                 })
- 156 |               }
- 157 |             >
- 158 |               +
- 159 |             </button>
- 160 |           </div>
- 161 |         </div>
- 162 |       </div>
- 163 | 
- 164 |       {/* Overlay controls */}
- 165 |       <div className="mt-6 flex items-center gap-3">
- 166 |         {overlayOn ? (
- 167 |           <button className="px-3 py-2 rounded bg-red-700 hover:bg-red-600" onClick={toggleOverlay}>
- 168 |             Hide Overlay
- 169 |           </button>
- 170 |         ) : (
- 171 |           <button
- 172 |             className="px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600"
- 173 |             onClick={toggleOverlay}
- 174 |           >
- 175 |             Show Overlay
- 176 |           </button>
- 177 |         )}
- 178 | 
- 179 |         <label className="inline-flex items-center gap-2">
- 180 |           <input
- 181 |             type="checkbox"
- 182 |             checked={locked}
- 183 |             onChange={(e) => {
- 184 |               setLocked(e.target.checked);
- 185 |               window.api.overlay.updateSettings({ locked: e.target.checked });
- 186 |             }}
- 187 |           />
- 188 |           <span>Lock (click-through)</span>
- 189 |         </label>
- 190 | 
- 191 |         <label className="inline-flex items-center gap-2">
- 192 |           <span>Scale</span>
- 193 |           <input
- 194 |             type="range"
- 195 |             min={50}
- 196 |             max={200}
- 197 |             value={scale}
- 198 |             onChange={(e) => {
- 199 |               const v = Number(e.target.value);
- 200 |               setScale(v);
- 201 |               window.api.overlay.updateSettings({ scale: v });
- 202 |             }}
- 203 |           />
- 204 |         </label>
- 205 | 
- 206 |         <label className="inline-flex items-center gap-2">
- 207 |           <input
- 208 |             type="checkbox"
- 209 |             defaultChecked
- 210 |             onChange={(e) => window.api.overlay.updateSettings({ alwaysOnTop: e.target.checked })}
- 211 |           />
- 212 |           <span>Always on top</span>
- 213 |         </label>
- 214 |       </div>
- 215 | 
- 216 |       {/* Hotkeys */}
- 217 |       <div className="mt-6 grid grid-cols-2 gap-4">
- 218 |         <div className="bg-zinc-900 border border-zinc-800 rounded p-3">
- 219 |           <div className="text-sm text-zinc-400 mb-2">Start/Pause key</div>
- 220 |           <button
- 221 |             className={`w-full px-3 py-2 rounded ${capturing === 'start' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'}`}
- 222 |             onClick={() => {
- 223 |               setCapturing('start');
- 224 |               window.api.hotkeys.capture('start'); // le main capte et renvoie immédiatement le label
- 225 |             }}
- 226 |           >
- 227 |             {capturing === 'start' ? 'Press a key…' : hkLabels.start}
- 228 |           </button>
- 229 |         </div>
- 230 |         <div className="bg-zinc-900 border border-zinc-800 rounded p-3">
- 231 |           <div className="text-sm text-zinc-400 mb-2">Swap key</div>
- 232 |           <button
- 233 |             className={`w-full px-3 py-2 rounded ${capturing === 'swap' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'}`}
- 234 |             onClick={() => {
- 235 |               setCapturing('swap');
- 236 |               window.api.hotkeys.capture('swap');
- 237 |             }}
- 238 |           >
- 239 |             {capturing === 'swap' ? 'Press a key…' : hkLabels.swap}
- 240 |           </button>
- 241 |         </div>
- 242 |       </div>
- 243 | 
- 244 |       <div className="mt-3">
- 245 |         <button className="px-4 py-2 rounded bg-violet-700 hover:bg-violet-600" onClick={async () => {
- 246 |           const payload: HKSet = { start: hkCodes.start ?? null, swap: hkCodes.swap ?? null };
- 247 |           await window.api.hotkeys.set(payload);
- 248 |         }}>
- 249 |           Save hotkeys
- 250 |         </button>
- 251 |         <span className="ml-3 text-sm text-zinc-500">
- 252 |           {mode === 'pass-through' ? 'Pass-through activé (uiohook).' : 'Fallback intercept (globalShortcut).'}
- 253 |         </span>
- 254 |       </div>
- 255 |     </div>
- 256 |   );
- 257 | };
- 258 | 
- 259 | export default ControlPanel;
+  87 |   const saveHotkeys = async () => {
+  88 |     const payload: HKSet = { start: hkCodes.start ?? null, swap: hkCodes.swap ?? null };
+  89 |     await window.api.hotkeys.set(payload);
+  90 |   };
+  91 | 
+  92 |   const onScale = (e: React.ChangeEvent<HTMLInputElement>) => {
+  93 |     const v = Number(e.target.value);
+  94 |     setScale(v);
+  95 |     window.api.overlay.updateSettings({ scale: v });
+  96 |   };
+  97 | 
+  98 |   const onLock = (e: React.ChangeEvent<HTMLInputElement>) => {
+  99 |     const v = e.target.checked;
+ 100 |     setLocked(v);
+ 101 |     window.api.overlay.updateSettings({ locked: v });
+ 102 |   };
+ 103 | 
+ 104 |   const onTop = (e: React.ChangeEvent<HTMLInputElement>) => {
+ 105 |     window.api.overlay.updateSettings({ alwaysOnTop: e.target.checked });
+ 106 |   };
+ 107 | 
+ 108 |   const handleResetAll = () => {
+ 109 |     const next = {
+ 110 |       ...players,
+ 111 |       player1: { ...players.player1, score: 0 },
+ 112 |       player2: { ...players.player2, score: 0 },
+ 113 |     };
+ 114 |     savePlayers(next);
+ 115 |     // Les timers se réinitialisent comme d’habitude via F1 (on ne modifie pas la logique ici)
+ 116 |   };
+ 117 | 
+ 118 |   return (
+ 119 |     <div className="mx-auto max-w-5xl p-6 text-zinc-100">
+ 120 |       {/* Header */}
+ 121 |       <header className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 flex items-center justify-between">
+ 122 |         <div>
+ 123 |           <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">1v1 Overlay</div>
+ 124 |           <h1 className="text-xl font-semibold tracking-tight">DBD Overlay Tools</h1>
+ 125 |         </div>
+ 126 | 
+ 127 |         <div className="flex items-center gap-3">
+ 128 |           <button
+ 129 |             onClick={toggleOverlay}
+ 130 |             className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+ 131 |               overlayOn ? 'bg-zinc-800 hover:bg-zinc-700' : 'bg-violet-600 hover:bg-violet-500'
+ 132 |             }`}
+ 133 |           >
+ 134 |             {overlayOn ? 'Hide Overlay' : 'Show Overlay'}
+ 135 |           </button>
+ 136 |           <button onClick={saveHotkeys} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium hover:bg-violet-500 transition">
+ 137 |             Save hotkeys
+ 138 |           </button>
+ 139 |         </div>
+ 140 |       </header>
+ 141 | 
+ 142 |       {/* Styles (UI only) */}
+ 143 |       <section className="mb-6">
+ 144 |         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">Select Timer Style</h2>
+ 145 |         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+ 146 |           {[
+ 147 |             { label: 'Default', desc: 'Default Style', premium: false },
+ 148 |             { label: 'Glass', desc: '👑 Minimal Glass', premium: true },
+ 149 |             { label: 'VS', desc: '👑 Circular Progress', premium: true },
+ 150 |           ].map((s, i) => (
+ 151 |             <div
+ 152 |               key={i}
+ 153 |               className="rounded-xl border border-white/10 bg-white/5 p-4 ring-1 ring-white/10 hover:ring-violet-500/40 transition backdrop-blur"
+ 154 |             >
+ 155 |               <div className="mb-2 flex items-center justify-between">
+ 156 |                 <span className="text-sm font-medium">{s.label}</span>
+ 157 |                 {s.premium && <span className="text-xs text-zinc-400">UI</span>}
+ 158 |               </div>
+ 159 |               <div className="text-xs text-zinc-400">{s.desc}</div>
+ 160 |             </div>
+ 161 |           ))}
+ 162 |         </div>
+ 163 |       </section>
+ 164 | 
+ 165 |       {/* Hotkeys */}
+ 166 |       <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+ 167 |         <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 168 |           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
+ 169 |           <button
+ 170 |             className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 171 |               capturing === 'start' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'
+ 172 |             }`}
+ 173 |             onClick={() => {
+ 174 |               setCapturing('start');
+ 175 |               window.api.hotkeys.capture('start');
+ 176 |             }}
+ 177 |           >
+ 178 |             {capturing === 'start' ? 'Press a key…' : hkLabels.start}
+ 179 |           </button>
+ 180 |         </div>
+ 181 | 
+ 182 |         <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 183 |           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
+ 184 |           <button
+ 185 |             className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 186 |               capturing === 'swap' ? 'bg-violet-600' : 'bg-zinc-800 hover:bg-zinc-700'
+ 187 |             }`}
+ 188 |             onClick={() => {
+ 189 |               setCapturing('swap');
+ 190 |               window.api.hotkeys.capture('swap');
+ 191 |             }}
+ 192 |           >
+ 193 |             {capturing === 'swap' ? 'Press a key…' : hkLabels.swap}
+ 194 |           </button>
+ 195 |         </div>
+ 196 |       </section>
+ 197 | 
+ 198 |       {/* Joueurs */}
+ 199 |       <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+ 200 |         {/* Player 1 */}
+ 201 |         <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 202 |           <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 1</div>
+ 203 |           <input
+ 204 |             className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
+ 205 |             value={players.player1.name}
+ 206 |             onChange={(e) => savePlayers({ ...players, player1: { ...players.player1, name: e.target.value } })}
+ 207 |           />
+ 208 |           <div className="text-xs text-zinc-400">Score</div>
+ 209 |           <div className="mt-2 flex items-center gap-2">
+ 210 |             <button
+ 211 |               className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
+ 212 |               onClick={() =>
+ 213 |                 savePlayers({
+ 214 |                   ...players,
+ 215 |                   player1: { ...players.player1, score: Math.max(0, players.player1.score - 1) },
+ 216 |                 })
+ 217 |               }
+ 218 |             >
+ 219 |               −1
+ 220 |             </button>
+ 221 |             <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player1.score}</div>
+ 222 |             <button
+ 223 |               className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
+ 224 |               onClick={() =>
+ 225 |                 savePlayers({
+ 226 |                   ...players,
+ 227 |                   player1: { ...players.player1, score: players.player1.score + 1 },
+ 228 |                 })
+ 229 |               }
+ 230 |             >
+ 231 |               +1
+ 232 |             </button>
+ 233 |           </div>
+ 234 |         </div>
+ 235 | 
+ 236 |         {/* Player 2 */}
+ 237 |         <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 238 |           <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 2</div>
+ 239 |           <input
+ 240 |             className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
+ 241 |             value={players.player2.name}
+ 242 |             onChange={(e) => savePlayers({ ...players, player2: { ...players.player2, name: e.target.value } })}
+ 243 |           />
+ 244 |           <div className="text-xs text-zinc-400">Score</div>
+ 245 |           <div className="mt-2 flex items-center gap-2">
+ 246 |             <button
+ 247 |               className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
+ 248 |               onClick={() =>
+ 249 |                 savePlayers({
+ 250 |                   ...players,
+ 251 |                   player2: { ...players.player2, score: Math.max(0, players.player2.score - 1) },
+ 252 |                 })
+ 253 |               }
+ 254 |             >
+ 255 |               −1
+ 256 |             </button>
+ 257 |             <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player2.score}</div>
+ 258 |             <button
+ 259 |               className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
+ 260 |               onClick={() =>
+ 261 |                 savePlayers({
+ 262 |                   ...players,
+ 263 |                   player2: { ...players.player2, score: players.player2.score + 1 },
+ 264 |                 })
+ 265 |               }
+ 266 |             >
+ 267 |               +1
+ 268 |             </button>
+ 269 |           </div>
+ 270 |         </div>
+ 271 |       </section>
+ 272 | 
+ 273 |       {/* Actions globales */}
+ 274 |       <div className="mb-6 flex justify-center">
+ 275 |         <button onClick={handleResetAll} className="rounded-lg border border-[#FF4141]/30 bg-[#FF4141]/15 text-[#FF4141] font-bold uppercase tracking-wide px-5 py-2">
+ 276 |           Reset all timers & scores
+ 277 |         </button>
+ 278 |       </div>
+ 279 | 
+ 280 |       {/* Overlay Settings */}
+ 281 |       <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 282 |         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Overlay Settings</h2>
+ 283 | 
+ 284 |         <div className="mb-6">
+ 285 |           <div className="mb-2 flex items-center justify-between text-sm">
+ 286 |             <span>Scale</span>
+ 287 |             <span className="font-semibold text-[#5AC8FF]">{scale}%</span>
+ 288 |           </div>
+ 289 |           <input type="range" min={50} max={200} value={scale} onChange={onScale} className="w-full [accent-color:#5AC8FF]" />
+ 290 |         </div>
+ 291 | 
+ 292 |         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+ 293 |           <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
+ 294 |             <span className="text-sm">
+ 295 |               Lock Overlay Position <span className="opacity-50">🔓</span>
+ 296 |             </span>
+ 297 |             <input type="checkbox" checked={locked} onChange={onLock} className="h-5 w-9 accent-violet-500" />
+ 298 |           </label>
+ 299 | 
+ 300 |           <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
+ 301 |             <span className="text-sm">Overlay stays above all windows</span>
+ 302 |             <input type="checkbox" defaultChecked onChange={onTop} className="h-5 w-9 accent-violet-500" />
+ 303 |           </label>
+ 304 |         </div>
+ 305 | 
+ 306 |         <div
+ 307 |           className={`mt-4 rounded-lg border p-3 text-sm ${
+ 308 |             locked
+ 309 |               ? 'border-[#44FF41]/40 bg-[#44FF41]/10 text-[#44FF41]'
+ 310 |               : 'border-violet-500/40 bg-violet-500/10 text-violet-300'
+ 311 |           }`}
+ 312 |         >
+ 313 |           {locked ? 'Overlay is locked – clicks will go through.' : 'Overlay is unlocked – drag the purple bar to reposition.'}
+ 314 |         </div>
+ 315 | 
+ 316 |         <p className="mt-3 text-center text-xs text-zinc-500">
+ 317 |           Astuce : l’overlay peut être minimisé et reste dans la barre des tâches lorsqu’il est déverrouillé.
+ 318 |         </p>
+ 319 |       </section>
+ 320 |     </div>
+ 321 |   );
+ 322 | };
+ 323 | 
+ 324 | export default ControlPanel;
+
+```
+
+`dbdoverlaytools-free/src\components\Footer.tsx`:
+
+```tsx
+   1 | export default function Footer(){
+   2 |   return (
+   3 |     <footer className="mt-8">
+   4 |       <div className="mx-auto max-w-5xl card px-4 py-3 text-center text-zinc-400">
+   5 |         <span className="uppercase tracking-wider">
+   6 |           © by <b>DOC</b> & <b>STEAXS</b> — 2025
+   7 |         </span>
+   8 |       </div>
+   9 |     </footer>
+  10 |   );
+  11 | }
 
 ```
 
@@ -1784,6 +1845,53 @@ dbdoverlaytools-free
   55 | 
   56 |   elapsed: (n) => (n===1?t1:t2).elapsedMs
   57 | }))
+
+```
+
+`dbdoverlaytools-free/src\styles\tokens.css`:
+
+```css
+   1 | @tailwind base;
+   2 | @tailwind components;
+   3 | @tailwind utilities;
+   4 | 
+   5 | /* Palette d'accents inspirée du mockup Figma */
+   6 | :root{
+   7 |   --violet:#B579FF; /* titres/outlines */ /* figma */
+   8 |   --pink:#FF6BCB;   /* sur-titres */      /* figma */
+   9 |   --green:#44FF41;  /* ON / valid */       /* figma */
+  10 |   --cyan:#5AC8FF;   /* valeurs */          /* figma */
+  11 |   --red:#FF4141;    /* reset / danger */   /* figma */
+  12 | }
+  13 | 
+  14 | /* Fond app + radiaux (optionnels) */
+  15 | @layer utilities {
+  16 |   .bg-app { @apply bg-[#0A0A0A]; }
+  17 |   .card     { @apply rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)]; }
+  18 |   .subcard  { @apply rounded-xl border border-white/5  bg-white/5; }
+  19 |   .tag      { @apply text-[13px] uppercase tracking-wide font-semibold text-[color:var(--violet)]; }
+  20 |   .overtag  { @apply text-[13px] uppercase tracking-wider font-bold text-[color:var(--pink)]; }
+  21 |   .pill     { @apply rounded-lg px-3 py-2 border; }
+  22 |   .pill-on  { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10 text-[color:var(--green)]; }
+  23 |   .pill-off { @apply border-white/20 bg-white/10 text-zinc-400; }
+  24 | 
+  25 |   .btn-primary { @apply rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium px-4 py-2 transition; }
+  26 |   .btn-ghost   { @apply rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2; }
+  27 |   .btn-reset   { @apply rounded-lg border border-[color:var(--red)]/30 bg-[color:var(--red)]/15 text-[color:var(--red)] font-bold uppercase tracking-wide px-5 py-2; }
+  28 | 
+  29 |   .field      { @apply w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-[color:var(--violet)]; }
+  30 |   .keybtn     { @apply w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition; }
+  31 |   .keybtn-idle{ @apply bg-zinc-800 hover:bg-zinc-700; }
+  32 |   .keybtn-cap { @apply bg-violet-600; }
+  33 | 
+  34 |   /* Interrupteurs façon Figma */
+  35 |   .switch      { @apply relative inline-flex h-6 w-12 items-center rounded-full border transition; }
+  36 |   .switch-dot  { @apply absolute h-5 w-5 rounded-full transition; }
+  37 |   .switch-on   { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10; }
+  38 |   .switch-on .switch-dot  { @apply translate-x-6 bg-[color:var(--green)]; }
+  39 |   .switch-off  { @apply border-white/20 bg-white/10; }
+  40 |   .switch-off .switch-dot { @apply translate-x-1 bg-zinc-500; }
+  41 | }
 
 ```
 
