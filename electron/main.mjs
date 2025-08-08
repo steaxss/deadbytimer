@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, globalShortcut } from "electron";
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, shell } from "electron";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import Store from "electron-store";
@@ -40,6 +40,7 @@ function applyAlwaysOnTop(win, on) {
     win.setFullScreenable(false);
   } catch {}
 }
+
 function sendOverlaySettings() {
   if (overlayWindow && !overlayWindow.isDestroyed()) {
     const s = store.get("overlaySettings", {
@@ -52,6 +53,7 @@ function sendOverlaySettings() {
     overlayWindow.webContents.send("overlay-settings", s);
   }
 }
+
 function recomputeOverlaySize() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   const s = store.get("overlaySettings", { scale: 100, locked: true });
@@ -62,6 +64,7 @@ function recomputeOverlaySize() {
   overlayWindow.setContentSize(w, h);
   sendOverlaySettings();
 }
+
 function sendHotkeysMode() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(
@@ -70,6 +73,7 @@ function sendHotkeysMode() {
     );
   }
 }
+
 function makeLabelFromBeforeInput(input) {
   let k = input.key || "";
   if (/^F\d{1,2}$/.test(k)) return k;
@@ -146,6 +150,35 @@ function finalizeCapture(reason = "done") {
   if (!usingUiohook) refreshHotkeyEngine();
 }
 
+/** Force l’ouverture des liens http(s) dans le navigateur par défaut et bloque toute navigation sortante dans l’app */
+function enforceExternalLinks(win) {
+  if (!win || win.isDestroyed()) return;
+
+  // window.open / target=_blank
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url);
+      return { action: "deny" };
+    }
+    return { action: "deny" };
+  });
+
+  // Drag’n’drop/lien cliqué qui tenterait une navigation
+  win.webContents.on("will-navigate", (e, url) => {
+    const isLocal =
+      url.startsWith("file:") || url.startsWith("http://localhost");
+    if (!isLocal && /^https?:\/\//i.test(url)) {
+      e.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
+  // Pas de menu « Inspecter » en prod
+  if (!isDev) {
+    win.webContents.on("context-menu", (e) => e.preventDefault());
+  }
+}
+
 /* -------------------- windows -------------------- */
 function createMainWindow() {
   const saved = store.get("windowState") || {};
@@ -165,15 +198,19 @@ function createMainWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: join(__dirname, "preload.cjs"),
-      devTools: isDev,
+      devTools: isDev, // prod: false (verrouille DevTools)
     },
   });
+
+  // 🔒 forcer l’ouverture externe des liens
+  enforceExternalLinks(mainWindow);
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
     mainWindow.loadFile(join(__dirname, "../dist/index.html"));
+    // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
     mainWindow.webContents.on("before-input-event", (e, input) => {
       const combo =
         (input.control || input.meta) &&
@@ -231,6 +268,7 @@ function createOverlayWindow() {
       contextIsolation: true,
       preload: join(__dirname, "preload.cjs"),
       backgroundThrottling: false,
+      devTools: isDev, // 🆕 bloque DevTools sur l’overlay en prod
     },
   });
 
@@ -240,8 +278,23 @@ function createOverlayWindow() {
   const url = isDev
     ? "http://localhost:5173/overlay.html"
     : join(__dirname, "../dist/overlay.html");
+
   if (isDev) overlayWindow.loadURL(url);
   else overlayWindow.loadFile(url);
+
+  // 🔒 forcer l’ouverture externe des liens aussi côté overlay
+  enforceExternalLinks(overlayWindow);
+
+  // Bloque F12 / Ctrl+Shift+I aussi sur l’overlay, en prod
+  if (!isDev) {
+    overlayWindow.webContents.on("before-input-event", (e, input) => {
+      const combo =
+        (input.control || input.meta) &&
+        input.shift &&
+        input.key?.toLowerCase() === "i";
+      if (combo || input.key === "F12") e.preventDefault();
+    });
+  }
 
   overlayWindow.on("closed", () => {
     overlayWindow = null;
@@ -345,7 +398,7 @@ function setupIPC() {
     return true;
   });
 
-  // 🚀 capture 100% main-process, transactionnelle (pas de timeout tant qu'aucune touche n'a été frappée)
+  // 🚀 capture 100% main-process, transactionnelle
   ipcMain.handle("hotkeys-capture", (_evt, type) => {
     if (!(type === "start" || type === "swap")) {
       finalizeCapture("cancel");

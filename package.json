@@ -10,7 +10,9 @@
   "scripts": {
     "dev": "concurrently -k -n VITE,ELECTRON \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:dev": "npm run dev",
-    "build": "vite build && electron-builder",
+    "build": "vite build && npm run obfuscate:dist && electron-builder",
+    "build:portable": "vite build && npm run obfuscate:dist && electron-builder --win portable",
+    "obfuscate:dist": "javascript-obfuscator dist --output dist --compact true --control-flow-flattening false --dead-code-injection false --string-array true --string-array-encoding rc4 --string-array-threshold 0.75 --rename-properties false --target browser-no-eval",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -31,10 +33,37 @@
     "cross-env": "^7.0.3",
     "electron": "^30.0.9",
     "electron-builder": "^24.13.3",
+    "javascript-obfuscator": "^4.0.2",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.7",
     "typescript": "^5.5.4",
     "vite": "^5.4.19",
     "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.steaxs.dbdtimer.free",
+    "productName": "DBD Timer Overlay",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json",
+      "!**/*.map",
+      "!**/*.ts",
+      "!src/**"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/uiohook-napi/**"
+    ],
+    "compression": "maximum",
+    "win": {
+      "target": [
+        { "target": "portable", "arch": [ "x64" ] }
+      ],
+      "artifactName": "DBD-Timer-Free-${version}-Portable.exe"
+    }
   }
 }
