@@ -4,28 +4,31 @@ import { fileURLToPath } from "node:url";
 import Store from "electron-store";
 import { createRequire } from "node:module";
 import fs from "node:fs";
-import * as dotenv from "dotenv";
 
-/* -------------------- .env loader -------------------- */
-// Order: .env then .env.development (later overrides earlier)
-(function loadEnvFiles() {
+const require = createRequire(import.meta.url);
+
+/** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
+(function loadDevEnv() {
+  if (app.isPackaged) return;         // en prod: ne rien charger
+  let dotenv;
+  try { dotenv = require("dotenv"); } // optional require
+  catch { return; }                   // pas installé → on ignore
   const root = process.cwd();
-  const files = [".env", ".env.development"];
-  for (const name of files) {
+  for (const name of [".env", ".env.development"]) {
     const p = join(root, name);
     if (fs.existsSync(p)) dotenv.config({ path: p, override: true });
   }
 })();
+
 
 /* -------------------- flags via .env -------------------- */
 const FORCE_NO_UIOHOOK  = process.env.FORCE_NO_UIOHOOK === "1";
 const FORCE_NO_VCREDIST = process.env.FORCE_NO_VCREDIST === "1";
 const DEBUG_HK          = process.env.DEBUG_HK === "1";
 
-const require = createRequire(import.meta.url);
 let uIOhook = null;
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const isDev = process.env.NODE_ENV === "development";
+const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 
 if (process.platform === "win32") {
   app.setAppUserModelId("com.steaxs.dbdtimer.free");
@@ -154,7 +157,7 @@ function makeLabelFromBeforeInput(input) {
     ArrowLeft: "LEFT",
     ArrowRight: "RIGHT",
   };
-  if (map[k]) return map[k];
+  if (map[k]) return k;
   const code = input.code || "";
   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
   if (/^Digit\d$/.test(code)) return code.slice(5);

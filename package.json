@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "dotenv": "^17.2.1",
     "electron-store": "^9.0.0",
     "lucide-react": "^0.539.0",
     "react": "^18.3.1",
@@ -45,8 +46,11 @@
   "build": {
     "appId": "com.steaxs.dbdtimer.free",
     "productName": "DBD Timer Overlay",
-     "extraResources": [
-      { "from": "build/icon.ico", "to": "icon.ico" }
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      }
     ],
     "directories": {
       "output": "release"
@@ -74,8 +78,18 @@
     "win": {
       "icon": "build/icon.ico",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "DBD-Timer-Free-${version}-Setup.exe"
     }
