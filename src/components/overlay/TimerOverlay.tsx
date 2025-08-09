@@ -28,7 +28,7 @@ export default function TimerOverlay() {
   const status = useTimerStore((s) => s.status); // Record<1|2, 'stopped'|'running'|'paused'>
   const elapsed = useTimerStore((s) => s.elapsed);
 
-  const [locked, setLocked] = React.useState(false);
+  const [locked, setLocked] = React.useState(true);
   const [scale, setScale] = React.useState(100);
 
   // IPC: names/scores only

@@ -454,407 +454,437 @@ dbdoverlaytools-free
  247 |     overlayWindow.focus();
  248 |     return;
  249 |   }
- 250 |   const display = screen.getPrimaryDisplay().workAreaSize;
- 251 |   const s = store.get("overlaySettings", {
- 252 |     x: Math.floor(display.width / 2 - 260),
- 253 |     y: 100,
- 254 |     scale: 100,
- 255 |     locked: true,
- 256 |     alwaysOnTop: true,
- 257 |   });
- 258 |   const dragH = s.locked ? 0 : 30;
- 259 |   const scale = (s.scale || 100) / 100;
- 260 | 
- 261 |   overlayWindow = new BrowserWindow({
- 262 |     width: Math.ceil(baseDims.width * scale),
- 263 |     height: Math.ceil((baseDims.height + dragH) * scale),
- 264 |     x: s.x,
- 265 |     y: s.y,
- 266 |     frame: false,
- 267 |     transparent: true,
- 268 |     resizable: false,
- 269 |     hasShadow: false,
- 270 |     skipTaskbar: false,
- 271 |     focusable: true,
- 272 |     title: "DBD Timer Overlay",
- 273 |     acceptFirstMouse: true,
- 274 |     backgroundColor: "#00000000",
- 275 |     useContentSize: true,
- 276 |     webPreferences: {
- 277 |       nodeIntegration: false,
- 278 |       contextIsolation: true,
- 279 |       preload: join(__dirname, "preload.cjs"),
- 280 |       backgroundThrottling: false,
- 281 |       devTools: isDev, // 🆕 bloque DevTools sur l’overlay en prod
- 282 |     },
- 283 |   });
- 284 | 
- 285 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
- 286 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
- 287 | 
- 288 |   const url = isDev
- 289 |     ? "http://localhost:5173/overlay.html"
- 290 |     : join(__dirname, "../dist/overlay.html");
+ 250 | 
+ 251 |   let s = store.get("overlaySettings");
+ 252 |     if (!s) {
+ 253 |        const pd = screen.getPrimaryDisplay();
+ 254 |        const origin = pd.bounds; // coin strict (0,0 relatif à l'écran principal)
+ 255 |        s = {
+ 256 |         x: origin.x,         // 0 le plus souvent, mais correct aussi si écrans négatifs
+ 257 |         y: origin.y,         // 0
+ 258 |         scale: 100,
+ 259 |         locked: true,
+ 260 |         alwaysOnTop: true,
+ 261 |       };
+ 262 |       store.set("overlaySettings", s);
+ 263 |      }
+ 264 | 
+ 265 |   const dragH = s.locked ? 0 : 30;
+ 266 |   const scale = (s.scale || 100) / 100;
+ 267 | 
+ 268 |   overlayWindow = new BrowserWindow({
+ 269 |     width: Math.ceil(baseDims.width * scale),
+ 270 |     height: Math.ceil((baseDims.height + dragH) * scale),
+ 271 |     x: s.x,
+ 272 |     y: s.y,
+ 273 |     frame: false,
+ 274 |     transparent: true,
+ 275 |     resizable: false,
+ 276 |     hasShadow: false,
+ 277 |     skipTaskbar: false,
+ 278 |     focusable: true,
+ 279 |     title: "DBD Timer Overlay",
+ 280 |     acceptFirstMouse: true,
+ 281 |     backgroundColor: "#00000000",
+ 282 |     useContentSize: true,
+ 283 |     webPreferences: {
+ 284 |       nodeIntegration: false,
+ 285 |       contextIsolation: true,
+ 286 |       preload: join(__dirname, "preload.cjs"),
+ 287 |       backgroundThrottling: false,
+ 288 |       devTools: isDev, // 🆕 bloque DevTools sur l’overlay en prod
+ 289 |     },
+ 290 |   });
  291 | 
- 292 |   if (isDev) overlayWindow.loadURL(url);
- 293 |   else overlayWindow.loadFile(url);
+ 292 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
+ 293 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
  294 | 
- 295 |   // 🔒 forcer l’ouverture externe des liens aussi côté overlay
- 296 |   enforceExternalLinks(overlayWindow);
- 297 | 
- 298 |   // Bloque F12 / Ctrl+Shift+I aussi sur l’overlay, en prod
- 299 |   if (!isDev) {
- 300 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
- 301 |       const combo =
- 302 |         (input.control || input.meta) &&
- 303 |         input.shift &&
- 304 |         input.key?.toLowerCase() === "i";
- 305 |       if (combo || input.key === "F12") e.preventDefault();
- 306 |     });
- 307 |   }
- 308 | 
- 309 |   overlayWindow.on("closed", () => {
- 310 |     overlayWindow = null;
- 311 |     if (mainWindow && !mainWindow.isDestroyed())
- 312 |       mainWindow.webContents.send("overlay-ready", false);
- 313 |   });
- 314 |   overlayWindow.on("move", () => {
- 315 |     const b = overlayWindow.getBounds();
- 316 |     store.set("overlaySettings.x", b.x);
- 317 |     store.set("overlaySettings.y", b.y);
- 318 |   });
- 319 | 
- 320 |   overlayWindow.webContents.on("did-finish-load", () => {
- 321 |     const data = store.get("timerData") || {
- 322 |       player1: { name: "Player 1", score: 0 },
- 323 |       player2: { name: "Player 2", score: 0 },
- 324 |     };
- 325 |     overlayWindow.webContents.send("timer-data-sync", data);
- 326 |     sendOverlaySettings();
- 327 |     if (mainWindow) mainWindow.webContents.send("overlay-ready", true);
- 328 |     setTimeout(() => recomputeOverlaySize(), 50);
- 329 |   });
- 330 | }
- 331 | 
- 332 | /* -------------------- IPC -------------------- */
- 333 | function setupIPC() {
- 334 |   ipcMain.handle("overlay-show", () => {
- 335 |     createOverlayWindow();
- 336 |     return true;
- 337 |   });
- 338 |   ipcMain.handle("overlay-hide", () => {
- 339 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
- 340 |     overlayWindow = null;
- 341 |     if (mainWindow && !mainWindow.isDestroyed())
- 342 |       mainWindow.webContents.send("overlay-ready", false);
+ 295 |   const url = isDev
+ 296 |     ? "http://localhost:5173/overlay.html"
+ 297 |     : join(__dirname, "../dist/overlay.html");
+ 298 | 
+ 299 |   if (isDev) overlayWindow.loadURL(url);
+ 300 |   else overlayWindow.loadFile(url);
+ 301 | 
+ 302 |   // 🔒 forcer l’ouverture externe des liens aussi côté overlay
+ 303 |   enforceExternalLinks(overlayWindow);
+ 304 | 
+ 305 |   // Bloque F12 / Ctrl+Shift+I aussi sur l’overlay, en prod
+ 306 |   if (!isDev) {
+ 307 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
+ 308 |       const combo =
+ 309 |         (input.control || input.meta) &&
+ 310 |         input.shift &&
+ 311 |         input.key?.toLowerCase() === "i";
+ 312 |       if (combo || input.key === "F12") e.preventDefault();
+ 313 |     });
+ 314 |   }
+ 315 | 
+ 316 |   overlayWindow.on("closed", () => {
+ 317 |     overlayWindow = null;
+ 318 |     if (mainWindow && !mainWindow.isDestroyed())
+ 319 |       mainWindow.webContents.send("overlay-ready", false);
+ 320 |   });
+ 321 |   overlayWindow.on("move", () => {
+ 322 |     const b = overlayWindow.getBounds();
+ 323 |     store.set("overlaySettings.x", b.x);
+ 324 |     store.set("overlaySettings.y", b.y);
+ 325 |   });
+ 326 | 
+ 327 |   overlayWindow.webContents.on("did-finish-load", () => {
+ 328 |     const data = store.get("timerData") || {
+ 329 |       player1: { name: "Player 1", score: 0 },
+ 330 |       player2: { name: "Player 2", score: 0 },
+ 331 |     };
+ 332 |     overlayWindow.webContents.send("timer-data-sync", data);
+ 333 |     sendOverlaySettings();
+ 334 |     if (mainWindow) mainWindow.webContents.send("overlay-ready", true);
+ 335 |     setTimeout(() => recomputeOverlaySize(), 50);
+ 336 |   });
+ 337 | }
+ 338 | 
+ 339 | /* -------------------- IPC -------------------- */
+ 340 | function setupIPC() {
+ 341 |   ipcMain.handle("overlay-show", () => {
+ 342 |     createOverlayWindow();
  343 |     return true;
  344 |   });
- 345 | 
- 346 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
- 347 |     const current = store.get("overlaySettings", {});
- 348 |     const next = { ...current, ...settings };
- 349 |     store.set("overlaySettings", next);
- 350 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
- 351 | 
- 352 |     if (settings.locked !== undefined) {
- 353 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
- 354 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
- 355 |     }
- 356 |     if (settings.alwaysOnTop !== undefined)
- 357 |       applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
- 358 |     if (settings.x !== undefined || settings.y !== undefined) {
- 359 |       const b = overlayWindow.getBounds();
- 360 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
- 361 |     }
- 362 |     if (settings.scale !== undefined || settings.locked !== undefined)
- 363 |       recomputeOverlaySize();
- 364 |     sendOverlaySettings();
- 365 |     return true;
- 366 |   });
- 367 | 
- 368 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
- 369 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
- 370 |       return false;
- 371 |     baseDims = {
- 372 |       width: Math.max(1, Math.floor(dims.width)),
- 373 |       height: Math.max(1, Math.floor(dims.height)),
- 374 |     };
- 375 |     recomputeOverlaySize();
- 376 |     return true;
- 377 |   });
- 378 | 
- 379 |   // Timer data
- 380 |   ipcMain.handle(
- 381 |     "timer-data-get",
- 382 |     () =>
- 383 |       store.get("timerData") || {
- 384 |         player1: { name: "Player 1", score: 0 },
- 385 |         player2: { name: "Player 2", score: 0 },
- 386 |       }
- 387 |   );
- 388 |   ipcMain.handle("timer-data-set", (_evt, data) => {
- 389 |     store.set("timerData", data);
- 390 |     if (overlayWindow && !overlayWindow.isDestroyed())
- 391 |       overlayWindow.webContents.send("timer-data-sync", data);
- 392 |     return true;
- 393 |   });
- 394 | 
- 395 |   // Hotkeys API
- 396 |   ipcMain.handle("hotkeys-get", () => ({
- 397 |     start: hotkeys.start,
- 398 |     swap: hotkeys.swap,
- 399 |     startLabel: hotkeysLabel.start,
- 400 |     swapLabel: hotkeysLabel.swap,
- 401 |     mode: usingUiohook ? "pass-through" : "fallback",
- 402 |   }));
- 403 | 
- 404 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
- 405 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
- 406 |     store.set("hotkeys", hotkeys);
- 407 |     refreshHotkeyEngine();
- 408 |     return true;
- 409 |   });
+ 345 |   ipcMain.handle("overlay-hide", () => {
+ 346 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
+ 347 |     overlayWindow = null;
+ 348 |     if (mainWindow && !mainWindow.isDestroyed())
+ 349 |       mainWindow.webContents.send("overlay-ready", false);
+ 350 |     return true;
+ 351 |   });
+ 352 | 
+ 353 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
+ 354 |     const current = store.get("overlaySettings", {});
+ 355 |     const next = { ...current, ...settings };
+ 356 |     store.set("overlaySettings", next);
+ 357 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
+ 358 | 
+ 359 |     if (settings.locked !== undefined) {
+ 360 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
+ 361 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
+ 362 |     }
+ 363 |     if (settings.alwaysOnTop !== undefined)
+ 364 |       applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
+ 365 |     if (settings.x !== undefined || settings.y !== undefined) {
+ 366 |       const b = overlayWindow.getBounds();
+ 367 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
+ 368 |     }
+ 369 |     if (settings.scale !== undefined || settings.locked !== undefined)
+ 370 |       recomputeOverlaySize();
+ 371 |     sendOverlaySettings();
+ 372 |     return true;
+ 373 |   });
+ 374 | 
+ 375 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
+ 376 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
+ 377 |       return false;
+ 378 |     baseDims = {
+ 379 |       width: Math.max(1, Math.floor(dims.width)),
+ 380 |       height: Math.max(1, Math.floor(dims.height)),
+ 381 |     };
+ 382 |     recomputeOverlaySize();
+ 383 |     return true;
+ 384 |   });
+ 385 | 
+ 386 |   // Timer data
+ 387 |   ipcMain.handle(
+ 388 |     "timer-data-get",
+ 389 |     () =>
+ 390 |       store.get("timerData") || {
+ 391 |         player1: { name: "Player 1", score: 0 },
+ 392 |         player2: { name: "Player 2", score: 0 },
+ 393 |       }
+ 394 |   );
+ 395 |   ipcMain.handle("timer-data-set", (_evt, data) => {
+ 396 |     store.set("timerData", data);
+ 397 |     if (overlayWindow && !overlayWindow.isDestroyed())
+ 398 |       overlayWindow.webContents.send("timer-data-sync", data);
+ 399 |     return true;
+ 400 |   });
+ 401 | 
+ 402 |   // Hotkeys API
+ 403 |   ipcMain.handle("hotkeys-get", () => ({
+ 404 |     start: hotkeys.start,
+ 405 |     swap: hotkeys.swap,
+ 406 |     startLabel: hotkeysLabel.start,
+ 407 |     swapLabel: hotkeysLabel.swap,
+ 408 |     mode: usingUiohook ? "pass-through" : "fallback",
+ 409 |   }));
  410 | 
- 411 |   // 🚀 capture 100% main-process, transactionnelle
- 412 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
- 413 |     if (!(type === "start" || type === "swap")) {
- 414 |       finalizeCapture("cancel");
- 415 |       return true;
- 416 |     }
- 417 | 
- 418 |     logHK("CAPTURE BEGIN", {
- 419 |       type,
- 420 |       mode: usingUiohook ? "pass-through" : "fallback",
- 421 |     });
- 422 | 
- 423 |     // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
- 424 |     captureWaitUntil = Date.now() + 15000;
- 425 | 
- 426 |     // Reset/annule capture précédente si elle existe
- 427 |     if (captureState) {
- 428 |       clearCaptureTimers();
- 429 |       captureState = null;
- 430 |     }
- 431 | 
- 432 |     // État de capture : pas de timer court au début; on attend la première frappe
- 433 |     captureState = {
- 434 |       type,
- 435 |       label: null,
- 436 |       code: null,
- 437 |       primaryTimer: setTimeout(() => {
- 438 |         // Annule la capture si l'utilisateur oublie (15s)
- 439 |         logHK("CAPTURE PRIMARY TIMEOUT — cancel");
- 440 |         finalizeCapture("primary-timeout");
- 441 |       }, 15000),
- 442 |       secondaryTimer: null,
- 443 |     };
- 444 | 
- 445 |     // focus le panneau
- 446 |     try {
- 447 |       mainWindow?.focus();
- 448 |       logHK("focused mainWindow?", mainWindow?.isFocused());
- 449 |     } catch (e) {
- 450 |       logHK("focus error", e?.message || e);
- 451 |     }
- 452 | 
- 453 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
- 454 |     if (!usingUiohook) {
- 455 |       try {
- 456 |         globalShortcut.unregisterAll();
- 457 |         logHK("fallback: unregistered to let key through");
- 458 |       } catch {}
- 459 |     }
- 460 | 
- 461 |     // écouter une fois la prochaine touche (pour le label layout-aware)
- 462 |     const once = (event, input) => {
- 463 |       if (!captureState) return;
- 464 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
- 465 |       logHK("before-input-event keyDown", { key: input.key, code: input.code });
- 466 |       const label = makeLabelFromBeforeInput(input);
- 467 | 
- 468 |       captureState.label = label;
- 469 |       hotkeysLabel = { ...hotkeysLabel, [type]: label };
- 470 |       store.set("hotkeysLabel", hotkeysLabel);
- 471 | 
- 472 |       // notifie instantanément le panel (affichage immédiat)
- 473 |       mainWindow?.webContents.send("hotkeys-captured", { type, label });
- 474 |       logHK("label captured (instant)", { type, label });
- 475 | 
- 476 |       // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
- 477 |       if (typeof captureState.code === "number") {
- 478 |         finalizeCapture("have both");
- 479 |       } else {
- 480 |         if (captureState.secondaryTimer)
- 481 |           clearTimeout(captureState.secondaryTimer);
- 482 |         captureState.secondaryTimer = setTimeout(
- 483 |           () => finalizeCapture("after-label-wait"),
- 484 |           500
- 485 |         );
- 486 |       }
+ 411 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
+ 412 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
+ 413 |     store.set("hotkeys", hotkeys);
+ 414 |     const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
+ 415 |     if (uIOhook && haveCodes) {
+ 416 |       try{
+ 417 |         globalShortcut.unregisterAll(); // on quitte le fallback
+ 418 |       } catch {}
+ 419 |       if (!usingUiohook) {
+ 420 |         try { uIOhook.start(); } catch {}
+ 421 |       }
+ 422 |       usingUiohook = true;
+ 423 |       sendHotkeysMode();
+ 424 |       } else {
+ 425 |         usingUiohook = false;
+ 426 |         refreshHotkeyEngine(); // rester / revenir en fallback labels (F1/F2)
+ 427 |       }
+ 428 |     return true;
+ 429 |   });
+ 430 | 
+ 431 |   // 🚀 capture 100% main-process, transactionnelle
+ 432 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
+ 433 |     if (!(type === "start" || type === "swap")) {
+ 434 |       finalizeCapture("cancel");
+ 435 |       return true;
+ 436 |     }
+ 437 | 
+ 438 |     logHK("CAPTURE BEGIN", {
+ 439 |       type,
+ 440 |       mode: usingUiohook ? "pass-through" : "fallback",
+ 441 |     });
+ 442 | 
+ 443 |     // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
+ 444 |     captureWaitUntil = Date.now() + 15000;
+ 445 | 
+ 446 |     // Reset/annule capture précédente si elle existe
+ 447 |     if (captureState) {
+ 448 |       clearCaptureTimers();
+ 449 |       captureState = null;
+ 450 |     }
+ 451 | 
+ 452 |     // État de capture : pas de timer court au début; on attend la première frappe
+ 453 |     captureState = {
+ 454 |       type,
+ 455 |       label: null,
+ 456 |       code: null,
+ 457 |       primaryTimer: setTimeout(() => {
+ 458 |         // Annule la capture si l'utilisateur oublie (15s)
+ 459 |         logHK("CAPTURE PRIMARY TIMEOUT — cancel");
+ 460 |         finalizeCapture("primary-timeout");
+ 461 |       }, 15000),
+ 462 |       secondaryTimer: null,
+ 463 |     };
+ 464 | 
+ 465 |     // focus le panneau
+ 466 |     try {
+ 467 |       mainWindow?.focus();
+ 468 |       logHK("focused mainWindow?", mainWindow?.isFocused());
+ 469 |     } catch (e) {
+ 470 |       logHK("focus error", e?.message || e);
+ 471 |     }
+ 472 | 
+ 473 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
+ 474 |     if (!usingUiohook) {
+ 475 |       try {
+ 476 |         globalShortcut.unregisterAll();
+ 477 |         logHK("fallback: unregistered to let key through");
+ 478 |       } catch {}
+ 479 |     }
+ 480 | 
+ 481 |     // écouter une fois la prochaine touche (pour le label layout-aware)
+ 482 |     const once = (event, input) => {
+ 483 |       if (!captureState) return;
+ 484 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
+ 485 |       logHK("before-input-event keyDown", { key: input.key, code: input.code });
+ 486 |       const label = makeLabelFromBeforeInput(input);
  487 | 
- 488 |       mainWindow?.webContents.removeListener("before-input-event", once);
- 489 |     };
- 490 |     mainWindow?.webContents.on("before-input-event", once);
- 491 |     logHK("before-input-event listener ARMED");
- 492 | 
- 493 |     return true;
- 494 |   });
- 495 | }
- 496 | 
- 497 | /* -------------------- Hotkeys engines -------------------- */
- 498 | function refreshHotkeyEngine() {
- 499 |   if (usingUiohook) {
- 500 |     logHK("refreshHotkeyEngine: pass-through (no globalShortcut)");
- 501 |     return;
- 502 |   }
- 503 |   try {
- 504 |     globalShortcut.unregisterAll();
- 505 |     logHK("globalShortcut: unregistered all");
- 506 |   } catch {}
- 507 |   const RATE = 180;
- 508 |   let lastT = 0,
- 509 |     lastS = 0;
- 510 | 
- 511 |   const sKey = hotkeysLabel.start || "F1";
- 512 |   const wKey = hotkeysLabel.swap || "F2";
- 513 |   logHK("globalShortcut: registering", { start: sKey, swap: wKey });
- 514 | 
- 515 |   try {
- 516 |     globalShortcut.register(sKey, () => {
- 517 |       if (Date.now() < captureWaitUntil) {
- 518 |         logHK("fallback toggle skipped (capturing)");
- 519 |         return;
- 520 |       }
- 521 |       const now = Date.now();
- 522 |       if (now - lastT < RATE) return;
- 523 |       lastT = now;
- 524 |       logHK("DISPATCH toggle via globalShortcut");
- 525 |       overlayWindow?.webContents.send("global-hotkey", { type: "toggle" });
- 526 |     });
- 527 |   } catch (e) {
- 528 |     logHK("register start failed", e?.message || e);
- 529 |   }
+ 488 |       captureState.label = label;
+ 489 |       hotkeysLabel = { ...hotkeysLabel, [type]: label };
+ 490 |       store.set("hotkeysLabel", hotkeysLabel);
+ 491 | 
+ 492 |       // notifie instantanément le panel (affichage immédiat)
+ 493 |       mainWindow?.webContents.send("hotkeys-captured", { type, label });
+ 494 |       logHK("label captured (instant)", { type, label });
+ 495 | 
+ 496 |       // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
+ 497 |       if (typeof captureState.code === "number") {
+ 498 |         finalizeCapture("have both");
+ 499 |       } else {
+ 500 |         if (captureState.secondaryTimer)
+ 501 |           clearTimeout(captureState.secondaryTimer);
+ 502 |         captureState.secondaryTimer = setTimeout(
+ 503 |           () => finalizeCapture("after-label-wait"),
+ 504 |           500
+ 505 |         );
+ 506 |       }
+ 507 | 
+ 508 |       mainWindow?.webContents.removeListener("before-input-event", once);
+ 509 |     };
+ 510 |     mainWindow?.webContents.on("before-input-event", once);
+ 511 |     logHK("before-input-event listener ARMED");
+ 512 | 
+ 513 |     return true;
+ 514 |   });
+ 515 | }
+ 516 | 
+ 517 | /* -------------------- Hotkeys engines -------------------- */
+ 518 | function refreshHotkeyEngine() {
+ 519 |   if (usingUiohook) {
+ 520 |     logHK("refreshHotkeyEngine: pass-through (no globalShortcut)");
+ 521 |     return;
+ 522 |   }
+ 523 |   try {
+ 524 |     globalShortcut.unregisterAll();
+ 525 |     logHK("globalShortcut: unregistered all");
+ 526 |   } catch {}
+ 527 |   const RATE = 180;
+ 528 |   let lastT = 0,
+ 529 |     lastS = 0;
  530 | 
- 531 |   try {
- 532 |     globalShortcut.register(wKey, () => {
- 533 |       if (Date.now() < captureWaitUntil) {
- 534 |         logHK("fallback swap skipped (capturing)");
- 535 |         return;
- 536 |       }
- 537 |       const now = Date.now();
- 538 |       if (now - lastS < RATE) return;
- 539 |       lastS = now;
- 540 |       logHK("DISPATCH swap via globalShortcut");
- 541 |       overlayWindow?.webContents.send("global-hotkey", { type: "swap" });
- 542 |     });
- 543 |   } catch (e) {
- 544 |     logHK("register swap failed", e?.message || e);
- 545 |   }
- 546 | }
- 547 | 
- 548 | // uiohook global (pass-through)
- 549 | function setupUiohook() {
- 550 |   try {
- 551 |     logHK("Trying to load uiohook-napi…");
- 552 |     const lib = require("uiohook-napi");
- 553 |     uIOhook = lib.uIOhook;
- 554 |     logHK("uiohook loaded OK");
- 555 |   } catch (e) {
- 556 |     logHK("uiohook FAILED to load -> fallback", e?.message || e);
- 557 |     usingUiohook = false;
- 558 |     sendHotkeysMode();
- 559 |     refreshHotkeyEngine();
- 560 |     return;
- 561 |   }
- 562 | 
- 563 |   usingUiohook = true;
- 564 |   sendHotkeysMode();
- 565 | 
- 566 |   let lastToggle = 0;
- 567 |   let lastSwap = 0;
- 568 |   const RATE = 180;
- 569 | 
- 570 |   uIOhook.on("keydown", (e) => {
- 571 |     logHK("uiohook keydown", {
- 572 |       keycode: e.keycode,
- 573 |       captureState: !!captureState,
- 574 |       now: Date.now(),
- 575 |       blockUntil: captureWaitUntil,
- 576 |     });
- 577 | 
- 578 |     // si on est en capture : stocker le code; finaliser si label déjà là, sinon attendre un chouïa
- 579 |     if (captureState) {
- 580 |       captureState.code = e.keycode;
- 581 |       logHK("code captured (uiohook)", {
- 582 |         type: captureState.type,
- 583 |         code: e.keycode,
- 584 |       });
- 585 |       if (captureState.label) {
- 586 |         finalizeCapture("have both");
- 587 |       } else {
- 588 |         if (captureState.secondaryTimer)
- 589 |           clearTimeout(captureState.secondaryTimer);
- 590 |         captureState.secondaryTimer = setTimeout(
- 591 |           () => finalizeCapture("after-code-wait"),
- 592 |           600
- 593 |         );
- 594 |       }
- 595 |       return;
- 596 |     }
+ 531 |   const sKey = hotkeysLabel.start || "F1";
+ 532 |   const wKey = hotkeysLabel.swap || "F2";
+ 533 |   logHK("globalShortcut: registering", { start: sKey, swap: wKey });
+ 534 | 
+ 535 |   try {
+ 536 |     globalShortcut.register(sKey, () => {
+ 537 |       if (Date.now() < captureWaitUntil) {
+ 538 |         logHK("fallback toggle skipped (capturing)");
+ 539 |         return;
+ 540 |       }
+ 541 |       const now = Date.now();
+ 542 |       if (now - lastT < RATE) return;
+ 543 |       lastT = now;
+ 544 |       logHK("DISPATCH toggle via globalShortcut");
+ 545 |       overlayWindow?.webContents.send("global-hotkey", { type: "toggle" });
+ 546 |     });
+ 547 |   } catch (e) {
+ 548 |     logHK("register start failed", e?.message || e);
+ 549 |   }
+ 550 | 
+ 551 |   try {
+ 552 |     globalShortcut.register(wKey, () => {
+ 553 |       if (Date.now() < captureWaitUntil) {
+ 554 |         logHK("fallback swap skipped (capturing)");
+ 555 |         return;
+ 556 |       }
+ 557 |       const now = Date.now();
+ 558 |       if (now - lastS < RATE) return;
+ 559 |       lastS = now;
+ 560 |       logHK("DISPATCH swap via globalShortcut");
+ 561 |       overlayWindow?.webContents.send("global-hotkey", { type: "swap" });
+ 562 |     });
+ 563 |   } catch (e) {
+ 564 |     logHK("register swap failed", e?.message || e);
+ 565 |   }
+ 566 | }
+ 567 | 
+ 568 | // uiohook global (pass-through)
+ 569 | function setupUiohook() {
+ 570 |   try {
+ 571 |     logHK("Trying to load uiohook-napi…");
+ 572 |     const lib = require("uiohook-napi");
+ 573 |     uIOhook = lib.uIOhook;
+ 574 |     logHK("uiohook loaded OK");
+ 575 |   } catch (e) {
+ 576 |     logHK("uiohook FAILED to load -> fallback", e?.message || e);
+ 577 |     usingUiohook = false;
+ 578 |     sendHotkeysMode();
+ 579 |     refreshHotkeyEngine();
+ 580 |     return;
+ 581 |   }
+ 582 | 
+ 583 |   const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
+ 584 |   usingUiohook = !!haveCodes;
+ 585 |   sendHotkeysMode();
+ 586 | 
+ 587 |   let lastToggle = 0, lastSwap = 0;
+ 588 |   const RATE = 180;
+ 589 | 
+ 590 |   uIOhook.on("keydown", (e) => {
+ 591 |     logHK("uiohook keydown", {
+ 592 |       keycode: e.keycode,
+ 593 |       captureState: !!captureState,
+ 594 |       now: Date.now(),
+ 595 |       blockUntil: captureWaitUntil,
+ 596 |     });
  597 | 
- 598 |     // normal: déclenchement (pass-through)
- 599 |     if (!overlayWindow || overlayWindow.isDestroyed()) return;
- 600 |     if (Date.now() < captureWaitUntil) {
- 601 |       logHK("DISPATCH BLOCKED (capturing)");
- 602 |       return;
- 603 |     }
- 604 | 
- 605 |     const now = Date.now();
- 606 |     if (hotkeys.start && e.keycode === hotkeys.start) {
- 607 |       if (now - lastToggle < RATE) return;
- 608 |       lastToggle = now;
- 609 |       logHK("DISPATCH toggle via uiohook");
- 610 |       overlayWindow.webContents.send("global-hotkey", { type: "toggle" });
- 611 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
- 612 |       if (now - lastSwap < RATE) return;
- 613 |       lastSwap = now;
- 614 |       logHK("DISPATCH swap via uiohook");
- 615 |       overlayWindow.webContents.send("global-hotkey", { type: "swap" });
+ 598 |     // si on est en capture : stocker le code; finaliser si label déjà là, sinon attendre un chouïa
+ 599 |     if (captureState) {
+ 600 |       captureState.code = e.keycode;
+ 601 |       logHK("code captured (uiohook)", {
+ 602 |         type: captureState.type,
+ 603 |         code: e.keycode,
+ 604 |       });
+ 605 |       if (captureState.label) {
+ 606 |         finalizeCapture("have both");
+ 607 |       } else {
+ 608 |         if (captureState.secondaryTimer)
+ 609 |           clearTimeout(captureState.secondaryTimer);
+ 610 |         captureState.secondaryTimer = setTimeout(
+ 611 |           () => finalizeCapture("after-code-wait"),
+ 612 |           600
+ 613 |         );
+ 614 |       }
+ 615 |       return;
  616 |     }
- 617 |   });
- 618 | 
- 619 |   try {
- 620 |     uIOhook.start();
- 621 |     logHK("uiohook started");
- 622 |   } catch (e) {
- 623 |     logHK("uiohook START failed -> fallback", e?.message || e);
- 624 |     usingUiohook = false;
- 625 |     sendHotkeysMode();
- 626 |     refreshHotkeyEngine();
- 627 |   }
- 628 | }
- 629 | 
- 630 | /* -------------------- lifecycle -------------------- */
- 631 | app.commandLine.appendSwitch('enable-zero-copy');
- 632 | app.commandLine.appendSwitch('ignore-gpu-blocklist');
- 633 | 
- 634 | app.whenReady().then(() => {
- 635 |   createMainWindow();
- 636 |   setupIPC();
- 637 |   setupUiohook();
- 638 |   setTimeout(createOverlayWindow, 800);
- 639 | });
- 640 | app.on("will-quit", () => {
- 641 |   try {
- 642 |     if (usingUiohook) uIOhook.stop();
- 643 |   } catch {}
- 644 |   try {
- 645 |     globalShortcut.unregisterAll();
- 646 |   } catch {}
- 647 | });
- 648 | app.on("window-all-closed", () => {
- 649 |   app.quit();
- 650 | });
+ 617 | 
+ 618 |     // normal: déclenchement (pass-through)
+ 619 |     if (!overlayWindow || overlayWindow.isDestroyed()) return;
+ 620 |     if (Date.now() < captureWaitUntil) {
+ 621 |       logHK("DISPATCH BLOCKED (capturing)");
+ 622 |       return;
+ 623 |     }
+ 624 | 
+ 625 |     const now = Date.now();
+ 626 |     if (hotkeys.start && e.keycode === hotkeys.start) {
+ 627 |       if (now - lastToggle < RATE) return;
+ 628 |       lastToggle = now;
+ 629 |       logHK("DISPATCH toggle via uiohook");
+ 630 |       overlayWindow.webContents.send("global-hotkey", { type: "toggle" });
+ 631 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
+ 632 |       if (now - lastSwap < RATE) return;
+ 633 |       lastSwap = now;
+ 634 |       logHK("DISPATCH swap via uiohook");
+ 635 |       overlayWindow.webContents.send("global-hotkey", { type: "swap" });
+ 636 |     }
+ 637 |   });
+ 638 | 
+ 639 |   try {
+ 640 |     if (usingUiohook) {
+ 641 |       try {
+ 642 |         uIOhook.start();
+ 643 |         logHK("uiohook started (codes present)");
+ 644 |       } catch (e) {
+ 645 |         usingUiohook = false;
+ 646 |       }
+ 647 |     } else {
+ 648 |       // Pas de codes -> fallback immédiat
+ 649 |       refreshHotkeyEngine(); // F1/F2 labels
+ 650 |       logHK("uiohook not started (no codes) -> fallback");
+ 651 |     }
+ 652 |   } catch (e) {
+ 653 |     logHK("uiohook START failed -> fallback", e?.message || e);
+ 654 |     usingUiohook = false;
+ 655 |     sendHotkeysMode();
+ 656 |     refreshHotkeyEngine();
+ 657 |   }
+ 658 | }
+ 659 | 
+ 660 | /* -------------------- lifecycle -------------------- */
+ 661 | app.commandLine.appendSwitch('enable-zero-copy');
+ 662 | app.commandLine.appendSwitch('ignore-gpu-blocklist');
+ 663 | 
+ 664 | app.whenReady().then(() => {
+ 665 |   createMainWindow();
+ 666 |   setupIPC();
+ 667 |   setupUiohook();
+ 668 |   setTimeout(createOverlayWindow, 800);
+ 669 | });
+ 670 | app.on("will-quit", () => {
+ 671 |   try {
+ 672 |     if (usingUiohook) uIOhook.stop();
+ 673 |   } catch {}
+ 674 |   try {
+ 675 |     globalShortcut.unregisterAll();
+ 676 |   } catch {}
+ 677 | });
+ 678 | app.on("window-all-closed", () => {
+ 679 |   app.quit();
+ 680 | });
 
 ```
 

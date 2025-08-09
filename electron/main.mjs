@@ -248,19 +248,19 @@ function createOverlayWindow() {
     return;
   }
 
-  let s = store.get("overlaySettings");
-    if (!s) {
-       const pd = screen.getPrimaryDisplay();
-       const origin = pd.workArea ?? pd.bounds; // haut-gauche de l’écran principal
-       s = {
-        x: origin.x,         // 0 le plus souvent, mais correct aussi si écrans négatifs
-        y: origin.y,         // 0
-        scale: 100,
-        locked: true,
-        alwaysOnTop: true,
-      };
-      store.set("overlaySettings", s);
-     }
+  // --- INIT ROBUSTE : complète les champs manquants et force (x,y) sur l’origine du display principal
+  let s = store.get("overlaySettings") || {};
+  const pd = screen.getPrimaryDisplay();
+  const origin = pd.bounds; // coin strict de l’écran principal (pas workArea)
+
+  if (!Number.isFinite(s.x)) s.x = origin.x;
+  if (!Number.isFinite(s.y)) s.y = origin.y;
+  if (typeof s.scale !== "number") s.scale = 100;
+  if (typeof s.locked !== "boolean") s.locked = true;
+  if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
+
+  store.set("overlaySettings", s);
+  // --- FIN INIT ROBUSTE
 
   const dragH = s.locked ? 0 : 30;
   const scale = (s.scale || 100) / 100;
@@ -280,12 +280,13 @@ function createOverlayWindow() {
     acceptFirstMouse: true,
     backgroundColor: "#00000000",
     useContentSize: true,
+    show: false, // 👉 évite tout flash avant réception des settings
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: join(__dirname, "preload.cjs"),
       backgroundThrottling: false,
-      devTools: isDev, // 🆕 bloque DevTools sur l’overlay en prod
+      devTools: isDev, // bloque DevTools sur l’overlay en prod
     },
   });
 
@@ -330,9 +331,13 @@ function createOverlayWindow() {
       player2: { name: "Player 2", score: 0 },
     };
     overlayWindow.webContents.send("timer-data-sync", data);
+
+    // Envoie les settings AVANT l’affichage pour garantir locked=true dès le 1er frame visible
     sendOverlaySettings();
+    recomputeOverlaySize();
+
     if (mainWindow) mainWindow.webContents.send("overlay-ready", true);
-    setTimeout(() => recomputeOverlaySize(), 50);
+    overlayWindow.show(); // 👉 ne montre l’overlay qu’une fois prêt avec les bons settings
   });
 }
 
