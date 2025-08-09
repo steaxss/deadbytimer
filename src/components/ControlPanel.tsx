@@ -281,7 +281,7 @@ const ControlPanel: React.FC = () => {
             className="rounded-lg border border-[#FF4141]/30 bg-[#FF4141]/15 text-[#FF4141] font-bold uppercase tracking-wide px-5 py-2"
             onClick={handleResetAll}
           >
-            Reset all timers & scores
+            Reset scores
           </button>
         </div>
 

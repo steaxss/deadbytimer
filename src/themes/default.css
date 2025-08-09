@@ -64,3 +64,32 @@
 @keyframes pulseBar { 0%,100%{opacity:.5} 50%{opacity:1} }
 
 .dbd-digits { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: 0.02em; }
+
+/* ========= NEW: états d’alerte pour le timer actif ========= */
+/* 20s avant loose → orange (fixe) */
+.timer.warn20 .timer-text,
+.timer.warn20 .timer-char {
+  background: linear-gradient(180deg, #FFD27A 0%, #FFA726 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 18px rgba(255,167,38,0.35);
+}
+
+/* 10s avant loose → rouge clair + clignotement doux */
+.timer.warn10 .timer-text,
+.timer.warn10 .timer-char {
+  background: linear-gradient(180deg, #FF8A80 0%, #FF5252 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 18px rgba(255,82,82,0.35);
+  animation: timerBlink 0.8s steps(1,end) infinite;
+}
+@keyframes timerBlink {
+  50% { opacity: .45; }
+}
+
+/* Loose condition dépassée → rouge (fixe, pas trop foncé) */
+.timer.loose .timer-text,
+.timer.loose .timer-char {
+  background: linear-gradient(180deg, #FF6B6B 0%, #FF4141 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 20px rgba(255,65,65,0.35);
+}

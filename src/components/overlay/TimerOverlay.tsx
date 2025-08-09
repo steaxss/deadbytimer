@@ -28,7 +28,7 @@ export default function TimerOverlay() {
   const status = useTimerStore((s) => s.status); // Record<1|2, 'stopped'|'running'|'paused'>
   const elapsed = useTimerStore((s) => s.elapsed);
 
-  const [locked, setLocked] = React.useState(true);
+  const [locked, setLocked] = React.useState(false);
   const [scale, setScale] = React.useState(100);
 
   // IPC: names/scores only
@@ -66,17 +66,18 @@ export default function TimerOverlay() {
     let raf = 0;
     let intervalId: number | undefined;
 
+    const bump = () => setTick((t) => (t + 1) | 0);
+
     if (running) {
       const loop = () => {
         if (cancel) return;
-        setTick((t) => (t + 1) & 1023);
+        bump();
         raf = requestAnimationFrame(loop);
       };
       raf = requestAnimationFrame(loop);
     } else {
-      intervalId = window.setInterval(() => {
-        setTick((t) => (t + 1) & 1023);
-      }, 125); // ~8 FPS
+      // ~8 FPS
+      intervalId = window.setInterval(bump, 125);
     }
 
     return () => {
@@ -86,11 +87,11 @@ export default function TimerOverlay() {
     };
   }, [status[1], status[2]]);
 
-  // Mesure DOM non-scalée (offsetWidth/Height ignorent transform)
-  React.useLayoutEffect(() => {
-    const el = document.getElementById("timerContainer");
-    if (!el) return;
+  // Mesure pour le main (taille intrinsèque)
+  React.useEffect(() => {
     const measure = () => {
+      const el = document.getElementById("timerContainer");
+      if (!el) return;
       const w = el.offsetWidth;
       const h = el.offsetHeight;
       window.api.overlay.measure(w, h);
@@ -116,6 +117,26 @@ export default function TimerOverlay() {
   const p2Scroll = players.player2.name.length > 16;
 
   const s = (scale || 100) / 100;
+
+  // ---- NEW: état d’alerte sur le timer actif (approche/dépassement) ----
+  const DIFF20 = 20000; // 20s -> orange
+  const DIFF10 = 10000; // 10s -> rouge clair clignotant
+
+ const warnClass = (() => {
+    const isRunning = status[active] === "running";
+    if (!isRunning) return "";
+    const other = active === 1 ? 2 : 1;
+    
+    const otherMs = elapsed(other);
+    if (otherMs <= 0) return "";
+
+    const deltaToLoose = otherMs - elapsed(active); // temps restant avant de rattraper l'autre
+    if (deltaToLoose <= 0) return "loose";
+    if (deltaToLoose <= DIFF10) return "warn10";
+    if (deltaToLoose <= DIFF20) return "warn20";
+    return "";
+  })();
+  // ----------------------------------------------------------------------
 
   return (
     // wrapper extérieur = dimension exacte *après* zoom → pas de scroll
@@ -158,7 +179,7 @@ export default function TimerOverlay() {
 
           {/* Timers */}
           <div
-            className={`timer left ${active === 1 ? "active" : ""}`}
+            className={`timer left ${active === 1 ? "active" : ""} ${active === 1 ? warnClass : ""}`}
             aria-label={status[1]}
           >
             <span className="timer-text dbd-digits">
@@ -170,7 +191,7 @@ export default function TimerOverlay() {
             </span>
           </div>
           <div
-            className={`timer right ${active === 2 ? "active" : ""}`}
+            className={`timer right ${active === 2 ? "active" : ""} ${active === 2 ? warnClass : ""}`}
             aria-label={status[2]}
           >
             <span className="timer-text dbd-digits">
