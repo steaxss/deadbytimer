@@ -212,7 +212,7 @@ dbdoverlaytools-free
 `dbdoverlaytools-free/electron\main.mjs`:
 
 ```mjs
-   1 | import { app, BrowserWindow, ipcMain, screen, globalShortcut, shell } from "electron";
+   1 | import { app, BrowserWindow, ipcMain, screen, globalShortcut, shell, Menu } from "electron";
    2 | import { join, dirname } from "node:path";
    3 | import { fileURLToPath } from "node:url";
    4 | import Store from "electron-store";
@@ -426,477 +426,485 @@ dbdoverlaytools-free
  212 |     },
  213 |   });
  214 | 
- 215 |   // 🔒 forcer l’ouverture externe des liens
- 216 |   enforceExternalLinks(mainWindow);
- 217 | 
- 218 |   if (isDev) {
- 219 |     mainWindow.loadURL("http://localhost:5173");
- 220 |     mainWindow.webContents.openDevTools({ mode: "detach" });
- 221 |   } else {
- 222 |     mainWindow.loadFile(join(__dirname, "../dist/index.html"));
- 223 |     // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
- 224 |     mainWindow.webContents.on("before-input-event", (e, input) => {
- 225 |       const combo =
- 226 |         (input.control || input.meta) &&
- 227 |         input.shift &&
- 228 |         input.key?.toLowerCase() === "i";
- 229 |       if (combo || input.key === "F12") e.preventDefault();
- 230 |     });
- 231 |   }
- 232 | 
- 233 |   mainWindow.once("ready-to-show", () => mainWindow.show());
- 234 |   mainWindow.on("close", () => {
- 235 |     const b = mainWindow.getBounds();
- 236 |     store.set("windowState", b);
- 237 |   });
- 238 |   mainWindow.on("closed", () => {
- 239 |     mainWindow = null;
- 240 |     if (overlayWindow) overlayWindow.close();
- 241 |   });
- 242 | }
- 243 | 
- 244 | function createOverlayWindow() {
- 245 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
- 246 |     overlayWindow.show();
- 247 |     overlayWindow.focus();
- 248 |     return;
- 249 |   }
- 250 | 
- 251 |   // --- INIT ROBUSTE : complète les champs manquants et force (x,y) sur l’origine du display principal
- 252 |   let s = store.get("overlaySettings") || {};
- 253 |   const pd = screen.getPrimaryDisplay();
- 254 |   const origin = pd.bounds; // coin strict de l’écran principal (pas workArea)
- 255 | 
- 256 |   if (!Number.isFinite(s.x)) s.x = origin.x;
- 257 |   if (!Number.isFinite(s.y)) s.y = origin.y;
- 258 |   if (typeof s.scale !== "number") s.scale = 100;
- 259 |   if (typeof s.locked !== "boolean") s.locked = true;
- 260 |   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
- 261 | 
- 262 |   store.set("overlaySettings", s);
- 263 |   // --- FIN INIT ROBUSTE
- 264 | 
- 265 |   const dragH = s.locked ? 0 : 30;
- 266 |   const scale = (s.scale || 100) / 100;
- 267 | 
- 268 |   overlayWindow = new BrowserWindow({
- 269 |     width: Math.ceil(baseDims.width * scale),
- 270 |     height: Math.ceil((baseDims.height + dragH) * scale),
- 271 |     x: s.x,
- 272 |     y: s.y,
- 273 |     frame: false,
- 274 |     transparent: true,
- 275 |     resizable: false,
- 276 |     hasShadow: false,
- 277 |     skipTaskbar: false,
- 278 |     focusable: true,
- 279 |     title: "DBD Timer Overlay by Doc & Steaxs",
- 280 |     acceptFirstMouse: true,
- 281 |     backgroundColor: "#00000000",
- 282 |     useContentSize: true,
- 283 |     show: false, // 👉 évite tout flash avant réception des settings
- 284 |     webPreferences: {
- 285 |       nodeIntegration: false,
- 286 |       contextIsolation: true,
- 287 |       preload: join(__dirname, "preload.cjs"),
- 288 |       backgroundThrottling: false,
- 289 |       devTools: isDev, // bloque DevTools sur l’overlay en prod
- 290 |     },
- 291 |   });
- 292 | 
- 293 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
- 294 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
- 295 | 
- 296 |   const url = isDev
- 297 |     ? "http://localhost:5173/overlay.html"
- 298 |     : join(__dirname, "../dist/overlay.html");
- 299 | 
- 300 |   if (isDev) overlayWindow.loadURL(url);
- 301 |   else overlayWindow.loadFile(url);
- 302 | 
- 303 |   // 🔒 forcer l’ouverture externe des liens aussi côté overlay
- 304 |   enforceExternalLinks(overlayWindow);
- 305 | 
- 306 |   // Bloque F12 / Ctrl+Shift+I aussi sur l’overlay, en prod
- 307 |   if (!isDev) {
- 308 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
- 309 |       const combo =
- 310 |         (input.control || input.meta) &&
- 311 |         input.shift &&
- 312 |         input.key?.toLowerCase() === "i";
- 313 |       if (combo || input.key === "F12") e.preventDefault();
- 314 |     });
- 315 |   }
- 316 | 
- 317 |   overlayWindow.on("closed", () => {
- 318 |     overlayWindow = null;
- 319 |     if (mainWindow && !mainWindow.isDestroyed())
- 320 |       mainWindow.webContents.send("overlay-ready", false);
- 321 |   });
- 322 |   overlayWindow.on("move", () => {
- 323 |     const b = overlayWindow.getBounds();
- 324 |     store.set("overlaySettings.x", b.x);
- 325 |     store.set("overlaySettings.y", b.y);
- 326 |   });
- 327 | 
- 328 |   overlayWindow.webContents.on("did-finish-load", () => {
- 329 |     const data = store.get("timerData") || {
- 330 |       player1: { name: "Player 1", score: 0 },
- 331 |       player2: { name: "Player 2", score: 0 },
- 332 |     };
- 333 |     overlayWindow.webContents.send("timer-data-sync", data);
- 334 | 
- 335 |     // Envoie les settings AVANT l’affichage pour garantir locked=true dès le 1er frame visible
- 336 |     sendOverlaySettings();
- 337 |     recomputeOverlaySize();
- 338 | 
- 339 |     if (mainWindow) mainWindow.webContents.send("overlay-ready", true);
- 340 |     overlayWindow.show(); // 👉 ne montre l’overlay qu’une fois prêt avec les bons settings
- 341 |   });
- 342 | }
- 343 | 
- 344 | /* -------------------- IPC -------------------- */
- 345 | function setupIPC() {
- 346 |   ipcMain.handle("overlay-show", () => {
- 347 |     createOverlayWindow();
- 348 |     return true;
+ 215 |   Menu.setApplicationMenu(null);
+ 216 |   mainWindow.setMenuBarVisibility(false);
+ 217 |   mainWindow.webContents.on("before-input-event", (event, input) => {
+ 218 |     if (
+ 219 |       input.type === "keyDown" &&
+ 220 |       (input.key === "Alt" || input.code === "AltLeft" || input.code === "AltRight")
+ 221 |     ) {
+ 222 |       event.preventDefault();
+ 223 |     }
+ 224 |   });
+ 225 | 
+ 226 |   if (isDev) {
+ 227 |     mainWindow.loadURL("http://localhost:5173");
+ 228 |     mainWindow.webContents.openDevTools({ mode: "detach" });
+ 229 |   } else {
+ 230 |     mainWindow.loadFile(join(__dirname, "../dist/index.html"));
+ 231 |     // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
+ 232 |     mainWindow.webContents.on("before-input-event", (e, input) => {
+ 233 |       const combo =
+ 234 |         (input.control || input.meta) &&
+ 235 |         input.shift &&
+ 236 |         input.key?.toLowerCase() === "i";
+ 237 |       if (combo || input.key === "F12") e.preventDefault();
+ 238 |     });
+ 239 |   }
+ 240 | 
+ 241 |   mainWindow.once("ready-to-show", () => mainWindow.show());
+ 242 |   mainWindow.on("close", () => {
+ 243 |     const b = mainWindow.getBounds();
+ 244 |     store.set("windowState", b);
+ 245 |   });
+ 246 |   mainWindow.on("closed", () => {
+ 247 |     mainWindow = null;
+ 248 |     if (overlayWindow) overlayWindow.close();
+ 249 |   });
+ 250 | }
+ 251 | 
+ 252 | function createOverlayWindow() {
+ 253 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
+ 254 |     overlayWindow.show();
+ 255 |     overlayWindow.focus();
+ 256 |     return;
+ 257 |   }
+ 258 | 
+ 259 |   // --- INIT ROBUSTE : complète les champs manquants et force (x,y) sur l’origine du display principal
+ 260 |   let s = store.get("overlaySettings") || {};
+ 261 |   const pd = screen.getPrimaryDisplay();
+ 262 |   const origin = pd.bounds; // coin strict de l’écran principal (pas workArea)
+ 263 | 
+ 264 |   if (!Number.isFinite(s.x)) s.x = origin.x;
+ 265 |   if (!Number.isFinite(s.y)) s.y = origin.y;
+ 266 |   if (typeof s.scale !== "number") s.scale = 100;
+ 267 |   if (typeof s.locked !== "boolean") s.locked = true;
+ 268 |   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
+ 269 | 
+ 270 |   store.set("overlaySettings", s);
+ 271 |   // --- FIN INIT ROBUSTE
+ 272 | 
+ 273 |   const dragH = s.locked ? 0 : 30;
+ 274 |   const scale = (s.scale || 100) / 100;
+ 275 | 
+ 276 |   overlayWindow = new BrowserWindow({
+ 277 |     width: Math.ceil(baseDims.width * scale),
+ 278 |     height: Math.ceil((baseDims.height + dragH) * scale),
+ 279 |     x: s.x,
+ 280 |     y: s.y,
+ 281 |     frame: false,
+ 282 |     transparent: true,
+ 283 |     resizable: false,
+ 284 |     hasShadow: false,
+ 285 |     skipTaskbar: false,
+ 286 |     focusable: true,
+ 287 |     title: "DBD Timer Overlay by Doc & Steaxs",
+ 288 |     acceptFirstMouse: true,
+ 289 |     backgroundColor: "#00000000",
+ 290 |     useContentSize: true,
+ 291 |     show: false, // 👉 évite tout flash avant réception des settings
+ 292 |     webPreferences: {
+ 293 |       nodeIntegration: false,
+ 294 |       contextIsolation: true,
+ 295 |       preload: join(__dirname, "preload.cjs"),
+ 296 |       backgroundThrottling: false,
+ 297 |       devTools: isDev, // bloque DevTools sur l’overlay en prod
+ 298 |     },
+ 299 |   });
+ 300 | 
+ 301 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
+ 302 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
+ 303 | 
+ 304 |   const url = isDev
+ 305 |     ? "http://localhost:5173/overlay.html"
+ 306 |     : join(__dirname, "../dist/overlay.html");
+ 307 | 
+ 308 |   if (isDev) overlayWindow.loadURL(url);
+ 309 |   else overlayWindow.loadFile(url);
+ 310 | 
+ 311 |   // 🔒 forcer l’ouverture externe des liens aussi côté overlay
+ 312 |   enforceExternalLinks(overlayWindow);
+ 313 | 
+ 314 |   // Bloque F12 / Ctrl+Shift+I aussi sur l’overlay, en prod
+ 315 |   if (!isDev) {
+ 316 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
+ 317 |       const combo =
+ 318 |         (input.control || input.meta) &&
+ 319 |         input.shift &&
+ 320 |         input.key?.toLowerCase() === "i";
+ 321 |       if (combo || input.key === "F12") e.preventDefault();
+ 322 |     });
+ 323 |   }
+ 324 | 
+ 325 |   overlayWindow.on("closed", () => {
+ 326 |     overlayWindow = null;
+ 327 |     if (mainWindow && !mainWindow.isDestroyed())
+ 328 |       mainWindow.webContents.send("overlay-ready", false);
+ 329 |   });
+ 330 |   overlayWindow.on("move", () => {
+ 331 |     const b = overlayWindow.getBounds();
+ 332 |     store.set("overlaySettings.x", b.x);
+ 333 |     store.set("overlaySettings.y", b.y);
+ 334 |   });
+ 335 | 
+ 336 |   overlayWindow.webContents.on("did-finish-load", () => {
+ 337 |     const data = store.get("timerData") || {
+ 338 |       player1: { name: "Player 1", score: 0 },
+ 339 |       player2: { name: "Player 2", score: 0 },
+ 340 |     };
+ 341 |     overlayWindow.webContents.send("timer-data-sync", data);
+ 342 | 
+ 343 |     // Envoie les settings AVANT l’affichage pour garantir locked=true dès le 1er frame visible
+ 344 |     sendOverlaySettings();
+ 345 |     recomputeOverlaySize();
+ 346 | 
+ 347 |     if (mainWindow) mainWindow.webContents.send("overlay-ready", true);
+ 348 |     overlayWindow.show(); // 👉 ne montre l’overlay qu’une fois prêt avec les bons settings
  349 |   });
- 350 |   ipcMain.handle("overlay-hide", () => {
- 351 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
- 352 |     overlayWindow = null;
- 353 |     if (mainWindow && !mainWindow.isDestroyed())
- 354 |       mainWindow.webContents.send("overlay-ready", false);
- 355 |     return true;
- 356 |   });
- 357 | 
- 358 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
- 359 |     const current = store.get("overlaySettings", {});
- 360 |     const next = { ...current, ...settings };
- 361 |     store.set("overlaySettings", next);
- 362 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
- 363 | 
- 364 |     if (settings.locked !== undefined) {
- 365 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
- 366 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
- 367 |     }
- 368 |     if (settings.alwaysOnTop !== undefined)
- 369 |       applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
- 370 |     if (settings.x !== undefined || settings.y !== undefined) {
- 371 |       const b = overlayWindow.getBounds();
- 372 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
- 373 |     }
- 374 |     if (settings.scale !== undefined || settings.locked !== undefined)
- 375 |       recomputeOverlaySize();
- 376 |     sendOverlaySettings();
- 377 |     return true;
- 378 |   });
- 379 | 
- 380 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
- 381 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
- 382 |       return false;
- 383 |     baseDims = {
- 384 |       width: Math.max(1, Math.floor(dims.width)),
- 385 |       height: Math.max(1, Math.floor(dims.height)),
- 386 |     };
- 387 |     recomputeOverlaySize();
- 388 |     return true;
- 389 |   });
- 390 | 
- 391 |   // Timer data
- 392 |   ipcMain.handle(
- 393 |     "timer-data-get",
- 394 |     () =>
- 395 |       store.get("timerData") || {
- 396 |         player1: { name: "Player 1", score: 0 },
- 397 |         player2: { name: "Player 2", score: 0 },
- 398 |       }
- 399 |   );
- 400 |   ipcMain.handle("timer-data-set", (_evt, data) => {
- 401 |     store.set("timerData", data);
- 402 |     if (overlayWindow && !overlayWindow.isDestroyed())
- 403 |       overlayWindow.webContents.send("timer-data-sync", data);
- 404 |     return true;
- 405 |   });
- 406 | 
- 407 |   // Hotkeys API
- 408 |   ipcMain.handle("hotkeys-get", () => ({
- 409 |     start: hotkeys.start,
- 410 |     swap: hotkeys.swap,
- 411 |     startLabel: hotkeysLabel.start,
- 412 |     swapLabel: hotkeysLabel.swap,
- 413 |     mode: usingUiohook ? "pass-through" : "fallback",
- 414 |   }));
- 415 | 
- 416 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
- 417 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
- 418 |     store.set("hotkeys", hotkeys);
- 419 |     const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
- 420 |     if (uIOhook && haveCodes) {
- 421 |       try{
- 422 |         globalShortcut.unregisterAll(); // on quitte le fallback
- 423 |       } catch {}
- 424 |       if (!usingUiohook) {
- 425 |         try { uIOhook.start(); } catch {}
- 426 |       }
- 427 |       usingUiohook = true;
- 428 |       sendHotkeysMode();
- 429 |       } else {
- 430 |         usingUiohook = false;
- 431 |         refreshHotkeyEngine(); // rester / revenir en fallback labels (F1/F2)
- 432 |       }
- 433 |     return true;
- 434 |   });
- 435 | 
- 436 |   // 🚀 capture 100% main-process, transactionnelle
- 437 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
- 438 |     if (!(type === "start" || type === "swap")) {
- 439 |       finalizeCapture("cancel");
- 440 |       return true;
- 441 |     }
- 442 | 
- 443 |     logHK("CAPTURE BEGIN", {
- 444 |       type,
- 445 |       mode: usingUiohook ? "pass-through" : "fallback",
- 446 |     });
- 447 | 
- 448 |     // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
- 449 |     captureWaitUntil = Date.now() + 15000;
+ 350 | }
+ 351 | 
+ 352 | /* -------------------- IPC -------------------- */
+ 353 | function setupIPC() {
+ 354 |   ipcMain.handle("overlay-show", () => {
+ 355 |     createOverlayWindow();
+ 356 |     return true;
+ 357 |   });
+ 358 |   ipcMain.handle("overlay-hide", () => {
+ 359 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
+ 360 |     overlayWindow = null;
+ 361 |     if (mainWindow && !mainWindow.isDestroyed())
+ 362 |       mainWindow.webContents.send("overlay-ready", false);
+ 363 |     return true;
+ 364 |   });
+ 365 | 
+ 366 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
+ 367 |     const current = store.get("overlaySettings", {});
+ 368 |     const next = { ...current, ...settings };
+ 369 |     store.set("overlaySettings", next);
+ 370 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
+ 371 | 
+ 372 |     if (settings.locked !== undefined) {
+ 373 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
+ 374 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
+ 375 |     }
+ 376 |     if (settings.alwaysOnTop !== undefined)
+ 377 |       applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
+ 378 |     if (settings.x !== undefined || settings.y !== undefined) {
+ 379 |       const b = overlayWindow.getBounds();
+ 380 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
+ 381 |     }
+ 382 |     if (settings.scale !== undefined || settings.locked !== undefined)
+ 383 |       recomputeOverlaySize();
+ 384 |     sendOverlaySettings();
+ 385 |     return true;
+ 386 |   });
+ 387 | 
+ 388 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
+ 389 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
+ 390 |       return false;
+ 391 |     baseDims = {
+ 392 |       width: Math.max(1, Math.floor(dims.width)),
+ 393 |       height: Math.max(1, Math.floor(dims.height)),
+ 394 |     };
+ 395 |     recomputeOverlaySize();
+ 396 |     return true;
+ 397 |   });
+ 398 | 
+ 399 |   // Timer data
+ 400 |   ipcMain.handle(
+ 401 |     "timer-data-get",
+ 402 |     () =>
+ 403 |       store.get("timerData") || {
+ 404 |         player1: { name: "Player 1", score: 0 },
+ 405 |         player2: { name: "Player 2", score: 0 },
+ 406 |       }
+ 407 |   );
+ 408 |   ipcMain.handle("timer-data-set", (_evt, data) => {
+ 409 |     store.set("timerData", data);
+ 410 |     if (overlayWindow && !overlayWindow.isDestroyed())
+ 411 |       overlayWindow.webContents.send("timer-data-sync", data);
+ 412 |     return true;
+ 413 |   });
+ 414 | 
+ 415 |   // Hotkeys API
+ 416 |   ipcMain.handle("hotkeys-get", () => ({
+ 417 |     start: hotkeys.start,
+ 418 |     swap: hotkeys.swap,
+ 419 |     startLabel: hotkeysLabel.start,
+ 420 |     swapLabel: hotkeysLabel.swap,
+ 421 |     mode: usingUiohook ? "pass-through" : "fallback",
+ 422 |   }));
+ 423 | 
+ 424 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
+ 425 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
+ 426 |     store.set("hotkeys", hotkeys);
+ 427 |     const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
+ 428 |     if (uIOhook && haveCodes) {
+ 429 |       try{
+ 430 |         globalShortcut.unregisterAll(); // on quitte le fallback
+ 431 |       } catch {}
+ 432 |       if (!usingUiohook) {
+ 433 |         try { uIOhook.start(); } catch {}
+ 434 |       }
+ 435 |       usingUiohook = true;
+ 436 |       sendHotkeysMode();
+ 437 |       } else {
+ 438 |         usingUiohook = false;
+ 439 |         refreshHotkeyEngine(); // rester / revenir en fallback labels (F1/F2)
+ 440 |       }
+ 441 |     return true;
+ 442 |   });
+ 443 | 
+ 444 |   // 🚀 capture 100% main-process, transactionnelle
+ 445 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
+ 446 |     if (!(type === "start" || type === "swap")) {
+ 447 |       finalizeCapture("cancel");
+ 448 |       return true;
+ 449 |     }
  450 | 
- 451 |     // Reset/annule capture précédente si elle existe
- 452 |     if (captureState) {
- 453 |       clearCaptureTimers();
- 454 |       captureState = null;
- 455 |     }
- 456 | 
- 457 |     // État de capture : pas de timer court au début; on attend la première frappe
- 458 |     captureState = {
- 459 |       type,
- 460 |       label: null,
- 461 |       code: null,
- 462 |       primaryTimer: setTimeout(() => {
- 463 |         // Annule la capture si l'utilisateur oublie (15s)
- 464 |         logHK("CAPTURE PRIMARY TIMEOUT — cancel");
- 465 |         finalizeCapture("primary-timeout");
- 466 |       }, 15000),
- 467 |       secondaryTimer: null,
- 468 |     };
- 469 | 
- 470 |     // focus le panneau
- 471 |     try {
- 472 |       mainWindow?.focus();
- 473 |       logHK("focused mainWindow?", mainWindow?.isFocused());
- 474 |     } catch (e) {
- 475 |       logHK("focus error", e?.message || e);
- 476 |     }
+ 451 |     logHK("CAPTURE BEGIN", {
+ 452 |       type,
+ 453 |       mode: usingUiohook ? "pass-through" : "fallback",
+ 454 |     });
+ 455 | 
+ 456 |     // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
+ 457 |     captureWaitUntil = Date.now() + 15000;
+ 458 | 
+ 459 |     // Reset/annule capture précédente si elle existe
+ 460 |     if (captureState) {
+ 461 |       clearCaptureTimers();
+ 462 |       captureState = null;
+ 463 |     }
+ 464 | 
+ 465 |     // État de capture : pas de timer court au début; on attend la première frappe
+ 466 |     captureState = {
+ 467 |       type,
+ 468 |       label: null,
+ 469 |       code: null,
+ 470 |       primaryTimer: setTimeout(() => {
+ 471 |         // Annule la capture si l'utilisateur oublie (15s)
+ 472 |         logHK("CAPTURE PRIMARY TIMEOUT — cancel");
+ 473 |         finalizeCapture("primary-timeout");
+ 474 |       }, 15000),
+ 475 |       secondaryTimer: null,
+ 476 |     };
  477 | 
- 478 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
- 479 |     if (!usingUiohook) {
- 480 |       try {
- 481 |         globalShortcut.unregisterAll();
- 482 |         logHK("fallback: unregistered to let key through");
- 483 |       } catch {}
+ 478 |     // focus le panneau
+ 479 |     try {
+ 480 |       mainWindow?.focus();
+ 481 |       logHK("focused mainWindow?", mainWindow?.isFocused());
+ 482 |     } catch (e) {
+ 483 |       logHK("focus error", e?.message || e);
  484 |     }
  485 | 
- 486 |     // écouter une fois la prochaine touche (pour le label layout-aware)
- 487 |     const once = (event, input) => {
- 488 |       if (!captureState) return;
- 489 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
- 490 |       logHK("before-input-event keyDown", { key: input.key, code: input.code });
- 491 |       const label = makeLabelFromBeforeInput(input);
- 492 | 
- 493 |       captureState.label = label;
- 494 |       hotkeysLabel = { ...hotkeysLabel, [type]: label };
- 495 |       store.set("hotkeysLabel", hotkeysLabel);
- 496 | 
- 497 |       // notifie instantanément le panel (affichage immédiat)
- 498 |       mainWindow?.webContents.send("hotkeys-captured", { type, label });
- 499 |       logHK("label captured (instant)", { type, label });
+ 486 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
+ 487 |     if (!usingUiohook) {
+ 488 |       try {
+ 489 |         globalShortcut.unregisterAll();
+ 490 |         logHK("fallback: unregistered to let key through");
+ 491 |       } catch {}
+ 492 |     }
+ 493 | 
+ 494 |     // écouter une fois la prochaine touche (pour le label layout-aware)
+ 495 |     const once = (event, input) => {
+ 496 |       if (!captureState) return;
+ 497 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
+ 498 |       logHK("before-input-event keyDown", { key: input.key, code: input.code });
+ 499 |       const label = makeLabelFromBeforeInput(input);
  500 | 
- 501 |       // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
- 502 |       if (typeof captureState.code === "number") {
- 503 |         finalizeCapture("have both");
- 504 |       } else {
- 505 |         if (captureState.secondaryTimer)
- 506 |           clearTimeout(captureState.secondaryTimer);
- 507 |         captureState.secondaryTimer = setTimeout(
- 508 |           () => finalizeCapture("after-label-wait"),
- 509 |           500
- 510 |         );
- 511 |       }
- 512 | 
- 513 |       mainWindow?.webContents.removeListener("before-input-event", once);
- 514 |     };
- 515 |     mainWindow?.webContents.on("before-input-event", once);
- 516 |     logHK("before-input-event listener ARMED");
- 517 | 
- 518 |     return true;
- 519 |   });
- 520 | }
- 521 | 
- 522 | /* -------------------- Hotkeys engines -------------------- */
- 523 | function refreshHotkeyEngine() {
- 524 |   if (usingUiohook) {
- 525 |     logHK("refreshHotkeyEngine: pass-through (no globalShortcut)");
- 526 |     return;
- 527 |   }
- 528 |   try {
- 529 |     globalShortcut.unregisterAll();
- 530 |     logHK("globalShortcut: unregistered all");
- 531 |   } catch {}
- 532 |   const RATE = 180;
- 533 |   let lastT = 0,
- 534 |     lastS = 0;
- 535 | 
- 536 |   const sKey = hotkeysLabel.start || "F1";
- 537 |   const wKey = hotkeysLabel.swap || "F2";
- 538 |   logHK("globalShortcut: registering", { start: sKey, swap: wKey });
- 539 | 
- 540 |   try {
- 541 |     globalShortcut.register(sKey, () => {
- 542 |       if (Date.now() < captureWaitUntil) {
- 543 |         logHK("fallback toggle skipped (capturing)");
- 544 |         return;
- 545 |       }
- 546 |       const now = Date.now();
- 547 |       if (now - lastT < RATE) return;
- 548 |       lastT = now;
- 549 |       logHK("DISPATCH toggle via globalShortcut");
- 550 |       overlayWindow?.webContents.send("global-hotkey", { type: "toggle" });
- 551 |     });
- 552 |   } catch (e) {
- 553 |     logHK("register start failed", e?.message || e);
- 554 |   }
- 555 | 
- 556 |   try {
- 557 |     globalShortcut.register(wKey, () => {
- 558 |       if (Date.now() < captureWaitUntil) {
- 559 |         logHK("fallback swap skipped (capturing)");
- 560 |         return;
- 561 |       }
- 562 |       const now = Date.now();
- 563 |       if (now - lastS < RATE) return;
- 564 |       lastS = now;
- 565 |       logHK("DISPATCH swap via globalShortcut");
- 566 |       overlayWindow?.webContents.send("global-hotkey", { type: "swap" });
- 567 |     });
- 568 |   } catch (e) {
- 569 |     logHK("register swap failed", e?.message || e);
- 570 |   }
- 571 | }
- 572 | 
- 573 | // uiohook global (pass-through)
- 574 | function setupUiohook() {
- 575 |   try {
- 576 |     logHK("Trying to load uiohook-napi…");
- 577 |     const lib = require("uiohook-napi");
- 578 |     uIOhook = lib.uIOhook;
- 579 |     logHK("uiohook loaded OK");
- 580 |   } catch (e) {
- 581 |     logHK("uiohook FAILED to load -> fallback", e?.message || e);
- 582 |     usingUiohook = false;
- 583 |     sendHotkeysMode();
- 584 |     refreshHotkeyEngine();
- 585 |     return;
- 586 |   }
- 587 | 
- 588 |   const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
- 589 |   usingUiohook = !!haveCodes;
- 590 |   sendHotkeysMode();
- 591 | 
- 592 |   let lastToggle = 0, lastSwap = 0;
- 593 |   const RATE = 180;
- 594 | 
- 595 |   uIOhook.on("keydown", (e) => {
- 596 |     logHK("uiohook keydown", {
- 597 |       keycode: e.keycode,
- 598 |       captureState: !!captureState,
- 599 |       now: Date.now(),
- 600 |       blockUntil: captureWaitUntil,
- 601 |     });
+ 501 |       captureState.label = label;
+ 502 |       hotkeysLabel = { ...hotkeysLabel, [type]: label };
+ 503 |       store.set("hotkeysLabel", hotkeysLabel);
+ 504 | 
+ 505 |       // notifie instantanément le panel (affichage immédiat)
+ 506 |       mainWindow?.webContents.send("hotkeys-captured", { type, label });
+ 507 |       logHK("label captured (instant)", { type, label });
+ 508 | 
+ 509 |       // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
+ 510 |       if (typeof captureState.code === "number") {
+ 511 |         finalizeCapture("have both");
+ 512 |       } else {
+ 513 |         if (captureState.secondaryTimer)
+ 514 |           clearTimeout(captureState.secondaryTimer);
+ 515 |         captureState.secondaryTimer = setTimeout(
+ 516 |           () => finalizeCapture("after-label-wait"),
+ 517 |           500
+ 518 |         );
+ 519 |       }
+ 520 | 
+ 521 |       mainWindow?.webContents.removeListener("before-input-event", once);
+ 522 |     };
+ 523 |     mainWindow?.webContents.on("before-input-event", once);
+ 524 |     logHK("before-input-event listener ARMED");
+ 525 | 
+ 526 |     return true;
+ 527 |   });
+ 528 | }
+ 529 | 
+ 530 | /* -------------------- Hotkeys engines -------------------- */
+ 531 | function refreshHotkeyEngine() {
+ 532 |   if (usingUiohook) {
+ 533 |     logHK("refreshHotkeyEngine: pass-through (no globalShortcut)");
+ 534 |     return;
+ 535 |   }
+ 536 |   try {
+ 537 |     globalShortcut.unregisterAll();
+ 538 |     logHK("globalShortcut: unregistered all");
+ 539 |   } catch {}
+ 540 |   const RATE = 180;
+ 541 |   let lastT = 0,
+ 542 |     lastS = 0;
+ 543 | 
+ 544 |   const sKey = hotkeysLabel.start || "F1";
+ 545 |   const wKey = hotkeysLabel.swap || "F2";
+ 546 |   logHK("globalShortcut: registering", { start: sKey, swap: wKey });
+ 547 | 
+ 548 |   try {
+ 549 |     globalShortcut.register(sKey, () => {
+ 550 |       if (Date.now() < captureWaitUntil) {
+ 551 |         logHK("fallback toggle skipped (capturing)");
+ 552 |         return;
+ 553 |       }
+ 554 |       const now = Date.now();
+ 555 |       if (now - lastT < RATE) return;
+ 556 |       lastT = now;
+ 557 |       logHK("DISPATCH toggle via globalShortcut");
+ 558 |       overlayWindow?.webContents.send("global-hotkey", { type: "toggle" });
+ 559 |     });
+ 560 |   } catch (e) {
+ 561 |     logHK("register start failed", e?.message || e);
+ 562 |   }
+ 563 | 
+ 564 |   try {
+ 565 |     globalShortcut.register(wKey, () => {
+ 566 |       if (Date.now() < captureWaitUntil) {
+ 567 |         logHK("fallback swap skipped (capturing)");
+ 568 |         return;
+ 569 |       }
+ 570 |       const now = Date.now();
+ 571 |       if (now - lastS < RATE) return;
+ 572 |       lastS = now;
+ 573 |       logHK("DISPATCH swap via globalShortcut");
+ 574 |       overlayWindow?.webContents.send("global-hotkey", { type: "swap" });
+ 575 |     });
+ 576 |   } catch (e) {
+ 577 |     logHK("register swap failed", e?.message || e);
+ 578 |   }
+ 579 | }
+ 580 | 
+ 581 | // uiohook global (pass-through)
+ 582 | function setupUiohook() {
+ 583 |   try {
+ 584 |     logHK("Trying to load uiohook-napi…");
+ 585 |     const lib = require("uiohook-napi");
+ 586 |     uIOhook = lib.uIOhook;
+ 587 |     logHK("uiohook loaded OK");
+ 588 |   } catch (e) {
+ 589 |     logHK("uiohook FAILED to load -> fallback", e?.message || e);
+ 590 |     usingUiohook = false;
+ 591 |     sendHotkeysMode();
+ 592 |     refreshHotkeyEngine();
+ 593 |     return;
+ 594 |   }
+ 595 | 
+ 596 |   const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
+ 597 |   usingUiohook = !!haveCodes;
+ 598 |   sendHotkeysMode();
+ 599 | 
+ 600 |   let lastToggle = 0, lastSwap = 0;
+ 601 |   const RATE = 180;
  602 | 
- 603 |     // si on est en capture : stocker le code; finaliser si label déjà là, sinon attendre un chouïa
- 604 |     if (captureState) {
- 605 |       captureState.code = e.keycode;
- 606 |       logHK("code captured (uiohook)", {
- 607 |         type: captureState.type,
- 608 |         code: e.keycode,
- 609 |       });
- 610 |       if (captureState.label) {
- 611 |         finalizeCapture("have both");
- 612 |       } else {
- 613 |         if (captureState.secondaryTimer)
- 614 |           clearTimeout(captureState.secondaryTimer);
- 615 |         captureState.secondaryTimer = setTimeout(
- 616 |           () => finalizeCapture("after-code-wait"),
- 617 |           600
- 618 |         );
- 619 |       }
- 620 |       return;
- 621 |     }
- 622 | 
- 623 |     // normal: déclenchement (pass-through)
- 624 |     if (!overlayWindow || overlayWindow.isDestroyed()) return;
- 625 |     if (Date.now() < captureWaitUntil) {
- 626 |       logHK("DISPATCH BLOCKED (capturing)");
- 627 |       return;
- 628 |     }
- 629 | 
- 630 |     const now = Date.now();
- 631 |     if (hotkeys.start && e.keycode === hotkeys.start) {
- 632 |       if (now - lastToggle < RATE) return;
- 633 |       lastToggle = now;
- 634 |       logHK("DISPATCH toggle via uiohook");
- 635 |       overlayWindow.webContents.send("global-hotkey", { type: "toggle" });
- 636 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
- 637 |       if (now - lastSwap < RATE) return;
- 638 |       lastSwap = now;
- 639 |       logHK("DISPATCH swap via uiohook");
- 640 |       overlayWindow.webContents.send("global-hotkey", { type: "swap" });
- 641 |     }
- 642 |   });
- 643 | 
- 644 |   try {
- 645 |     if (usingUiohook) {
- 646 |       try {
- 647 |         uIOhook.start();
- 648 |         logHK("uiohook started (codes present)");
- 649 |       } catch (e) {
- 650 |         usingUiohook = false;
- 651 |       }
- 652 |     } else {
- 653 |       // Pas de codes -> fallback immédiat
- 654 |       refreshHotkeyEngine(); // F1/F2 labels
- 655 |       logHK("uiohook not started (no codes) -> fallback");
- 656 |     }
- 657 |   } catch (e) {
- 658 |     logHK("uiohook START failed -> fallback", e?.message || e);
- 659 |     usingUiohook = false;
- 660 |     sendHotkeysMode();
- 661 |     refreshHotkeyEngine();
- 662 |   }
- 663 | }
- 664 | 
- 665 | /* -------------------- lifecycle -------------------- */
- 666 | app.commandLine.appendSwitch('enable-zero-copy');
- 667 | app.commandLine.appendSwitch('ignore-gpu-blocklist');
- 668 | 
- 669 | app.whenReady().then(() => {
- 670 |   createMainWindow();
- 671 |   setupIPC();
- 672 |   setupUiohook();
- 673 |   setTimeout(createOverlayWindow, 800);
- 674 | });
- 675 | app.on("will-quit", () => {
- 676 |   try {
- 677 |     if (usingUiohook) uIOhook.stop();
- 678 |   } catch {}
- 679 |   try {
- 680 |     globalShortcut.unregisterAll();
- 681 |   } catch {}
+ 603 |   uIOhook.on("keydown", (e) => {
+ 604 |     logHK("uiohook keydown", {
+ 605 |       keycode: e.keycode,
+ 606 |       captureState: !!captureState,
+ 607 |       now: Date.now(),
+ 608 |       blockUntil: captureWaitUntil,
+ 609 |     });
+ 610 | 
+ 611 |     // si on est en capture : stocker le code; finaliser si label déjà là, sinon attendre un chouïa
+ 612 |     if (captureState) {
+ 613 |       captureState.code = e.keycode;
+ 614 |       logHK("code captured (uiohook)", {
+ 615 |         type: captureState.type,
+ 616 |         code: e.keycode,
+ 617 |       });
+ 618 |       if (captureState.label) {
+ 619 |         finalizeCapture("have both");
+ 620 |       } else {
+ 621 |         if (captureState.secondaryTimer)
+ 622 |           clearTimeout(captureState.secondaryTimer);
+ 623 |         captureState.secondaryTimer = setTimeout(
+ 624 |           () => finalizeCapture("after-code-wait"),
+ 625 |           600
+ 626 |         );
+ 627 |       }
+ 628 |       return;
+ 629 |     }
+ 630 | 
+ 631 |     // normal: déclenchement (pass-through)
+ 632 |     if (!overlayWindow || overlayWindow.isDestroyed()) return;
+ 633 |     if (Date.now() < captureWaitUntil) {
+ 634 |       logHK("DISPATCH BLOCKED (capturing)");
+ 635 |       return;
+ 636 |     }
+ 637 | 
+ 638 |     const now = Date.now();
+ 639 |     if (hotkeys.start && e.keycode === hotkeys.start) {
+ 640 |       if (now - lastToggle < RATE) return;
+ 641 |       lastToggle = now;
+ 642 |       logHK("DISPATCH toggle via uiohook");
+ 643 |       overlayWindow.webContents.send("global-hotkey", { type: "toggle" });
+ 644 |     } else if (hotkeys.swap && e.keycode === hotkeys.swap) {
+ 645 |       if (now - lastSwap < RATE) return;
+ 646 |       lastSwap = now;
+ 647 |       logHK("DISPATCH swap via uiohook");
+ 648 |       overlayWindow.webContents.send("global-hotkey", { type: "swap" });
+ 649 |     }
+ 650 |   });
+ 651 | 
+ 652 |   try {
+ 653 |     if (usingUiohook) {
+ 654 |       try {
+ 655 |         uIOhook.start();
+ 656 |         logHK("uiohook started (codes present)");
+ 657 |       } catch (e) {
+ 658 |         usingUiohook = false;
+ 659 |       }
+ 660 |     } else {
+ 661 |       // Pas de codes -> fallback immédiat
+ 662 |       refreshHotkeyEngine(); // F1/F2 labels
+ 663 |       logHK("uiohook not started (no codes) -> fallback");
+ 664 |     }
+ 665 |   } catch (e) {
+ 666 |     logHK("uiohook START failed -> fallback", e?.message || e);
+ 667 |     usingUiohook = false;
+ 668 |     sendHotkeysMode();
+ 669 |     refreshHotkeyEngine();
+ 670 |   }
+ 671 | }
+ 672 | 
+ 673 | /* -------------------- lifecycle -------------------- */
+ 674 | app.commandLine.appendSwitch('enable-zero-copy');
+ 675 | app.commandLine.appendSwitch('ignore-gpu-blocklist');
+ 676 | 
+ 677 | app.whenReady().then(() => {
+ 678 |   createMainWindow();
+ 679 |   setupIPC();
+ 680 |   setupUiohook();
+ 681 |   setTimeout(createOverlayWindow, 800);
  682 | });
- 683 | app.on("window-all-closed", () => {
- 684 |   app.quit();
- 685 | });
+ 683 | app.on("will-quit", () => {
+ 684 |   try {
+ 685 |     if (usingUiohook) uIOhook.stop();
+ 686 |   } catch {}
+ 687 |   try {
+ 688 |     globalShortcut.unregisterAll();
+ 689 |   } catch {}
+ 690 | });
+ 691 | app.on("window-all-closed", () => {
+ 692 |   app.quit();
+ 693 | });
 
 ```
 
@@ -1527,111 +1535,129 @@ dbdoverlaytools-free
  311 |               <span className="text-sm">
  312 |                 Lock Overlay Position <span className="opacity-50">🔓</span>
  313 |               </span>
- 314 |               <input
- 315 |                 type="checkbox"
- 316 |                 checked={locked}
- 317 |                 onChange={onLock}
- 318 |                 className="h-5 w-9 accent-violet-500"
- 319 |               />
- 320 |             </label>
- 321 |           </div>
- 322 | 
- 323 |           <div
- 324 |             className={`mt-4 rounded-lg border p-3 text-sm ${
- 325 |               locked
- 326 |                 ? "border-[#44FF41]/40 bg-[#44FF41]/10 text-[#44FF41]"
- 327 |                 : "border-violet-500/40 bg-violet-500/10 text-violet-300"
- 328 |             }`}
- 329 |           >
- 330 |             {locked
- 331 |               ? "Overlay is locked – clicks will go through."
- 332 |               : "Overlay is unlocked – drag the purple bar to reposition."}
- 333 |           </div>
- 334 |         </section>
- 335 | 
- 336 |         {/* Discord CTA — Premium overlays */}
- 337 |         <section className="mt-8 relative overflow-hidden rounded-3xl border border-violet-500/30 bg-gradient-to-br from-violet-600/10 via-fuchsia-600/10 to-emerald-500/10 p-5">
- 338 |           <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full blur-3xl bg-violet-500/30" />
- 339 |           <div className="pointer-events-none absolute -bottom-20 -left-24 h-72 w-72 rounded-full blur-3xl bg-emerald-400/20" />
- 340 |           <div className="relative">
- 341 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">
- 342 |               👑 Premium Overlays
- 343 |             </div>
- 344 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">
- 345 |               Unlock more overlays & tools
- 346 |             </h3>
- 347 |             <p className="mt-2 text-sm text-zinc-200">
- 348 |               Join our Discord to get the premium version: <b>killer streaks</b>
- 349 |               , <b>survivor streaks</b>, <b>win/loss counter</b>,{" "}
- 350 |               <b>tournament overlay</b>, and more!
- 351 |             </p>
- 352 | 
- 353 |             <a
- 354 |               href="http://discord.com/invite/aVdT8rRJKc"
- 355 |               target="_blank"
- 356 |               rel="noreferrer"
- 357 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
- 358 |             >
- 359 |               Join the Discord
- 360 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
- 361 |                 <path
- 362 |                   d="M7 17L17 7M17 7H8M17 7v9"
- 363 |                   stroke="currentColor"
- 364 |                   strokeWidth="1.8"
- 365 |                   strokeLinecap="round"
- 366 |                   strokeLinejoin="round"
- 367 |                 />
- 368 |               </svg>
- 369 |             </a>
- 370 |           </div>
- 371 |         </section>
- 372 | 
- 373 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-cyan-400/30 bg-gradient-to-tr from-cyan-400/10 via-sky-500/10 to-indigo-500/10 p-5">
- 374 |           <div className="pointer-events-none absolute -top-16 right-0 h-64 w-64 rounded-full blur-3xl bg-cyan-400/30" />
- 375 |           <div className="relative">
- 376 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">
- 377 |               🎨 ReShade Filters
- 378 |             </div>
- 379 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">
- 380 |               GET STEAXS RESHADES
- 381 |             </h3>
- 382 |             <p className="mt-2 text-sm text-zinc-200">
- 383 |               Competitive ReShade presets tailored for Dead by Daylight. Sharper
- 384 |               visibility, clean colors, and a consistent look across maps.
- 385 |             </p>
- 386 |             <a
- 387 |               href="https://discord.com/invite/6RHPNNVtKw"
- 388 |               target="_blank"
- 389 |               rel="noreferrer"
- 390 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
- 391 |             >
- 392 |               Get the Presets
- 393 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
- 394 |                 <path
- 395 |                   d="M7 17L17 7M17 7H8M17 7v9"
- 396 |                   stroke="currentColor"
- 397 |                   strokeWidth="1.8"
- 398 |                   strokeLinecap="round"
- 399 |                   strokeLinejoin="round"
- 400 |                 />
- 401 |               </svg>
- 402 |             </a>
- 403 |           </div>
- 404 |         </section>
- 405 |         {/* Footer */}
- 406 |         <footer className="mt-4">
- 407 |           <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-300">
- 408 |             <div className="uppercase tracking-wider">
- 409 |               © BY <b>STEAXS</b> &amp; <b>DOC</b> — 2025
- 410 |             </div>
- 411 |           </div>
- 412 |         </footer>
- 413 |       </div>
- 414 |     </div>
- 415 |   );
- 416 | };
- 417 | 
- 418 | export default ControlPanel;
+ 314 | 
+ 315 |               <button
+ 316 |                 type="button"
+ 317 |                 role="switch"
+ 318 |                 aria-checked={locked}
+ 319 |                 onClick={() => {
+ 320 |                   const next = !locked;
+ 321 |                   setLocked(next); // ton setState local si tu en as un
+ 322 |                   window.api.overlay.updateSettings({ locked: next });
+ 323 |                 }}
+ 324 |                 className={[
+ 325 |                   "relative h-6 w-11 rounded-full transition-colors",
+ 326 |                   locked ? "bg-emerald-500" : "bg-neutral-300",
+ 327 |                   "ring-1 ring-black/5"
+ 328 |                 ].join(" ")}
+ 329 |               >
+ 330 |                 <span
+ 331 |                   aria-hidden
+ 332 |                   className={[
+ 333 |                     "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+ 334 |                     locked ? "translate-x-5" : ""
+ 335 |                   ].join(" ")}
+ 336 |                 />
+ 337 |               </button>
+ 338 |             </label>
+ 339 |           </div>
+ 340 | 
+ 341 |           <div
+ 342 |             className={`mt-4 rounded-lg border p-3 text-sm ${
+ 343 |               locked
+ 344 |                 ? "border-[#44FF41]/40 bg-[#44FF41]/10 text-[#44FF41]"
+ 345 |                 : "border-violet-500/40 bg-violet-500/10 text-violet-300"
+ 346 |             }`}
+ 347 |           >
+ 348 |             {locked
+ 349 |               ? "Overlay is locked – clicks will go through."
+ 350 |               : "Overlay is unlocked – drag the purple bar to reposition."}
+ 351 |           </div>
+ 352 |         </section>
+ 353 | 
+ 354 |         {/* Discord CTA — Premium overlays */}
+ 355 |         <section className="mt-8 relative overflow-hidden rounded-3xl border border-violet-500/30 bg-gradient-to-br from-violet-600/10 via-fuchsia-600/10 to-emerald-500/10 p-5">
+ 356 |           <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full blur-3xl bg-violet-500/30" />
+ 357 |           <div className="pointer-events-none absolute -bottom-20 -left-24 h-72 w-72 rounded-full blur-3xl bg-emerald-400/20" />
+ 358 |           <div className="relative">
+ 359 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">
+ 360 |               👑 Premium Overlays
+ 361 |             </div>
+ 362 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">
+ 363 |               Unlock more overlays & tools
+ 364 |             </h3>
+ 365 |             <p className="mt-2 text-sm text-zinc-200">
+ 366 |               Join our Discord to get the premium version: <b>killer streaks</b>
+ 367 |               , <b>survivor streaks</b>, <b>win/loss counter</b>,{" "}
+ 368 |               <b>tournament overlay</b>, and more!
+ 369 |             </p>
+ 370 | 
+ 371 |             <a
+ 372 |               href="http://discord.com/invite/aVdT8rRJKc"
+ 373 |               target="_blank"
+ 374 |               rel="noreferrer"
+ 375 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
+ 376 |             >
+ 377 |               Join the Discord
+ 378 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
+ 379 |                 <path
+ 380 |                   d="M7 17L17 7M17 7H8M17 7v9"
+ 381 |                   stroke="currentColor"
+ 382 |                   strokeWidth="1.8"
+ 383 |                   strokeLinecap="round"
+ 384 |                   strokeLinejoin="round"
+ 385 |                 />
+ 386 |               </svg>
+ 387 |             </a>
+ 388 |           </div>
+ 389 |         </section>
+ 390 | 
+ 391 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-cyan-400/30 bg-gradient-to-tr from-cyan-400/10 via-sky-500/10 to-indigo-500/10 p-5">
+ 392 |           <div className="pointer-events-none absolute -top-16 right-0 h-64 w-64 rounded-full blur-3xl bg-cyan-400/30" />
+ 393 |           <div className="relative">
+ 394 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">
+ 395 |               🎨 ReShade Filters
+ 396 |             </div>
+ 397 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">
+ 398 |               GET STEAXS RESHADES
+ 399 |             </h3>
+ 400 |             <p className="mt-2 text-sm text-zinc-200">
+ 401 |               Competitive ReShade presets tailored for Dead by Daylight. Sharper
+ 402 |               visibility, clean colors, and a consistent look across maps.
+ 403 |             </p>
+ 404 |             <a
+ 405 |               href="https://discord.com/invite/6RHPNNVtKw"
+ 406 |               target="_blank"
+ 407 |               rel="noreferrer"
+ 408 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
+ 409 |             >
+ 410 |               Get the Presets
+ 411 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
+ 412 |                 <path
+ 413 |                   d="M7 17L17 7M17 7H8M17 7v9"
+ 414 |                   stroke="currentColor"
+ 415 |                   strokeWidth="1.8"
+ 416 |                   strokeLinecap="round"
+ 417 |                   strokeLinejoin="round"
+ 418 |                 />
+ 419 |               </svg>
+ 420 |             </a>
+ 421 |           </div>
+ 422 |         </section>
+ 423 |         {/* Footer */}
+ 424 |         <footer className="mt-4">
+ 425 |           <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-300">
+ 426 |             <div className="uppercase tracking-wider">
+ 427 |               © BY <b>STEAXS</b> &amp; <b>DOC</b> — 2025
+ 428 |             </div>
+ 429 |           </div>
+ 430 |         </footer>
+ 431 |       </div>
+ 432 |     </div>
+ 433 |   );
+ 434 | };
+ 435 | 
+ 436 | export default ControlPanel;
 
 ```
 
@@ -1834,53 +1860,55 @@ dbdoverlaytools-free
   26 |       wrap.style.setProperty("--shift", `${overflow}px`);
   27 |       // durée indicative (pas utilisée directement par JS mais utile si tu veux revenir au CSS)
   28 |       wrap.style.setProperty("--duration", `${Math.max(overflow / speed, 0.001)}s`);
-  29 |       wrap.classList.toggle("is-scrolling", need);
-  30 |     };
-  31 |     const ro = new ResizeObserver(measure);
-  32 |     ro.observe(wrap); ro.observe(inner);
-  33 |     // @ts-ignore
-  34 |     document.fonts?.ready?.then(() => requestAnimationFrame(measure));
-  35 |     measure();
-  36 |     return () => ro.disconnect();
-  37 |   }, [text, speed]);
-  38 | 
-  39 |   // Animation ping-pong en JS (rAF), uniquement si nécessaire
-  40 |   useEffect(() => {
-  41 |     const prefersReduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-  42 |     const wrap = wrapRef.current, inner = innerRef.current;
-  43 |     if (!wrap || !inner || prefersReduce) return;
-  44 | 
-  45 |     let raf = 0;
-  46 |     let last = performance.now();
-  47 |     let x = 0;          // position courante (px)
-  48 |     let dir = -1;       // -1 = va vers la gauche, +1 = vers la droite
-  49 | 
-  50 |     const step = (now: number) => {
-  51 |       const shift = parseFloat(getComputedStyle(wrap).getPropertyValue("--shift")) || 0;
-  52 |       if (!scrollNeeded || shift <= 0) {
-  53 |         // pas de scroll -> rester centré
-  54 |         inner.style.transform = "translate3d(0,0,0)";
-  55 |       } else {
-  56 |         const dt = (now - last) / 1000;
-  57 |         last = now;
-  58 |         x += dir * speed * dt;
-  59 |         if (x < -shift) { x = -shift; dir = +1; }
-  60 |         if (x > 0)      { x = 0;      dir = -1; }
-  61 |         inner.style.transform = `translate3d(${x}px,0,0)`;
-  62 |       }
-  63 |       raf = requestAnimationFrame(step);
-  64 |     };
-  65 | 
-  66 |     raf = requestAnimationFrame((n) => { last = n; step(n); });
-  67 |     return () => cancelAnimationFrame(raf);
-  68 |   }, [scrollNeeded, speed, text]);
-  69 | 
-  70 |   return (
-  71 |     <div ref={wrapRef} className={`scrolling-name ${className}`} title={text} aria-label={text}>
-  72 |       <div ref={innerRef} className="scrolling-name__inner">{text}</div>
-  73 |     </div>
-  74 |   );
-  75 | }
+  29 |       inner.classList.toggle("is-scrolling", need);
+  30 |       const isRight = !!wrap.closest(".name.right"); // ou ton sélecteur actuel côté P2
+  31 |       wrap.style.justifyContent = need ? (isRight ? "flex-end" : "flex-start") : "center";
+  32 |     };
+  33 |     const ro = new ResizeObserver(measure);
+  34 |     ro.observe(wrap); ro.observe(inner);
+  35 |     // @ts-ignore
+  36 |     document.fonts?.ready?.then(() => requestAnimationFrame(measure));
+  37 |     measure();
+  38 |     return () => ro.disconnect();
+  39 |   }, [text, speed]);
+  40 | 
+  41 |   // Animation ping-pong en JS (rAF), uniquement si nécessaire
+  42 |   useEffect(() => {
+  43 |     const prefersReduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  44 |     const wrap = wrapRef.current, inner = innerRef.current;
+  45 |     if (!wrap || !inner || prefersReduce) return;
+  46 | 
+  47 |     let raf = 0;
+  48 |     let last = performance.now();
+  49 |     let x = 0;          // position courante (px)
+  50 |     let dir = -1;       // -1 = va vers la gauche, +1 = vers la droite
+  51 | 
+  52 |     const step = (now: number) => {
+  53 |       const shift = parseFloat(getComputedStyle(wrap).getPropertyValue("--shift")) || 0;
+  54 |       if (!scrollNeeded || shift <= 0) {
+  55 |         // pas de scroll -> rester centré
+  56 |         inner.style.transform = "translate3d(0,0,0)";
+  57 |       } else {
+  58 |         const dt = (now - last) / 1000;
+  59 |         last = now;
+  60 |         x += dir * speed * dt;
+  61 |         if (x < -shift) { x = -shift; dir = +1; }
+  62 |         if (x > 0)      { x = 0;      dir = -1; }
+  63 |         inner.style.transform = `translate3d(${x}px,0,0)`;
+  64 |       }
+  65 |       raf = requestAnimationFrame(step);
+  66 |     };
+  67 | 
+  68 |     raf = requestAnimationFrame((n) => { last = n; step(n); });
+  69 |     return () => cancelAnimationFrame(raf);
+  70 |   }, [scrollNeeded, speed, text]);
+  71 | 
+  72 |   return (
+  73 |     <div ref={wrapRef} className={`scrolling-name ${className}`} title={text} aria-label={text}>
+  74 |       <div ref={innerRef} className="scrolling-name__inner">{text}</div>
+  75 |     </div>
+  76 |   );
+  77 | }
 
 ```
 
@@ -2560,93 +2588,96 @@ dbdoverlaytools-free
   56 |   display: flex;
   57 |   align-items: center;
   58 |   justify-content: center;
-  59 | 
-  60 |   width: 100%;
-  61 |   height: 100%;
-  62 |   overflow: hidden;
-  63 |   position: relative;
-  64 | }
-  65 | 
-  66 | /* texte réel à déplacer */
-  67 | .scrolling-name__inner{
-  68 |   display: inline-block;
-  69 |   white-space: nowrap;
-  70 |   will-change: transform;
-  71 |   transform: translateX(0);            /* position de base */
-  72 | }
-  73 | 
-  74 | /* active le ping-pong seulement si nécessaire */
-  75 | .scrolling-name__inner.is-scrolling{
-  76 |   animation: name-pingpong var(--duration, 8s) ease-in-out infinite alternate;
-  77 | }
-  78 | 
-  79 | /* ping-pong : 0 -> -shift -> 0 -> -shift ... */
-  80 | @keyframes name-pingpong{
-  81 |   0%   { transform: translateX(0); }
-  82 |   100% { transform: translateX(calc(var(--shift, 0px) * -1)); }
-  83 | }
-  84 | 
-  85 | /* .name.ticker-ltr { justify-content: flex-start; padding: 0 15px; } */
-  86 | 
-  87 | .timer {
-  88 |   display: flex; align-items: center; justify-content: center;
-  89 |   font-family: "Squarefont","Consolas","Monaco","Courier New",monospace;
-  90 |   font-size: 32px; font-weight: 400;
-  91 |   text-shadow: 0 0 6px rgba(190,190,190,0.50);
-  92 |   position: relative; height: 100%; text-align: center; min-width: 160px;
-  93 | }
-  94 | .timer.left { grid-row: 2; grid-column: 1; }
-  95 | .timer.right { grid-row: 2; grid-column: 3; }
-  96 | 
-  97 | .timer-text {
-  98 |   display: inline-flex; align-items: center;
-  99 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
- 100 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
- 101 | }
- 102 | .timer-char {
- 103 |   display: inline-block; width: 22px; text-align: center;
- 104 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
- 105 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
- 106 | }
- 107 | .timer-char.separator { width: 11px; }
- 108 | 
- 109 | .timer.active::before {
- 110 |   content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
- 111 |   background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
- 112 |   animation: pulseBar 1s ease-in-out infinite;
- 113 | }
- 114 | @keyframes pulseBar { 0%,100%{opacity:.5} 50%{opacity:1} }
- 115 | 
- 116 | .dbd-digits { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: 0.02em; }
- 117 | 
- 118 | /* ========= États d’alerte pour le timer actif ========= */
- 119 | /* 20s avant loose → orange (fixe) */
- 120 | .timer.warn20 .timer-text,
- 121 | .timer.warn20 .timer-char {
- 122 |   background: linear-gradient(180deg, #FFD27A 0%, #FFA726 100%);
- 123 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
- 124 |   text-shadow: 0 0 18px rgba(255,167,38,0.35);
- 125 | }
- 126 | 
- 127 | /* 10s avant loose → rouge clair + clignotement doux */
- 128 | .timer.warn10 .timer-text,
- 129 | .timer.warn10 .timer-char {
- 130 |   background: linear-gradient(180deg, #FF8A80 0%, #FF5252 100%);
- 131 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
- 132 |   text-shadow: 0 0 18px rgba(255,82,82,0.35);
- 133 |   animation: timerBlink 0.8s steps(1,end) infinite;
- 134 | }
- 135 | @keyframes timerBlink {
- 136 |   50% { opacity: .45; }
+  59 |   width: 100%;
+  60 |   height: 100%;
+  61 |   overflow: hidden;
+  62 |   position: relative;
+  63 | }
+  64 | 
+  65 | .name.right .scrolling-name {
+  66 |   justify-content: flex-end;
+  67 | }
+  68 | 
+  69 | /* texte réel à déplacer */
+  70 | .scrolling-name__inner{
+  71 |   display: inline-block;
+  72 |   white-space: nowrap;
+  73 |   will-change: transform;
+  74 |   transform: translateX(0);            /* position de base */
+  75 | }
+  76 | 
+  77 | /* active le ping-pong seulement si nécessaire */
+  78 | .scrolling-name__inner.is-scrolling{
+  79 |   animation: name-pingpong var(--duration, 8s) ease-in-out infinite alternate;
+  80 | }
+  81 | 
+  82 | /* ping-pong : 0 -> -shift -> 0 -> -shift ... */
+  83 | @keyframes name-pingpong{
+  84 |   0%   { transform: translateX(0); }
+  85 |   100% { transform: translateX(calc(var(--shift, 0px) * -1)); }
+  86 | }
+  87 | 
+  88 | /* .name.ticker-ltr { justify-content: flex-start; padding: 0 15px; } */
+  89 | 
+  90 | .timer {
+  91 |   display: flex; align-items: center; justify-content: center;
+  92 |   font-family: "Squarefont","Consolas","Monaco","Courier New",monospace;
+  93 |   font-size: 32px; font-weight: 400;
+  94 |   text-shadow: 0 0 6px rgba(190,190,190,0.50);
+  95 |   position: relative; height: 100%; text-align: center; min-width: 160px;
+  96 | }
+  97 | .timer.left { grid-row: 2; grid-column: 1; }
+  98 | .timer.right { grid-row: 2; grid-column: 3; }
+  99 | 
+ 100 | .timer-text {
+ 101 |   display: inline-flex; align-items: center;
+ 102 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
+ 103 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+ 104 | }
+ 105 | .timer-char {
+ 106 |   display: inline-block; width: 22px; text-align: center;
+ 107 |   background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
+ 108 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+ 109 | }
+ 110 | .timer-char.separator { width: 11px; }
+ 111 | 
+ 112 | .timer.active::before {
+ 113 |   content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+ 114 |   background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
+ 115 |   animation: pulseBar 1s ease-in-out infinite;
+ 116 | }
+ 117 | @keyframes pulseBar { 0%,100%{opacity:.5} 50%{opacity:1} }
+ 118 | 
+ 119 | .dbd-digits { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: 0.02em; }
+ 120 | 
+ 121 | /* ========= États d’alerte pour le timer actif ========= */
+ 122 | /* 20s avant loose → orange (fixe) */
+ 123 | .timer.warn20 .timer-text,
+ 124 | .timer.warn20 .timer-char {
+ 125 |   background: linear-gradient(180deg, #FFD27A 0%, #FFA726 100%);
+ 126 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+ 127 |   text-shadow: 0 0 18px rgba(255,167,38,0.35);
+ 128 | }
+ 129 | 
+ 130 | /* 10s avant loose → rouge clair + clignotement doux */
+ 131 | .timer.warn10 .timer-text,
+ 132 | .timer.warn10 .timer-char {
+ 133 |   background: linear-gradient(180deg, #FF8A80 0%, #FF5252 100%);
+ 134 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+ 135 |   text-shadow: 0 0 18px rgba(255,82,82,0.35);
+ 136 |   animation: timerBlink 0.8s steps(1,end) infinite;
  137 | }
- 138 | 
- 139 | /* Loose condition dépassée → rouge (fixe) */
- 140 | .timer.loose .timer-text,
- 141 | .timer.loose .timer-char {
- 142 |   background: linear-gradient(180deg, #FF6B6B 0%, #FF4141 100%);
- 143 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
- 144 |   text-shadow: 0 0 20px rgba(255,65,65,0.35);
- 145 | }
+ 138 | @keyframes timerBlink {
+ 139 |   50% { opacity: .45; }
+ 140 | }
+ 141 | 
+ 142 | /* Loose condition dépassée → rouge (fixe) */
+ 143 | .timer.loose .timer-text,
+ 144 | .timer.loose .timer-char {
+ 145 |   background: linear-gradient(180deg, #FF6B6B 0%, #FF4141 100%);
+ 146 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+ 147 |   text-shadow: 0 0 20px rgba(255,65,65,0.35);
+ 148 | }
 
 ```
 
