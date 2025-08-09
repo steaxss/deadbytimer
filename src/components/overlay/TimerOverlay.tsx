@@ -1,6 +1,7 @@
 import React from "react";
 import { useTimerStore } from "@/store/timerStore";
 import { formatMillisDynamic } from "@/utils/timer";
+import ScrollingName from "@/components/ScrollingName";
 
 type TD = {
   player1: { name: string; score: number };
@@ -163,19 +164,23 @@ export default function TimerOverlay() {
       >
         <div className="timer-overlay" id="timerContainer">
           {/* Noms + score */}
-          <div className={`name left ${p1Scroll ? "scrolling" : ""}`}>
-            <span className="name-scroll">
-              {players.player1.name || "PLAYER 1"}
-            </span>
-          </div>
-          <div className="score-value">
-            {players.player1.score} – {players.player2.score}
-          </div>
-          <div className={`name right ${p2Scroll ? "scrolling" : ""}`}>
-            <span className="name-scroll">
-              {players.player2.name || "PLAYER 2"}
-            </span>
-          </div>
+            <div className="name left">
+              <ScrollingName
+                text={players.player1.name || "PLAYER 1"}
+                className="player-name scrolling-name--hover"
+              />
+            </div>
+
+            <div className="score-value">
+              {players.player1.score} – {players.player2.score}
+            </div>
+
+            <div className="name right">
+              <ScrollingName
+                text={players.player2.name || "PLAYER 2"}
+                className="player-name scrolling-name--hover"
+              />
+            </div>
 
           {/* Timers */}
           <div

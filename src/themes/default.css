@@ -1,4 +1,9 @@
-/* === Default Theme === */
+/* === Default Theme (ajustée) === */
+:root {
+  /* fondu latéral pour une coupe propre du texte (appliqué sur la piste, pas sur le fond) */
+  --edge-fade: 10px;
+}
+
 .timer-overlay {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr);
@@ -20,6 +25,8 @@
 }
 .drag-handle.visible { display: flex; }
 
+.name { padding: 0 15px; }
+
 .name, .score-value {
   border-bottom: 1px solid rgba(255,255,255,0.32);
   background: linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%);
@@ -28,17 +35,57 @@
   font-size: 22px; font-weight: 500; color: #FFF;
   position: relative; overflow: hidden;
 }
-.name.left { grid-row: 1; grid-column: 1; font-size: 24px; text-transform: uppercase; text-shadow: 0 0 6px rgba(255,255,255,0.50); }
-.score-value { 
+.name.left {
+  grid-row: 1; grid-column: 1; font-size: 24px; text-transform: uppercase;
+  text-shadow: 0 0 6px rgba(255,255,255,0.50);
+}
+.score-value {
   grid-row: 1; grid-column: 2; font-size: 24px; text-transform: uppercase;
   background: linear-gradient(90deg, #274B90 0.06%, #09327E 40.01%, #04296F 79.97%);
   padding: 0 15px; min-width: 90px; max-width: 120px;
 }
-.name.right { grid-row: 1; grid-column: 3; font-size: 24px; text-transform: uppercase; text-shadow: 0 0 6px rgba(255,255,255,0.50); }
+.name.right {
+  grid-row: 1; grid-column: 3; font-size: 24px; text-transform: uppercase;
+  text-shadow: 0 0 6px rgba(255,255,255,0.50);
+}
 
-.name .name-scroll { display: inline-block; white-space: nowrap; padding: 0 15px; }
-.name.scrolling .name-scroll { animation: scroll-text 6s linear infinite; padding: 0 50px; }
-@keyframes scroll-text { 0%{transform:translateX(80%)} 100%{transform:translateX(-80%)} }
+.scrolling-name{
+  /* clé pour que l'enfant occupe la largeur du slot .name */
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.name.right .scrolling-name {
+  justify-content: flex-end;
+}
+
+/* texte réel à déplacer */
+.scrolling-name__inner{
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+  transform: translateX(0);            /* position de base */
+}
+
+/* active le ping-pong seulement si nécessaire */
+.scrolling-name__inner.is-scrolling{
+  animation: name-pingpong var(--duration, 8s) ease-in-out infinite alternate;
+}
+
+/* ping-pong : 0 -> -shift -> 0 -> -shift ... */
+@keyframes name-pingpong{
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(calc(var(--shift, 0px) * -1)); }
+}
+
+/* .name.ticker-ltr { justify-content: flex-start; padding: 0 15px; } */
 
 .timer {
   display: flex; align-items: center; justify-content: center;
@@ -50,10 +97,16 @@
 .timer.left { grid-row: 2; grid-column: 1; }
 .timer.right { grid-row: 2; grid-column: 3; }
 
-.timer-text { display: inline-flex; align-items: center; background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-.timer-char { display: inline-block; width: 22px; text-align: center;
-  background: linear-gradient(180deg, #FFF 0%, #FFF 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.timer-text {
+  display: inline-flex; align-items: center;
+  background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.timer-char {
+  display: inline-block; width: 22px; text-align: center;
+  background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
 .timer-char.separator { width: 11px; }
 
 .timer.active::before {
@@ -65,7 +118,7 @@
 
 .dbd-digits { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: 0.02em; }
 
-/* ========= NEW: états d’alerte pour le timer actif ========= */
+/* ========= États d’alerte pour le timer actif ========= */
 /* 20s avant loose → orange (fixe) */
 .timer.warn20 .timer-text,
 .timer.warn20 .timer-char {
@@ -86,7 +139,7 @@
   50% { opacity: .45; }
 }
 
-/* Loose condition dépassée → rouge (fixe, pas trop foncé) */
+/* Loose condition dépassée → rouge (fixe) */
 .timer.loose .timer-text,
 .timer.loose .timer-char {
   background: linear-gradient(180deg, #FF6B6B 0%, #FF4141 100%);
