@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, globalShortcut, shell } from "electron";
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, shell, Menu } from "electron";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import Store from "electron-store";
@@ -212,8 +212,16 @@ function createMainWindow() {
     },
   });
 
-  // 🔒 forcer l’ouverture externe des liens
-  enforceExternalLinks(mainWindow);
+  Menu.setApplicationMenu(null);
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (
+      input.type === "keyDown" &&
+      (input.key === "Alt" || input.code === "AltLeft" || input.code === "AltRight")
+    ) {
+      event.preventDefault();
+    }
+  });
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
@@ -276,7 +284,7 @@ function createOverlayWindow() {
     hasShadow: false,
     skipTaskbar: false,
     focusable: true,
-    title: "DBD Timer Overlay",
+    title: "DBD Timer Overlay by Doc & Steaxs",
     acceptFirstMouse: true,
     backgroundColor: "#00000000",
     useContentSize: true,

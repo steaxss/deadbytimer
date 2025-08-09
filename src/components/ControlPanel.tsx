@@ -311,12 +311,30 @@ const ControlPanel: React.FC = () => {
               <span className="text-sm">
                 Lock Overlay Position <span className="opacity-50">🔓</span>
               </span>
-              <input
-                type="checkbox"
-                checked={locked}
-                onChange={onLock}
-                className="h-5 w-9 accent-violet-500"
-              />
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={locked}
+                onClick={() => {
+                  const next = !locked;
+                  setLocked(next); // ton setState local si tu en as un
+                  window.api.overlay.updateSettings({ locked: next });
+                }}
+                className={[
+                  "relative h-6 w-11 rounded-full transition-colors",
+                  locked ? "bg-emerald-500" : "bg-neutral-300",
+                  "ring-1 ring-black/5"
+                ].join(" ")}
+              >
+                <span
+                  aria-hidden
+                  className={[
+                    "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    locked ? "translate-x-5" : ""
+                  ].join(" ")}
+                />
+              </button>
             </label>
           </div>
 
