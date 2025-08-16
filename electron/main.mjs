@@ -68,6 +68,7 @@ let baseDims = { width: 520, height: 120 };
 // hotkeys: codes (uiohook) + labels (affichage & fallback)
 let hotkeys = store.get("hotkeys") || { start: null, swap: null };
 let hotkeysLabel = store.get("hotkeysLabel") || { start: "F1", swap: "F2" };
+let mouseBinds = store.get("mouseBinds") || { start: null, swap: null };
 
 // état de capture transactionnelle
 let captureState = null; // { type:'start'|'swap', label:null|string, code:null|number, primaryTimer:any, secondaryTimer:any }
@@ -95,6 +96,27 @@ function hasVCRedist() {
   } catch {
     return false;
   }
+}
+
+function mouseLabelFromEvent(e, kind) {
+  if (kind === "wheel") {
+    // rotation < 0 = UP, > 0 = DOWN (robuste si 'amount'/'deltaY' diffèrent)
+    const rot =
+      typeof e.rotation === "number"
+        ? e.rotation
+        : typeof e.amount === "number"
+        ? e.amount
+        : typeof e.deltaY === "number"
+        ? e.deltaY
+        : 0;
+    return rot < 0 ? "WHEEL_UP" : "WHEEL_DOWN";
+  }
+  // mousedown: 1=left, 2=right, 3=middle, >=4 = boutons latéraux/extra
+  const b = e.button;
+  if (b === 1 || b === 2) return null; // exclure gauche/droit
+  if (b === 3) return "MOUSE3"; // clic molette
+  if (b >= 4) return `MOUSE${b}`; // MOUSE4, MOUSE5, ...
+  return null;
 }
 
 /* -------------------- dedup dispatch (fix double toggle/reset) -------------------- */
@@ -204,7 +226,12 @@ function clearCaptureTimers() {
 
 function finalizeCapture(reason = "done") {
   if (!captureState) return;
-  if (offGamepadRaw) { try { offGamepadRaw(); } catch {} offGamepadRaw = null; }
+  if (offGamepadRaw) {
+    try {
+      offGamepadRaw();
+    } catch {}
+    offGamepadRaw = null;
+  }
 
   const { type, label, code } = captureState;
   clearCaptureTimers();
@@ -807,6 +834,80 @@ async function setupUiohook() {
     } else if (Number.isFinite(hotkeys.swap) && e.keycode === hotkeys.swap) {
       if (now - lastSwap < RATE) return;
       lastSwap = now;
+      dispatchHotkey("swap");
+    }
+  });
+
+  let lastMouseToggle = 0,
+    lastMouseSwap = 0;
+  const MOUSE_RATE = 180;
+
+  uIOhook.on("mousedown", (e) => {
+    const label = mouseLabelFromEvent(e, "mousedown");
+    if (!label) return;
+
+    // --- Mode CAPTURE : on enregistre le bind souris
+    if (captureState) {
+      const { type } = captureState; // 'start' | 'swap'
+      captureState.label = label;
+      hotkeysLabel = { ...hotkeysLabel, [type]: label };
+      store.set("hotkeysLabel", hotkeysLabel);
+
+      mouseBinds = { ...mouseBinds, [type]: label }; // persist runtime
+      store.set("mouseBinds", mouseBinds);
+
+      mainWindow?.webContents.send("hotkeys-captured", { type, label });
+      finalizeCapture("mouse");
+      return;
+    }
+
+    // --- Mode NORMAL : déclenchement si bindé
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    if (Date.now() < captureWaitUntil) return;
+
+    const now = Date.now();
+    if (mouseBinds.start && label === mouseBinds.start) {
+      if (now - lastMouseToggle < MOUSE_RATE) return;
+      lastMouseToggle = now;
+      dispatchHotkey("toggle");
+    } else if (mouseBinds.swap && label === mouseBinds.swap) {
+      if (now - lastMouseSwap < MOUSE_RATE) return;
+      lastMouseSwap = now;
+      dispatchHotkey("swap");
+    }
+  });
+
+  // Souris: molette (UP/DOWN)
+  uIOhook.on("wheel", (e) => {
+    const label = mouseLabelFromEvent(e, "wheel"); // WHEEL_UP / WHEEL_DOWN
+
+    // --- Mode CAPTURE
+    if (captureState) {
+      const { type } = captureState;
+      captureState.label = label;
+      hotkeysLabel = { ...hotkeysLabel, [type]: label };
+      store.set("hotkeysLabel", hotkeysLabel);
+
+      mouseBinds = { ...mouseBinds, [type]: label };
+      store.set("mouseBinds", mouseBinds);
+
+      mainWindow?.webContents.send("hotkeys-captured", { type, label });
+      finalizeCapture("mouse");
+      return;
+    }
+
+    // --- Mode NORMAL
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    if (Date.now() < captureWaitUntil) return;
+
+    const now = Date.now();
+    if (mouseBinds.start && label === mouseBinds.start) {
+      if (now - lastMouseToggle < MOUSE_RATE) return;
+      lastMouseToggle = now;
+      dispatchHotkey("toggle");
+    } else if (mouseBinds.swap && label === mouseBinds.swap) {
+      if (now - lastMouseSwap < MOUSE_RATE) return;
+      lastMouseSwap = now;
       dispatchHotkey("swap");
     }
   });

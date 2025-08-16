@@ -217,190 +217,237 @@ dbdoverlaytools-free
    7 | const { app, BrowserWindow } = require("electron");
    8 | const { spawn } = require("child_process");
    9 | const { join, dirname } = require("path");
-  10 | const { existsSync, readFileSync, mkdirSync, writeFileSync, watch } = require("fs");
-  11 | 
-  12 | let child = null;
-  13 | let isQuitting = false;
-  14 | let relaunchTimer = null;
-  15 | 
-  16 | const ACTION_THROTTLE_MS = 200;
-  17 | const lastActionAt = { toggle: 0, swap: 0 };
-  18 | 
-  19 | // --- Résolution du chemin du binaire natif (dev/prod)
-  20 | function resolveExePath() {
-  21 |   // dev: ../.. depuis electron/input -> native/xinput_bridge.exe
-  22 |   const devPath = join(__dirname, "..", "..", "native", "xinput_bridge.exe");
-  23 | 
-  24 |   // prod: l’exe peut être à la racine de resources (package.json -> extraResources to ".")
-  25 |   // ou parfois dans resources/native
-  26 |   const res = process.resourcesPath || __dirname;
-  27 |   const prodA = join(res, "xinput_bridge.exe");
-  28 |   const prodB = join(res, "native", "xinput_bridge.exe");
+  10 | const {
+  11 |   existsSync,
+  12 |   readFileSync,
+  13 |   mkdirSync,
+  14 |   writeFileSync,
+  15 |   watch,
+  16 | } = require("fs");
+  17 | 
+  18 | let child = null;
+  19 | let isQuitting = false;
+  20 | let relaunchTimer = null;
+  21 | 
+  22 | const ACTION_THROTTLE_MS = 200;
+  23 | const lastActionAt = { toggle: 0, swap: 0 };
+  24 | 
+  25 | // --- Résolution du chemin du binaire natif (dev/prod)
+  26 | function resolveExePath() {
+  27 |   // dev: ../.. depuis electron/input -> native/xinput_bridge.exe
+  28 |   const devPath = join(__dirname, "..", "..", "native", "xinput_bridge.exe");
   29 | 
-  30 |   if (existsSync(devPath)) return devPath;
-  31 |   if (existsSync(prodA)) return prodA;
-  32 |   if (existsSync(prodB)) return prodB;
-  33 |   return devPath; // fallback (échec volontairement visible)
-  34 | }
+  30 |   // prod: l’exe peut être à la racine de resources (package.json -> extraResources to ".")
+  31 |   // ou parfois dans resources/native
+  32 |   const res = process.resourcesPath || __dirname;
+  33 |   const prodA = join(res, "xinput_bridge.exe");
+  34 |   const prodB = join(res, "native", "xinput_bridge.exe");
   35 | 
-  36 | // --- Diffusion vers toutes les fenêtres — envoie { type: ... }
-  37 | function broadcastHotkey(action) {
-  38 |   const now = Date.now();
-  39 |   if (action === "toggle" || action === "swap") {
-  40 |     if (now - lastActionAt[action] < ACTION_THROTTLE_MS) return;
-  41 |     lastActionAt[action] = now;
-  42 |   }
-  43 |   for (const win of BrowserWindow.getAllWindows()) {
-  44 |     try {
-  45 |       win.webContents.send("global-hotkey", { type: action });
-  46 |     } catch {}
-  47 |   }
-  48 | }
-  49 | 
-  50 | // --- Mappage configurable ----------------------------------------------------
-  51 | const DEFAULT_MAPPING = {
-  52 |   toggle: ["BTN A"], // A / Croix
-  53 |   swap: ["BTN RB"],  // RB / R1
-  54 | };
+  36 |   if (existsSync(devPath)) return devPath;
+  37 |   if (existsSync(prodA)) return prodA;
+  38 |   if (existsSync(prodB)) return prodB;
+  39 |   return devPath; // fallback (échec volontairement visible)
+  40 | }
+  41 | 
+  42 | // --- Diffusion vers toutes les fenêtres — envoie { type: ... }
+  43 | function broadcastHotkey(action) {
+  44 |   const now = Date.now();
+  45 |   if (action === "toggle" || action === "swap") {
+  46 |     if (now - lastActionAt[action] < ACTION_THROTTLE_MS) return;
+  47 |     lastActionAt[action] = now;
+  48 |   }
+  49 |   for (const win of BrowserWindow.getAllWindows()) {
+  50 |     try {
+  51 |       win.webContents.send("global-hotkey", { type: action });
+  52 |     } catch {}
+  53 |   }
+  54 | }
   55 | 
-  56 | function configFilePath() {
-  57 |   return join(app.getPath("userData"), "gamepad.json");
-  58 | }
-  59 | 
-  60 | let mapping = { ...DEFAULT_MAPPING };
+  56 | // --- Mappage configurable ----------------------------------------------------
+  57 | const DEFAULT_MAPPING = {
+  58 |   toggle: [],
+  59 |   swap: [],
+  60 | };
   61 | 
-  62 | function normalizeEventName(s) {
-  63 |   return String(s || "").trim().toUpperCase();
+  62 | function configFilePath() {
+  63 |   return join(app.getPath("userData"), "gamepad.json");
   64 | }
   65 | 
-  66 | function loadMapping() {
-  67 |   try {
-  68 |     const file = configFilePath();
-  69 |     if (!existsSync(dirname(file))) mkdirSync(dirname(file), { recursive: true });
-  70 |     if (!existsSync(file)) {
-  71 |       writeFileSync(file, JSON.stringify(DEFAULT_MAPPING, null, 2), "utf8");
-  72 |       mapping = { ...DEFAULT_MAPPING };
-  73 |       return;
-  74 |     }
-  75 |     const raw = readFileSync(file, "utf8");
-  76 |     const json = JSON.parse(raw);
-  77 | 
-  78 |     const out = { toggle: [], swap: [] };
-  79 |     for (const key of ["toggle", "swap"]) {
-  80 |       const val = json[key];
-  81 |       if (typeof val === "string") out[key] = [normalizeEventName(val)];
-  82 |       else if (Array.isArray(val)) out[key] = val.map(normalizeEventName).filter(Boolean);
-  83 |     }
-  84 |     if (!out.toggle.length) out.toggle = DEFAULT_MAPPING.toggle.map(normalizeEventName);
-  85 |     if (!out.swap.length) out.swap = DEFAULT_MAPPING.swap.map(normalizeEventName);
-  86 | 
-  87 |     mapping = out;
-  88 |   } catch (e) {
-  89 |     console.error("[GAMEPAD] loadMapping error", e?.message || e);
-  90 |     mapping = { ...DEFAULT_MAPPING };
-  91 |   }
-  92 | }
-  93 | 
-  94 | function saveMapping(next) {
-  95 |   try {
-  96 |     const file = configFilePath();
-  97 |     writeFileSync(file, JSON.stringify(next, null, 2), "utf8");
-  98 |   } catch (e) {
-  99 |     console.error("[GAMEPAD] saveMapping error", e?.message || e);
- 100 |   }
- 101 | }
- 102 | 
- 103 | function setGamepadMapping(action, eventLabel, { append = false } = {}) {
- 104 |   const key = action === "swap" ? "swap" : "toggle";
- 105 |   const label = normalizeEventName(eventLabel);
- 106 |   const next = { ...mapping };
- 107 |   if (append) next[key] = Array.from(new Set([...(next[key] || []), label]));
- 108 |   else next[key] = [label];
- 109 |   saveMapping(next);
- 110 |   mapping = next;
- 111 | }
- 112 | 
- 113 | // --- Flux brut pour la capture ------------------------------------------------
- 114 | const rawListeners = new Set();
- 115 | function onGamepadRaw(cb) {
- 116 |   if (typeof cb === "function") {
- 117 |     rawListeners.add(cb);
- 118 |     return () => rawListeners.delete(cb);
- 119 |   }
- 120 |   return () => {};
- 121 | }
- 122 | function emitRaw(ev) { for (const cb of rawListeners) { try { cb(ev); } catch {} } }
- 123 | 
- 124 | // --- Process natif -----------------------------------------------------------
- 125 | function handleGamepadEventName(name) {
- 126 |   const ev = normalizeEventName(name);
- 127 |   if (!ev) return;
- 128 | 
- 129 |   // Toujours notifier le brut (capture)
- 130 |   emitRaw(ev);
- 131 | 
- 132 |   // Déclenchement selon mapping
- 133 |   if ((mapping.toggle || []).includes(ev)) { broadcastHotkey("toggle"); return; }
- 134 |   if ((mapping.swap || []).includes(ev))   { broadcastHotkey("swap"); return; }
- 135 | }
- 136 | 
- 137 | function launch() {
- 138 |   const exe = resolveExePath();
- 139 |   if (!existsSync(exe)) return;
- 140 | 
- 141 |   child = spawn(exe, [], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
- 142 | 
- 143 |   let buffer = "";
- 144 |   child.stdout.on("data", (chunk) => {
- 145 |     buffer += chunk.toString("utf8");
- 146 |     let idx;
- 147 |     while ((idx = buffer.indexOf("\n")) >= 0) {
- 148 |       const line = buffer.slice(0, idx).trim();
- 149 |       buffer = buffer.slice(idx + 1);
- 150 |       if (line) handleGamepadEventName(line);
- 151 |     }
- 152 |   });
- 153 | 
- 154 |   child.on("exit", () => {
- 155 |     child = null;
- 156 |     if (isQuitting) return;
- 157 |     clearTimeout(relaunchTimer);
- 158 |     relaunchTimer = setTimeout(launch, 1000);
- 159 |   });
- 160 | 
- 161 |   child.on("error", () => {
- 162 |     child = null;
- 163 |     if (isQuitting) return;
- 164 |     clearTimeout(relaunchTimer);
- 165 |     relaunchTimer = setTimeout(launch, 1500);
- 166 |   });
- 167 | }
- 168 | 
- 169 | function setupGamepadExe() {
- 170 |   if (process.platform !== "win32") return; // l’app est Windows-only, garde au cas où
- 171 | 
- 172 |   loadMapping();
- 173 |   try { watch(configFilePath(), { persistent: false }, () => loadMapping()); } catch {}
+  66 | let mapping = { ...DEFAULT_MAPPING };
+  67 | 
+  68 | function normalizeEventName(s) {
+  69 |   return String(s || "")
+  70 |     .trim()
+  71 |     .toUpperCase();
+  72 | }
+  73 | 
+  74 | function isLegacyDefaults(m) {
+  75 |   const t = Array.isArray(m?.toggle) ? m.toggle.map(normalizeEventName) : [];
+  76 |   const s = Array.isArray(m?.swap) ? m.swap.map(normalizeEventName) : [];
+  77 |   return (
+  78 |     t.length === 1 && t[0] === "BTN A" && s.length === 1 && s[0] === "BTN RB"
+  79 |   );
+  80 | }
+  81 | 
+  82 | function loadMapping() {
+  83 |   try {
+  84 |     const file = configFilePath();
+  85 |     if (!existsSync(dirname(file)))
+  86 |       mkdirSync(dirname(file), { recursive: true });
+  87 |     if (!existsSync(file)) {
+  88 |       writeFileSync(file, JSON.stringify(DEFAULT_MAPPING, null, 2), "utf8");
+  89 |       mapping = { ...DEFAULT_MAPPING };
+  90 |       return;
+  91 |     }
+  92 | 
+  93 |     const raw = readFileSync(file, "utf8");
+  94 |     const json = JSON.parse(raw);
+  95 | 
+  96 |     const out = { toggle: [], swap: [] };
+  97 |     for (const key of ["toggle", "swap"]) {
+  98 |       const val = json[key];
+  99 |       if (typeof val === "string") out[key] = [normalizeEventName(val)];
+ 100 |       else if (Array.isArray(val))
+ 101 |         out[key] = val.map(normalizeEventName).filter(Boolean);
+ 102 |     }
+ 103 | 
+ 104 |     if (isLegacyDefaults(out)) {
+ 105 |       out.toggle = [];
+ 106 |       out.swap = [];
+ 107 |       writeFileSync(file, JSON.stringify(out, null, 2), "utf8");
+ 108 |     }
+ 109 |     mapping = out;
+ 110 |   } catch (e) {
+ 111 |     console.error("[GAMEPAD] loadMapping error", e?.message || e);
+ 112 |     mapping = { ...DEFAULT_MAPPING };
+ 113 |   }
+ 114 | }
+ 115 | 
+ 116 | function saveMapping(next) {
+ 117 |   try {
+ 118 |     const file = configFilePath();
+ 119 |     writeFileSync(file, JSON.stringify(next, null, 2), "utf8");
+ 120 |   } catch (e) {
+ 121 |     console.error("[GAMEPAD] saveMapping error", e?.message || e);
+ 122 |   }
+ 123 | }
+ 124 | 
+ 125 | function setGamepadMapping(action, eventLabel, { append = false } = {}) {
+ 126 |   const key = action === "swap" ? "swap" : "toggle";
+ 127 |   const label = normalizeEventName(eventLabel);
+ 128 |   const next = { ...mapping };
+ 129 |   if (append) next[key] = Array.from(new Set([...(next[key] || []), label]));
+ 130 |   else next[key] = [label];
+ 131 |   saveMapping(next);
+ 132 |   mapping = next;
+ 133 | }
+ 134 | 
+ 135 | // --- Flux brut pour la capture ------------------------------------------------
+ 136 | const rawListeners = new Set();
+ 137 | function onGamepadRaw(cb) {
+ 138 |   if (typeof cb === "function") {
+ 139 |     rawListeners.add(cb);
+ 140 |     return () => rawListeners.delete(cb);
+ 141 |   }
+ 142 |   return () => {};
+ 143 | }
+ 144 | function emitRaw(ev) {
+ 145 |   for (const cb of rawListeners) {
+ 146 |     try {
+ 147 |       cb(ev);
+ 148 |     } catch {}
+ 149 |   }
+ 150 | }
+ 151 | 
+ 152 | // --- Process natif -----------------------------------------------------------
+ 153 | function handleGamepadEventName(name) {
+ 154 |   const ev = normalizeEventName(name);
+ 155 |   if (!ev) return;
+ 156 | 
+ 157 |   // Toujours notifier le brut (capture)
+ 158 |   emitRaw(ev);
+ 159 | 
+ 160 |   // Déclenchement selon mapping
+ 161 |   if ((mapping.toggle || []).includes(ev)) {
+ 162 |     broadcastHotkey("toggle");
+ 163 |     return;
+ 164 |   }
+ 165 |   if ((mapping.swap || []).includes(ev)) {
+ 166 |     broadcastHotkey("swap");
+ 167 |     return;
+ 168 |   }
+ 169 | }
+ 170 | 
+ 171 | function launch() {
+ 172 |   const exe = resolveExePath();
+ 173 |   if (!existsSync(exe)) return;
  174 | 
- 175 |   launch();
- 176 | 
- 177 |   app.on("before-quit", () => {
- 178 |     isQuitting = true;
- 179 |     try { clearTimeout(relaunchTimer); } catch {}
- 180 |     try { child?.kill(); } catch {}
- 181 |   });
- 182 |   app.on("will-quit", () => {
- 183 |     isQuitting = true;
- 184 |     try { clearTimeout(relaunchTimer); } catch {}
- 185 |     try { child?.kill(); } catch {}
- 186 |   });
- 187 | }
- 188 | 
- 189 | module.exports = {
- 190 |   setupGamepadExe,
- 191 |   onGamepadRaw,
- 192 |   setGamepadMapping,
- 193 | };
+ 175 |   child = spawn(exe, [], {
+ 176 |     stdio: ["ignore", "pipe", "ignore"],
+ 177 |     windowsHide: true,
+ 178 |   });
+ 179 | 
+ 180 |   let buffer = "";
+ 181 |   child.stdout.on("data", (chunk) => {
+ 182 |     buffer += chunk.toString("utf8");
+ 183 |     let idx;
+ 184 |     while ((idx = buffer.indexOf("\n")) >= 0) {
+ 185 |       const line = buffer.slice(0, idx).trim();
+ 186 |       buffer = buffer.slice(idx + 1);
+ 187 |       if (line) handleGamepadEventName(line);
+ 188 |     }
+ 189 |   });
+ 190 | 
+ 191 |   child.on("exit", () => {
+ 192 |     child = null;
+ 193 |     if (isQuitting) return;
+ 194 |     clearTimeout(relaunchTimer);
+ 195 |     relaunchTimer = setTimeout(launch, 1000);
+ 196 |   });
+ 197 | 
+ 198 |   child.on("error", () => {
+ 199 |     child = null;
+ 200 |     if (isQuitting) return;
+ 201 |     clearTimeout(relaunchTimer);
+ 202 |     relaunchTimer = setTimeout(launch, 1500);
+ 203 |   });
+ 204 | }
+ 205 | 
+ 206 | function setupGamepadExe() {
+ 207 |   if (process.platform !== "win32") return; // l’app est Windows-only, garde au cas où
+ 208 | 
+ 209 |   loadMapping();
+ 210 |   try {
+ 211 |     watch(configFilePath(), { persistent: false }, () => loadMapping());
+ 212 |   } catch {}
+ 213 | 
+ 214 |   launch();
+ 215 | 
+ 216 |   app.on("before-quit", () => {
+ 217 |     isQuitting = true;
+ 218 |     try {
+ 219 |       clearTimeout(relaunchTimer);
+ 220 |     } catch {}
+ 221 |     try {
+ 222 |       child?.kill();
+ 223 |     } catch {}
+ 224 |   });
+ 225 |   app.on("will-quit", () => {
+ 226 |     isQuitting = true;
+ 227 |     try {
+ 228 |       clearTimeout(relaunchTimer);
+ 229 |     } catch {}
+ 230 |     try {
+ 231 |       child?.kill();
+ 232 |     } catch {}
+ 233 |   });
+ 234 | }
+ 235 | 
+ 236 | module.exports = {
+ 237 |   setupGamepadExe,
+ 238 |   onGamepadRaw,
+ 239 |   setGamepadMapping,
+ 240 | };
 
 ```
 
