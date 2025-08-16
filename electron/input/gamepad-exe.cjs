@@ -132,6 +132,14 @@ function setGamepadMapping(action, eventLabel, { append = false } = {}) {
   mapping = next;
 }
 
+// 🚿 NOUVEAU : vider complètement une action (exclusivité par action)
+function clearGamepadMapping(action) {
+  const key = action === "swap" ? "swap" : "toggle";
+  const next = { ...mapping, [key]: [] };
+  saveMapping(next);
+  mapping = next;
+}
+
 // --- Flux brut pour la capture ------------------------------------------------
 const rawListeners = new Set();
 function onGamepadRaw(cb) {
@@ -237,4 +245,5 @@ module.exports = {
   setupGamepadExe,
   onGamepadRaw,
   setGamepadMapping,
+  clearGamepadMapping, // 👈 exporté
 };
