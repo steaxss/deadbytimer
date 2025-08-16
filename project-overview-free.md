@@ -7,17 +7,25 @@ dbdoverlaytools-free
 ├── README.md
 ├── build
 ├── electron
+│   ├── hotkeys
+│   │   └── capture.cjs
+│   ├── input
+│   │   ├── gamepad-exe.cjs
+│   │   └── uiohook.cjs
 │   ├── main.mjs
 │   ├── preload.cjs
-│   └── tsconfig.json
+│   ├── tsconfig.json
+│   └── windows
+│       └── windows.cjs
 ├── index.html
+├── native
+│   ├── xinput_bridge.cpp
+│   ├── xinput_bridge.exe
+│   └── xinput_bridge.obj
 ├── overlay.html
 ├── package.json
 ├── postcss.config.cjs
-├── scripts
-│   └── start.js
 ├── src
-│   ├── App.tsx
 │   ├── assets
 │   │   └── fonts
 │   │       ├── Poppins-Medium.ttf
@@ -25,27 +33,20 @@ dbdoverlaytools-free
 │   │       └── Square.ttf
 │   ├── components
 │   │   ├── ControlPanel.tsx
-│   │   ├── Footer.tsx
-│   │   ├── OverlayApp.tsx
 │   │   ├── ScrollingName.tsx
 │   │   └── overlay
 │   │       ├── DragHandle.tsx
 │   │       └── TimerOverlay.tsx
-│   ├── hooks
-│   │   └── useTimer.ts
 │   ├── index.css
 │   ├── main.tsx
 │   ├── overlay.tsx
 │   ├── store
 │   │   └── timerStore.ts
 │   ├── styles
-│   │   ├── fonts.css
-│   │   └── tokens.css
+│   │   └── fonts.css
 │   ├── themes
 │   │   └── default.css
 │   ├── types
-│   │   ├── global.d.ts
-│   │   ├── index.ts
 │   │   └── preload.d.ts
 │   └── utils
 │       ├── cn.ts
@@ -209,675 +210,1349 @@ dbdoverlaytools-free
 
 ```
 
+`dbdoverlaytools-free/electron\hotkeys\capture.cjs`:
+
+```cjs
+   1 | // electron/hotkeys/capture.cjs
+   2 | // Gère la capture transactionnelle (IPC), le stockage labels/codes, le fallback globalShortcut.
+   3 | 
+   4 | let ipcMain,
+   5 |   store,
+   6 |   globalShortcut,
+   7 |   dialog,
+   8 |   shell,
+   9 |   VC_REDIST_X64_URL,
+  10 |   hasVCRedist,
+  11 |   logHK,
+  12 |   getMainWindow,
+  13 |   getOverlayWindow,
+  14 |   getUsingUiohook,
+  15 |   setUsingUiohook,
+  16 |   getHotkeys,
+  17 |   setHotkeys,
+  18 |   getHotkeysLabel,
+  19 |   setHotkeysLabel,
+  20 |   getMouseBinds,
+  21 |   setMouseBinds,
+  22 |   makeLabelFromBeforeInput,
+  23 |   isAlphaNumLabel,
+  24 |   sendHotkeysMode,
+  25 |   dispatchHotkey,
+  26 |   onGamepadRaw,
+  27 |   setGamepadMapping;
+  28 | 
+  29 | let captureState = null; // { type, label, code, primaryTimer, secondaryTimer }
+  30 | let captureWaitUntil = 0; // block timers dispatch during capture
+  31 | let offGamepadRaw = null; // ✅ NO SHADOWING BUG
+  32 | 
+  33 | function initCapture(ctx) {
+  34 |   ({
+  35 |     ipcMain,
+  36 |     store,
+  37 |     globalShortcut,
+  38 |     dialog,
+  39 |     shell,
+  40 |     VC_REDIST_X64_URL,
+  41 |     hasVCRedist,
+  42 |     logHK,
+  43 |     getMainWindow,
+  44 |     getOverlayWindow,
+  45 |     getUsingUiohook,
+  46 |     setUsingUiohook,
+  47 |     getHotkeys,
+  48 |     setHotkeys,
+  49 |     getHotkeysLabel,
+  50 |     setHotkeysLabel,
+  51 |     getMouseBinds,
+  52 |     setMouseBinds,
+  53 |     makeLabelFromBeforeInput,
+  54 |     isAlphaNumLabel,
+  55 |     sendHotkeysMode,
+  56 |     dispatchHotkey,
+  57 |     onGamepadRaw,
+  58 |     setGamepadMapping,
+  59 |   } = ctx);
+  60 | }
+  61 | 
+  62 | function isMouseLabel(label) {
+  63 |   return (
+  64 |     typeof label === "string" && /^(MOUSE\d+|WHEEL_(UP|DOWN))$/i.test(label)
+  65 |   );
+  66 | }
+  67 | 
+  68 | function isKeyboardLabel(label) {
+  69 |   // F-keys, lettres/chiffres, et quelques noms courants
+  70 |   if (typeof label !== "string") return false;
+  71 |   if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(label)) return true;
+  72 |   if (/^[A-Z0-9]$/.test(label)) return true;
+  73 |   return /^(ESC|TAB|ENTER|BACKSPACE|SHIFT|CTRL|ALT|SPACE|UP|DOWN|LEFT|RIGHT)$/i.test(
+  74 |     label
+  75 |   );
+  76 | }
+  77 | 
+  78 | function isCapturing() {
+  79 |   return !!captureState;
+  80 | }
+  81 | function getCaptureBlockUntil() {
+  82 |   return captureWaitUntil;
+  83 | }
+  84 | 
+  85 | // --- Hooks appelés par uIOhook pendant capture ---
+  86 | function onKeyboardCode(code) {
+  87 |   if (!captureState) return;
+  88 |   captureState.code = code;
+  89 |   if (captureState.label) finalizeCapture("have both");
+  90 |   else {
+  91 |     if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
+  92 |     captureState.secondaryTimer = setTimeout(
+  93 |       () => finalizeCapture("after-code-wait"),
+  94 |       600
+  95 |     );
+  96 |   }
+  97 | }
+  98 | 
+  99 | function onMouseLabel(label) {
+ 100 |   if (!captureState) return;
+ 101 |   const { type } = captureState;
+ 102 |   captureState.label = label;
+ 103 |   const labels = { ...getHotkeysLabel(), [type]: label };
+ 104 |   setHotkeysLabel(labels);
+ 105 | 
+ 106 |   // persist binds souris
+ 107 |   const binds = { ...getMouseBinds(), [type]: label };
+ 108 |   setMouseBinds(binds);
+ 109 | 
+ 110 |   const mw = getMainWindow();
+ 111 |   mw?.webContents.send("hotkeys-captured", { type, label });
+ 112 | 
+ 113 |   finalizeCapture("mouse");
+ 114 | }
+ 115 | 
+ 116 | // --- helpers capture ---
+ 117 | function clearCaptureTimers() {
+ 118 |   if (!captureState) return;
+ 119 |   if (captureState.primaryTimer) {
+ 120 |     clearTimeout(captureState.primaryTimer);
+ 121 |     captureState.primaryTimer = null;
+ 122 |   }
+ 123 |   if (captureState.secondaryTimer) {
+ 124 |     clearTimeout(captureState.secondaryTimer);
+ 125 |     captureState.secondaryTimer = null;
+ 126 |   }
+ 127 | }
+ 128 | 
+ 129 | function finalizeCapture(reason = "done") {
+ 130 |   if (!captureState) return;
+ 131 | 
+ 132 |   // unbind manette raw
+ 133 |   if (offGamepadRaw) {
+ 134 |     try {
+ 135 |       offGamepadRaw();
+ 136 |     } catch {}
+ 137 |     offGamepadRaw = null;
+ 138 |   }
+ 139 | 
+ 140 |   const { type, label, code } = captureState;
+ 141 |   clearCaptureTimers();
+ 142 | 
+ 143 |   logHK && logHK("CAPTURE FINALIZE", { reason, type, label, code });
+ 144 | 
+ 145 |   // Persistance si on a reçu des infos
+ 146 |   if (label) {
+ 147 |     const labels = { ...getHotkeysLabel(), [type]: label };
+ 148 |     setHotkeysLabel(labels);
+ 149 |   }
+ 150 |   if (typeof code === "number") {
+ 151 |     const codes = { ...getHotkeys(), [type]: code };
+ 152 |     setHotkeys(codes);
+ 153 |   }
+ 154 |   // Exclusivité : si on vient de définir un label clavier -> on efface l'ancien bind souris
+ 155 |   if (label && isKeyboardLabel(label)) {
+ 156 |     const mb = { ...getMouseBinds() };
+ 157 |     if (mb[type]) {
+ 158 |       mb[type] = null;
+ 159 |       setMouseBinds(mb);
+ 160 |       logHK && logHK("Cleared previous MOUSE bind for", type);
+ 161 |     }
+ 162 |   }
+ 163 |   // Si on a capturé un label souris -> on efface le code clavier pour éviter le double-trigger
+ 164 |   if (label && isMouseLabel(label)) {
+ 165 |     const codes = { ...getHotkeys() };
+ 166 |     if (codes[type] != null) {
+ 167 |       codes[type] = null;
+ 168 |       setHotkeys(codes);
+ 169 |       logHK && logHK("Cleared previous KEYBOARD code for", type);
+ 170 |     }
+ 171 |   }
+ 172 | 
+ 173 |   // Notifier le panel si on a label ou code
+ 174 |   const mw = getMainWindow();
+ 175 |   if (mw && !mw.isDestroyed() && (label || typeof code === "number")) {
+ 176 |     const payload = { type };
+ 177 |     if (label) payload.label = label;
+ 178 |     if (typeof code === "number") payload.keycode = code;
+ 179 |     mw.webContents.send("hotkeys-captured", payload);
+ 180 |   }
+ 181 | 
+ 182 |   // Alerte uniquement si VC++ manquant ET alphanum tenté sans uIOhook
+ 183 |   if (!getUsingUiohook() && label && isAlphaNumLabel(label) && !hasVCRedist()) {
+ 184 |     dialog
+ 185 |       .showMessageBox({
+ 186 |         type: "info",
+ 187 |         title: "Pass-Through unavailable",
+ 188 |         message:
+ 189 |           "A–Z / 0–9 hotkeys can’t be used in Limited Mode (without uIOhook) without stealing them from other apps.",
+ 190 |         detail:
+ 191 |           "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”, restart the app, " +
+ 192 |           "then recapture your hotkeys to enable pass-through (so you can still type those letters in Discord, etc.).",
+ 193 |         buttons: ["Install runtime (x64)", "OK"],
+ 194 |         defaultId: 0,
+ 195 |         cancelId: 1,
+ 196 |         noLink: true,
+ 197 |       })
+ 198 |       .then(({ response }) => {
+ 199 |         if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
+ 200 |       });
+ 201 |   }
+ 202 | 
+ 203 |   // Si, après cette capture, on a les 2 codes et uIOhook tourne -> passer en pass-through
+ 204 |   const codes = getHotkeys();
+ 205 |   const haveBoth = Number.isFinite(codes.start) && Number.isFinite(codes.swap);
+ 206 |   if (haveBoth && getUsingUiohook() === false) {
+ 207 |     setUsingUiohook(true);
+ 208 |     try {
+ 209 |       globalShortcut.unregisterAll();
+ 210 |     } catch {}
+ 211 |     sendHotkeysMode("pass-through");
+ 212 |   }
+ 213 | 
+ 214 |   // Reset capture
+ 215 |   captureState = null;
+ 216 |   captureWaitUntil = 0;
+ 217 | 
+ 218 |   // Réarmer fallback si nécessaire
+ 219 |   if (!getUsingUiohook()) {
+ 220 |     refreshHotkeyEngine({
+ 221 |       globalShortcut,
+ 222 |       hotkeysLabel: getHotkeysLabel(),
+ 223 |       isAlphaNumLabel,
+ 224 |       logHK,
+ 225 |       getCaptureBlockUntil,
+ 226 |       dispatchHotkey,
+ 227 |     });
+ 228 |   }
+ 229 | }
+ 230 | 
+ 231 | function setupCaptureIPC() {
+ 232 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
+ 233 |     if (!(type === "start" || type === "swap")) {
+ 234 |       finalizeCapture("cancel");
+ 235 |       return true;
+ 236 |     }
+ 237 | 
+ 238 |     logHK &&
+ 239 |       logHK("CAPTURE BEGIN", {
+ 240 |         type,
+ 241 |         mode: getUsingUiohook() ? "pass-through" : "fallback",
+ 242 |       });
+ 243 | 
+ 244 |     // Bloquer le dispatch vers les timers pendant la capture
+ 245 |     captureWaitUntil = Date.now() + 15000;
+ 246 | 
+ 247 |     // Reset/annule capture précédente si elle existe
+ 248 |     if (captureState) {
+ 249 |       clearCaptureTimers();
+ 250 |       captureState = null;
+ 251 |     }
+ 252 | 
+ 253 |     // État de capture : pas de timer court au début; on attend la première frappe
+ 254 |     captureState = {
+ 255 |       type,
+ 256 |       label: null,
+ 257 |       code: null,
+ 258 |       primaryTimer: setTimeout(() => {
+ 259 |         logHK && logHK("CAPTURE PRIMARY TIMEOUT — cancel");
+ 260 |         finalizeCapture("primary-timeout");
+ 261 |       }, 15000),
+ 262 |       secondaryTimer: null,
+ 263 |     };
+ 264 | 
+ 265 |     // focus le panneau
+ 266 |     try {
+ 267 |       const mw = getMainWindow();
+ 268 |       mw?.focus();
+ 269 |       logHK && logHK("focused mainWindow?", mw?.isFocused());
+ 270 |     } catch (e) {
+ 271 |       logHK && logHK("focus error", e?.message || e);
+ 272 |     }
+ 273 | 
+ 274 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
+ 275 |     if (!getUsingUiohook()) {
+ 276 |       try {
+ 277 |         globalShortcut.unregisterAll();
+ 278 |         logHK && logHK("fallback: unregistered to let key through");
+ 279 |       } catch {}
+ 280 |     }
+ 281 | 
+ 282 |     // écouter une fois la prochaine touche (pour le label layout-aware)
+ 283 |     const mw = getMainWindow();
+ 284 |     const once = (event, input) => {
+ 285 |       if (!captureState) return;
+ 286 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
+ 287 |       logHK &&
+ 288 |         logHK("before-input-event keyDown", {
+ 289 |           key: input.key,
+ 290 |           code: input.code,
+ 291 |         });
+ 292 |       const label = makeLabelFromBeforeInput(input);
+ 293 | 
+ 294 |       captureState.label = label;
+ 295 |       const labels = { ...getHotkeysLabel(), [type]: label };
+ 296 |       setHotkeysLabel(labels);
+ 297 | 
+ 298 |       mw?.webContents.send("hotkeys-captured", { type, label });
+ 299 |       logHK && logHK("label captured (instant)", { type, label });
+ 300 | 
+ 301 |       if (typeof captureState.code === "number") {
+ 302 |         finalizeCapture("have both");
+ 303 |       } else {
+ 304 |         if (captureState.secondaryTimer)
+ 305 |           clearTimeout(captureState.secondaryTimer);
+ 306 |         captureState.secondaryTimer = setTimeout(
+ 307 |           () => finalizeCapture("after-label-wait"),
+ 308 |           500
+ 309 |         );
+ 310 |       }
+ 311 | 
+ 312 |       mw?.webContents.removeListener("before-input-event", once);
+ 313 |     };
+ 314 |     mw?.webContents.on("before-input-event", once);
+ 315 | 
+ 316 |     // Écoute RAW manette (✅ pas de shadowing : variable module-scope)
+ 317 |     offGamepadRaw = onGamepadRaw((evLabel) => {
+ 318 |       if (!captureState) return;
+ 319 |       const { type } = captureState;
+ 320 | 
+ 321 |       captureState.label = evLabel;
+ 322 |       const labels = { ...getHotkeysLabel(), [type]: evLabel };
+ 323 |       setHotkeysLabel(labels);
+ 324 |       mw?.webContents.send("hotkeys-captured", { type, label: evLabel });
+ 325 | 
+ 326 |       // mapping manette
+ 327 |       setGamepadMapping(type, evLabel, { append: false });
+ 328 | 
+ 329 |       finalizeCapture("gamepad");
+ 330 |     });
+ 331 | 
+ 332 |     logHK && logHK("before-input-event listener ARMED");
+ 333 | 
+ 334 |     return true;
+ 335 |   });
+ 336 | }
+ 337 | 
+ 338 | /* -------------------- Fallback engine (globalShortcut) -------------------- */
+ 339 | function refreshHotkeyEngine({
+ 340 |   globalShortcut,
+ 341 |   hotkeysLabel,
+ 342 |   isAlphaNumLabel,
+ 343 |   logHK,
+ 344 |   getCaptureBlockUntil,
+ 345 |   dispatchHotkey,
+ 346 | }) {
+ 347 |   try {
+ 348 |     globalShortcut.unregisterAll();
+ 349 |     logHK && logHK("globalShortcut: unregistered all");
+ 350 |   } catch {}
+ 351 | 
+ 352 |   const RATE = 180;
+ 353 |   let lastT = 0,
+ 354 |     lastS = 0;
+ 355 | 
+ 356 |   const sKey = hotkeysLabel.start || "F1";
+ 357 |   const wKey = hotkeysLabel.swap || "F2";
+ 358 | 
+ 359 |   // En fallback, on n'essaie de binder que des F-keys (F1..F24).
+ 360 |   const canUse = (label) => /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
+ 361 | 
+ 362 |   logHK &&
+ 363 |     logHK("globalShortcut: registering (fallback)", {
+ 364 |       start: canUse(sKey) ? sKey : "(skipped: alnum passthrough-only)",
+ 365 |       swap: canUse(wKey) ? wKey : "(skipped: alnum passthrough-only)",
+ 366 |     });
+ 367 | 
+ 368 |   if (canUse(sKey)) {
+ 369 |     try {
+ 370 |       globalShortcut.register(sKey, () => {
+ 371 |         if (Date.now() < getCaptureBlockUntil()) {
+ 372 |           logHK && logHK("fallback toggle skipped (capturing)");
+ 373 |           return;
+ 374 |         }
+ 375 |         const now = Date.now();
+ 376 |         if (now - lastT < RATE) return;
+ 377 |         lastT = now;
+ 378 |         dispatchHotkey("toggle");
+ 379 |       });
+ 380 |     } catch (e) {
+ 381 |       logHK && logHK("register start failed", e?.message || e);
+ 382 |     }
+ 383 |   }
+ 384 | 
+ 385 |   if (canUse(wKey)) {
+ 386 |     try {
+ 387 |       globalShortcut.register(wKey, () => {
+ 388 |         if (Date.now() < getCaptureBlockUntil()) {
+ 389 |           logHK && logHK("fallback swap skipped (capturing)");
+ 390 |           return;
+ 391 |         }
+ 392 |         const now = Date.now();
+ 393 |         if (now - lastS < RATE) return;
+ 394 |         lastS = now;
+ 395 |         dispatchHotkey("swap");
+ 396 |       });
+ 397 |     } catch (e) {
+ 398 |       logHK && logHK("register swap failed", e?.message || e);
+ 399 |     }
+ 400 |   }
+ 401 | }
+ 402 | 
+ 403 | /* -------------------- API complémentaire -------------------- */
+ 404 | function attachWindowsAPI({ sendOverlaySettings }) {
+ 405 |   // optionnel: expose si besoin
+ 406 |   module.exports._sendOverlaySettings = sendOverlaySettings;
+ 407 | }
+ 408 | 
+ 409 | module.exports = {
+ 410 |   initCapture,
+ 411 |   setupCaptureIPC,
+ 412 |   refreshHotkeyEngine,
+ 413 |   isCapturing,
+ 414 |   getCaptureBlockUntil: getCaptureBlockUntil,
+ 415 |   onKeyboardCode,
+ 416 |   onMouseLabel,
+ 417 |   attachWindowsAPI,
+ 418 | };
+
+```
+
+`dbdoverlaytools-free/electron\input\gamepad-exe.cjs`:
+
+```cjs
+   1 | // electron/input/gamepad-exe.cjs
+   2 | // Windows only — XInput -> IPC "global-hotkey" (toggle/swap)
+   3 | // - arrêt propre à la fermeture
+   4 | // - mappage configurable via %APPDATA%/<app>/gamepad.json
+   5 | // - flux brut pour la capture (onGamepadRaw), écriture mapping (setGamepadMapping)
+   6 | 
+   7 | const { app, BrowserWindow } = require("electron");
+   8 | const { spawn } = require("child_process");
+   9 | const { join, dirname } = require("path");
+  10 | const {
+  11 |   existsSync,
+  12 |   readFileSync,
+  13 |   mkdirSync,
+  14 |   writeFileSync,
+  15 |   watch,
+  16 | } = require("fs");
+  17 | 
+  18 | let child = null;
+  19 | let isQuitting = false;
+  20 | let relaunchTimer = null;
+  21 | 
+  22 | const ACTION_THROTTLE_MS = 200;
+  23 | const lastActionAt = { toggle: 0, swap: 0 };
+  24 | 
+  25 | // --- Résolution du chemin du binaire natif (dev/prod)
+  26 | function resolveExePath() {
+  27 |   // dev: ../.. depuis electron/input -> native/xinput_bridge.exe
+  28 |   const devPath = join(__dirname, "..", "..", "native", "xinput_bridge.exe");
+  29 | 
+  30 |   // prod: l’exe peut être à la racine de resources (package.json -> extraResources to ".")
+  31 |   // ou parfois dans resources/native
+  32 |   const res = process.resourcesPath || __dirname;
+  33 |   const prodA = join(res, "xinput_bridge.exe");
+  34 |   const prodB = join(res, "native", "xinput_bridge.exe");
+  35 | 
+  36 |   if (existsSync(devPath)) return devPath;
+  37 |   if (existsSync(prodA)) return prodA;
+  38 |   if (existsSync(prodB)) return prodB;
+  39 |   return devPath; // fallback (échec volontairement visible)
+  40 | }
+  41 | 
+  42 | // --- Diffusion vers toutes les fenêtres — envoie { type: ... }
+  43 | function broadcastHotkey(action) {
+  44 |   const now = Date.now();
+  45 |   if (action === "toggle" || action === "swap") {
+  46 |     if (now - lastActionAt[action] < ACTION_THROTTLE_MS) return;
+  47 |     lastActionAt[action] = now;
+  48 |   }
+  49 |   for (const win of BrowserWindow.getAllWindows()) {
+  50 |     try {
+  51 |       win.webContents.send("global-hotkey", { type: action });
+  52 |     } catch {}
+  53 |   }
+  54 | }
+  55 | 
+  56 | // --- Mappage configurable ----------------------------------------------------
+  57 | const DEFAULT_MAPPING = {
+  58 |   toggle: [],
+  59 |   swap: [],
+  60 | };
+  61 | 
+  62 | function configFilePath() {
+  63 |   return join(app.getPath("userData"), "gamepad.json");
+  64 | }
+  65 | 
+  66 | let mapping = { ...DEFAULT_MAPPING };
+  67 | 
+  68 | function normalizeEventName(s) {
+  69 |   return String(s || "")
+  70 |     .trim()
+  71 |     .toUpperCase();
+  72 | }
+  73 | 
+  74 | function isLegacyDefaults(m) {
+  75 |   const t = Array.isArray(m?.toggle) ? m.toggle.map(normalizeEventName) : [];
+  76 |   const s = Array.isArray(m?.swap) ? m.swap.map(normalizeEventName) : [];
+  77 |   return (
+  78 |     t.length === 1 && t[0] === "BTN A" && s.length === 1 && s[0] === "BTN RB"
+  79 |   );
+  80 | }
+  81 | 
+  82 | function loadMapping() {
+  83 |   try {
+  84 |     const file = configFilePath();
+  85 |     if (!existsSync(dirname(file)))
+  86 |       mkdirSync(dirname(file), { recursive: true });
+  87 |     if (!existsSync(file)) {
+  88 |       writeFileSync(file, JSON.stringify(DEFAULT_MAPPING, null, 2), "utf8");
+  89 |       mapping = { ...DEFAULT_MAPPING };
+  90 |       return;
+  91 |     }
+  92 | 
+  93 |     const raw = readFileSync(file, "utf8");
+  94 |     const json = JSON.parse(raw);
+  95 | 
+  96 |     const out = { toggle: [], swap: [] };
+  97 |     for (const key of ["toggle", "swap"]) {
+  98 |       const val = json[key];
+  99 |       if (typeof val === "string") out[key] = [normalizeEventName(val)];
+ 100 |       else if (Array.isArray(val))
+ 101 |         out[key] = val.map(normalizeEventName).filter(Boolean);
+ 102 |     }
+ 103 | 
+ 104 |     if (isLegacyDefaults(out)) {
+ 105 |       out.toggle = [];
+ 106 |       out.swap = [];
+ 107 |       writeFileSync(file, JSON.stringify(out, null, 2), "utf8");
+ 108 |     }
+ 109 |     mapping = out;
+ 110 |   } catch (e) {
+ 111 |     console.error("[GAMEPAD] loadMapping error", e?.message || e);
+ 112 |     mapping = { ...DEFAULT_MAPPING };
+ 113 |   }
+ 114 | }
+ 115 | 
+ 116 | function saveMapping(next) {
+ 117 |   try {
+ 118 |     const file = configFilePath();
+ 119 |     writeFileSync(file, JSON.stringify(next, null, 2), "utf8");
+ 120 |   } catch (e) {
+ 121 |     console.error("[GAMEPAD] saveMapping error", e?.message || e);
+ 122 |   }
+ 123 | }
+ 124 | 
+ 125 | function setGamepadMapping(action, eventLabel, { append = false } = {}) {
+ 126 |   const key = action === "swap" ? "swap" : "toggle";
+ 127 |   const label = normalizeEventName(eventLabel);
+ 128 |   const next = { ...mapping };
+ 129 |   if (append) next[key] = Array.from(new Set([...(next[key] || []), label]));
+ 130 |   else next[key] = [label];
+ 131 |   saveMapping(next);
+ 132 |   mapping = next;
+ 133 | }
+ 134 | 
+ 135 | // --- Flux brut pour la capture ------------------------------------------------
+ 136 | const rawListeners = new Set();
+ 137 | function onGamepadRaw(cb) {
+ 138 |   if (typeof cb === "function") {
+ 139 |     rawListeners.add(cb);
+ 140 |     return () => rawListeners.delete(cb);
+ 141 |   }
+ 142 |   return () => {};
+ 143 | }
+ 144 | function emitRaw(ev) {
+ 145 |   for (const cb of rawListeners) {
+ 146 |     try {
+ 147 |       cb(ev);
+ 148 |     } catch {}
+ 149 |   }
+ 150 | }
+ 151 | 
+ 152 | // --- Process natif -----------------------------------------------------------
+ 153 | function handleGamepadEventName(name) {
+ 154 |   const ev = normalizeEventName(name);
+ 155 |   if (!ev) return;
+ 156 | 
+ 157 |   // Toujours notifier le brut (capture)
+ 158 |   emitRaw(ev);
+ 159 | 
+ 160 |   // Déclenchement selon mapping
+ 161 |   if ((mapping.toggle || []).includes(ev)) {
+ 162 |     broadcastHotkey("toggle");
+ 163 |     return;
+ 164 |   }
+ 165 |   if ((mapping.swap || []).includes(ev)) {
+ 166 |     broadcastHotkey("swap");
+ 167 |     return;
+ 168 |   }
+ 169 | }
+ 170 | 
+ 171 | function launch() {
+ 172 |   const exe = resolveExePath();
+ 173 |   if (!existsSync(exe)) return;
+ 174 | 
+ 175 |   child = spawn(exe, [], {
+ 176 |     stdio: ["ignore", "pipe", "ignore"],
+ 177 |     windowsHide: true,
+ 178 |   });
+ 179 | 
+ 180 |   let buffer = "";
+ 181 |   child.stdout.on("data", (chunk) => {
+ 182 |     buffer += chunk.toString("utf8");
+ 183 |     let idx;
+ 184 |     while ((idx = buffer.indexOf("\n")) >= 0) {
+ 185 |       const line = buffer.slice(0, idx).trim();
+ 186 |       buffer = buffer.slice(idx + 1);
+ 187 |       if (line) handleGamepadEventName(line);
+ 188 |     }
+ 189 |   });
+ 190 | 
+ 191 |   child.on("exit", () => {
+ 192 |     child = null;
+ 193 |     if (isQuitting) return;
+ 194 |     clearTimeout(relaunchTimer);
+ 195 |     relaunchTimer = setTimeout(launch, 1000);
+ 196 |   });
+ 197 | 
+ 198 |   child.on("error", () => {
+ 199 |     child = null;
+ 200 |     if (isQuitting) return;
+ 201 |     clearTimeout(relaunchTimer);
+ 202 |     relaunchTimer = setTimeout(launch, 1500);
+ 203 |   });
+ 204 | }
+ 205 | 
+ 206 | function setupGamepadExe() {
+ 207 |   if (process.platform !== "win32") return; // l’app est Windows-only, garde au cas où
+ 208 | 
+ 209 |   loadMapping();
+ 210 |   try {
+ 211 |     watch(configFilePath(), { persistent: false }, () => loadMapping());
+ 212 |   } catch {}
+ 213 | 
+ 214 |   launch();
+ 215 | 
+ 216 |   app.on("before-quit", () => {
+ 217 |     isQuitting = true;
+ 218 |     try {
+ 219 |       clearTimeout(relaunchTimer);
+ 220 |     } catch {}
+ 221 |     try {
+ 222 |       child?.kill();
+ 223 |     } catch {}
+ 224 |   });
+ 225 |   app.on("will-quit", () => {
+ 226 |     isQuitting = true;
+ 227 |     try {
+ 228 |       clearTimeout(relaunchTimer);
+ 229 |     } catch {}
+ 230 |     try {
+ 231 |       child?.kill();
+ 232 |     } catch {}
+ 233 |   });
+ 234 | }
+ 235 | 
+ 236 | module.exports = {
+ 237 |   setupGamepadExe,
+ 238 |   onGamepadRaw,
+ 239 |   setGamepadMapping,
+ 240 | };
+
+```
+
+`dbdoverlaytools-free/electron\input\uiohook.cjs`:
+
+```cjs
+   1 | // electron/input/uiohook.cjs
+   2 | // Charge uIOhook et gère clavier + souris (capture & runtime)
+   3 | 
+   4 | let _uIOhook = null;
+   5 | let _loaded = false;
+   6 | 
+   7 | let requireFn,
+   8 |   FORCE_NO_UIOHOOK,
+   9 |   hasVCRedist,
+  10 |   dialog,
+  11 |   shell,
+  12 |   VC_REDIST_X64_URL,
+  13 |   logHK,
+  14 |   getOverlayWindow,
+  15 |   dispatchHotkey,
+  16 |   // capture API
+  17 |   isCapturing,
+  18 |   getCaptureBlockUntil,
+  19 |   onCaptureKeyboardCode,
+  20 |   onCaptureMouseLabel,
+  21 |   // binds & codes
+  22 |   getHotkeys,
+  23 |   getMouseBinds,
+  24 |   setUsingUiohook;
+  25 | 
+  26 | function setupUiohook(ctx) {
+  27 |   ({
+  28 |     require: requireFn,
+  29 |     FORCE_NO_UIOHOOK,
+  30 |     hasVCRedist,
+  31 |     dialog,
+  32 |     shell,
+  33 |     VC_REDIST_X64_URL,
+  34 |     logHK,
+  35 |     getOverlayWindow,
+  36 |     dispatchHotkey,
+  37 |     isCapturing,
+  38 |     getCaptureBlockUntil,
+  39 |     onCaptureKeyboardCode,
+  40 |     onCaptureMouseLabel,
+  41 |     getHotkeys,
+  42 |     getMouseBinds,
+  43 |     setUsingUiohook,
+  44 |   } = ctx);
+  45 | 
+  46 |   // essaie de charger uiohook immédiatement (mais ne démarre qu'avec start())
+  47 |   try {
+  48 |     if (FORCE_NO_UIOHOOK) throw new Error("uIOhook forcibly disabled via .env");
+  49 |     const lib = requireFn("uiohook-napi");
+  50 |     _uIOhook = lib.uIOhook;
+  51 |     _loaded = true;
+  52 |     logHK && logHK("uiohook loaded OK");
+  53 |   } catch (e) {
+  54 |     _uIOhook = null;
+  55 |     _loaded = false;
+  56 |     logHK && logHK("uiohook FAILED to load -> fallback", e?.message || e);
+  57 |   }
+  58 | }
+  59 | 
+  60 | function isLoaded() {
+  61 |   return !!_loaded && !!_uIOhook;
+  62 | }
+  63 | 
+  64 | function stop() {
+  65 |   try {
+  66 |     if (_uIOhook) _uIOhook.stop();
+  67 |   } catch {}
+  68 | }
+  69 | 
+  70 | function start() {
+  71 |   if (!_uIOhook) {
+  72 |     // Prompt éventuel si non chargé
+  73 |     const vcPresent = hasVCRedist();
+  74 |     (async () => {
+  75 |       if (!vcPresent) {
+  76 |         const { response } = await dialog.showMessageBox({
+  77 |           type: "warning",
+  78 |           title: "Pass-Through unavailable",
+  79 |           message: "uIOhook couldn’t start because the Microsoft C++ runtime is missing.",
+  80 |           detail:
+  81 |             "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”. " +
+  82 |             "It provides the system libraries (MSVCP140 / VCRUNTIME140) required to listen to A–Z / 0–9 without stealing them from other apps. " +
+  83 |             "After installing, restart the app and recapture your hotkeys to enable pass-through.",
+  84 |           buttons: ["Install runtime (x64)", "Continue in limited mode"],
+  85 |           defaultId: 0,
+  86 |           cancelId: 1,
+  87 |           noLink: true,
+  88 |         });
+  89 |         if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
+  90 |       } else {
+  91 |         await dialog.showMessageBox({
+  92 |           type: "warning",
+  93 |           title: "Pass-Through unavailable",
+  94 |           message: "uIOhook couldn’t start even though the C++ runtime is present.",
+  95 |           detail:
+  96 |             "Possible causes: antivirus/anti-cheat blocking global hooks, architecture mismatch, native module not rebuilt, or asar not unpacked.\n\n" +
+  97 |             "You can still use function keys (F1/F2) in limited mode. " +
+  98 |             "To use A–Z / 0–9 with pass-through, ensure uIOhook loads successfully.",
+  99 |           buttons: ["OK"],
+ 100 |           noLink: true,
+ 101 |         });
+ 102 |       }
+ 103 |       // fallback mode
+ 104 |       setUsingUiohook(false);
+ 105 |     })();
+ 106 |     return;
+ 107 |   }
+ 108 | 
+ 109 |   // Handlers
+ 110 |   const RATE = 180;
+ 111 |   let lastToggle = 0,
+ 112 |     lastSwap = 0;
+ 113 | 
+ 114 |   _uIOhook.on("keydown", (e) => {
+ 115 |     logHK &&
+ 116 |       logHK("uiohook keydown", {
+ 117 |         keycode: e.keycode,
+ 118 |         captureState: isCapturing(),
+ 119 |         now: Date.now(),
+ 120 |         blockUntil: getCaptureBlockUntil(),
+ 121 |       });
+ 122 | 
+ 123 |     // Capture: récupérer le keycode
+ 124 |     if (isCapturing()) {
+ 125 |       onCaptureKeyboardCode(e.keycode);
+ 126 |       return;
+ 127 |     }
+ 128 | 
+ 129 |     // Runtime: déclenchement si codes définis
+ 130 |     if (!getOverlayWindow() || getOverlayWindow().isDestroyed()) return;
+ 131 |     if (Date.now() < getCaptureBlockUntil()) return;
+ 132 | 
+ 133 |     const now = Date.now();
+ 134 |     const hk = getHotkeys();
+ 135 |     if (Number.isFinite(hk.start) && e.keycode === hk.start) {
+ 136 |       if (now - lastToggle < RATE) return;
+ 137 |       lastToggle = now;
+ 138 |       dispatchHotkey("toggle");
+ 139 |     } else if (Number.isFinite(hk.swap) && e.keycode === hk.swap) {
+ 140 |       if (now - lastSwap < RATE) return;
+ 141 |       lastSwap = now;
+ 142 |       dispatchHotkey("swap");
+ 143 |     }
+ 144 |   });
+ 145 | 
+ 146 |   // Souris
+ 147 |   let lastMouseToggle = 0,
+ 148 |     lastMouseSwap = 0;
+ 149 | 
+ 150 |   function mouseLabelFromEvent(e, kind) {
+ 151 |     if (kind === "wheel") {
+ 152 |       const rot =
+ 153 |         typeof e.rotation === "number"
+ 154 |           ? e.rotation
+ 155 |           : typeof e.amount === "number"
+ 156 |           ? e.amount
+ 157 |           : typeof e.deltaY === "number"
+ 158 |           ? e.deltaY
+ 159 |           : 0;
+ 160 |       return rot < 0 ? "WHEEL_UP" : "WHEEL_DOWN";
+ 161 |     }
+ 162 |     const b = e.button; // 1=left,2=right,3=middle,>=4 extra
+ 163 |     if (b === 1 || b === 2) return null; // exclure gauche/droit
+ 164 |     if (b === 3) return "MOUSE3";
+ 165 |     if (b >= 4) return `MOUSE${b}`;
+ 166 |     return null;
+ 167 |   }
+ 168 | 
+ 169 |   _uIOhook.on("mousedown", (e) => {
+ 170 |     const label = mouseLabelFromEvent(e, "mousedown");
+ 171 |     if (!label) return;
+ 172 | 
+ 173 |     // Capture: on pousse le label
+ 174 |     if (isCapturing()) {
+ 175 |       onCaptureMouseLabel(label);
+ 176 |       return;
+ 177 |     }
+ 178 | 
+ 179 |     // Runtime
+ 180 |     if (!getOverlayWindow() || getOverlayWindow().isDestroyed()) return;
+ 181 |     if (Date.now() < getCaptureBlockUntil()) return;
+ 182 | 
+ 183 |     const now = Date.now();
+ 184 |     const mb = getMouseBinds();
+ 185 |     if (mb.start && label === mb.start) {
+ 186 |       if (now - lastMouseToggle < RATE) return;
+ 187 |       lastMouseToggle = now;
+ 188 |       dispatchHotkey("toggle");
+ 189 |     } else if (mb.swap && label === mb.swap) {
+ 190 |       if (now - lastMouseSwap < RATE) return;
+ 191 |       lastMouseSwap = now;
+ 192 |       dispatchHotkey("swap");
+ 193 |     }
+ 194 |   });
+ 195 | 
+ 196 |   _uIOhook.on("wheel", (e) => {
+ 197 |     const label = mouseLabelFromEvent(e, "wheel");
+ 198 | 
+ 199 |     if (isCapturing()) {
+ 200 |       onCaptureMouseLabel(label);
+ 201 |       return;
+ 202 |     }
+ 203 | 
+ 204 |     if (!getOverlayWindow() || getOverlayWindow().isDestroyed()) return;
+ 205 |     if (Date.now() < getCaptureBlockUntil()) return;
+ 206 | 
+ 207 |     const now = Date.now();
+ 208 |     const mb = getMouseBinds();
+ 209 |     if (mb.start && label === mb.start) {
+ 210 |       if (now - lastMouseToggle < RATE) return;
+ 211 |       lastMouseToggle = now;
+ 212 |       dispatchHotkey("toggle");
+ 213 |     } else if (mb.swap && label === mb.swap) {
+ 214 |       if (now - lastMouseSwap < RATE) return;
+ 215 |       lastMouseSwap = now;
+ 216 |       dispatchHotkey("swap");
+ 217 |     }
+ 218 |   });
+ 219 | 
+ 220 |   // Démarrer
+ 221 |   try {
+ 222 |     _uIOhook.start();
+ 223 |     logHK && logHK("uiohook started (capture enabled)");
+ 224 |   } catch (e) {
+ 225 |     logHK && logHK("uiohook START failed -> fallback", e?.message || e);
+ 226 |     setUsingUiohook(false);
+ 227 |     return;
+ 228 |   }
+ 229 | 
+ 230 |   // Mode d'entrée : fallback tant que les deux codes ne sont pas définis
+ 231 |   const hk = getHotkeys();
+ 232 |   const haveCodes = Number.isFinite(hk.start) && Number.isFinite(hk.swap);
+ 233 |   setUsingUiohook(!!haveCodes);
+ 234 | }
+ 235 | 
+ 236 | module.exports = {
+ 237 |   setupUiohook,
+ 238 |   start,
+ 239 |   stop,
+ 240 |   isLoaded,
+ 241 | };
+
+```
+
 `dbdoverlaytools-free/electron\main.mjs`:
 
 ```mjs
-   1 | import { app, BrowserWindow, ipcMain, screen, globalShortcut, shell, Menu, dialog } from "electron";
-   2 | import { join, dirname } from "node:path";
-   3 | import { fileURLToPath } from "node:url";
-   4 | import Store from "electron-store";
-   5 | import { createRequire } from "node:module";
-   6 | import fs from "node:fs";
-   7 | import * as dotenv from "dotenv";
-   8 | 
-   9 | /* -------------------- .env loader -------------------- */
-  10 | // Order: .env then .env.development (later overrides earlier)
-  11 | (function loadEnvFiles() {
-  12 |   const root = process.cwd();
-  13 |   const files = [".env", ".env.development"];
-  14 |   for (const name of files) {
-  15 |     const p = join(root, name);
-  16 |     if (fs.existsSync(p)) dotenv.config({ path: p, override: true });
-  17 |   }
-  18 | })();
-  19 | 
-  20 | /* -------------------- flags via .env -------------------- */
-  21 | const FORCE_NO_UIOHOOK  = process.env.FORCE_NO_UIOHOOK === "1";
-  22 | const FORCE_NO_VCREDIST = process.env.FORCE_NO_VCREDIST === "1";
-  23 | const DEBUG_HK          = process.env.DEBUG_HK === "1";
-  24 | 
-  25 | const require = createRequire(import.meta.url);
-  26 | let uIOhook = null;
-  27 | const __dirname = dirname(fileURLToPath(import.meta.url));
-  28 | const isDev = process.env.NODE_ENV === "development";
-  29 | 
-  30 | if (process.platform === "win32") {
-  31 |   app.setAppUserModelId("com.steaxs.dbdtimer.free");
-  32 | }
-  33 | 
-  34 | const iconPath = isDev
-  35 |   ? join(__dirname, "../build/icon.ico")
-  36 |   : join(process.resourcesPath, "icon.ico");
-  37 | 
-  38 | const store = new Store();
-  39 | 
-  40 | let mainWindow = null;
-  41 | let overlayWindow = null;
-  42 | let usingUiohook = false;
+   1 | import {
+   2 |   app,
+   3 |   BrowserWindow,
+   4 |   ipcMain,
+   5 |   globalShortcut,
+   6 |   shell,
+   7 |   Menu,
+   8 |   dialog,
+   9 | } from "electron";
+  10 | import { join, dirname } from "node:path";
+  11 | import { fileURLToPath } from "node:url";
+  12 | import Store from "electron-store";
+  13 | import { createRequire } from "node:module";
+  14 | import fs from "node:fs";
+  15 | 
+  16 | const require = createRequire(import.meta.url);
+  17 | 
+  18 | // Modules CJS
+  19 | const windows = require("./windows/windows.cjs");
+  20 | const capture = require("./hotkeys/capture.cjs");
+  21 | const uio = require("./input/uiohook.cjs");
+  22 | const {
+  23 |   setupGamepadExe,
+  24 |   onGamepadRaw,
+  25 |   setGamepadMapping,
+  26 | } = require("./input/gamepad-exe.cjs");
+  27 | 
+  28 | /** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
+  29 | (function loadDevEnv() {
+  30 |   if (app.isPackaged) return; // en prod: ne rien charger
+  31 |   let dotenv;
+  32 |   try {
+  33 |     dotenv = require("dotenv");
+  34 |   } catch {
+  35 |     return;
+  36 |   }
+  37 |   const root = process.cwd();
+  38 |   for (const name of [".env", ".env.development"]) {
+  39 |     const p = join(root, name);
+  40 |     if (fs.existsSync(p)) dotenv.config({ path: p, override: true });
+  41 |   }
+  42 | })();
   43 | 
-  44 | // dimensions non-scalées du contenu (hors drag bar)
-  45 | let baseDims = { width: 520, height: 120 };
-  46 | 
-  47 | // hotkeys: codes (uiohook) + labels (affichage & fallback)
-  48 | let hotkeys = store.get("hotkeys") || { start: null, swap: null };
-  49 | let hotkeysLabel = store.get("hotkeysLabel") || { start: "F1", swap: "F2" };
-  50 | 
-  51 | // état de capture transactionnelle
-  52 | let captureState = null; // { type:'start'|'swap', label:null|string, code:null|number, primaryTimer:any, secondaryTimer:any }
-  53 | let captureWaitUntil = 0; // time (ms) jusqu’auquel on ne dispatch pas aux timers
-  54 | 
-  55 | // ===== debug =====
-  56 | const logHK = (...args) => {
-  57 |   if (DEBUG_HK) console.log("[HK]", ...args);
-  58 | };
+  44 | /* -------------------- flags via .env -------------------- */
+  45 | const FORCE_NO_UIOHOOK = process.env.FORCE_NO_UIOHOOK === "1";
+  46 | const FORCE_NO_VCREDIST = process.env.FORCE_NO_VCREDIST === "1";
+  47 | const DEBUG_HK = process.env.DEBUG_HK === "1";
+  48 | 
+  49 | const __dirname = dirname(fileURLToPath(import.meta.url));
+  50 | const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+  51 | 
+  52 | if (process.platform === "win32") {
+  53 |   app.setAppUserModelId("com.steaxs.dbdtimer.free");
+  54 | }
+  55 | 
+  56 | const iconPath = isDev
+  57 |   ? join(__dirname, "../build/icon.ico")
+  58 |   : join(process.resourcesPath, "icon.ico");
   59 | 
-  60 | // ===== config aide uIOhook (Windows) =====
-  61 | const VC_REDIST_X64_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
-  62 | 
-  63 | // Détection simple du VC++ 2015–2022 (x64) via DLLs clés
-  64 | function hasVCRedist() {
-  65 |   if (FORCE_NO_VCREDIST) return false; // simulation via .env
-  66 |   if (process.platform !== "win32") return true;
-  67 |   const win = process.env.windir || "C:\\Windows";
-  68 |   const sys32 = join(win, "System32");
-  69 |   const dlls = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"];
-  70 |   try { return dlls.every(d => fs.existsSync(join(sys32, d))); }
-  71 |   catch { return false; }
-  72 | }
-  73 | 
-  74 | /* -------------------- dedup dispatch (fix double toggle/reset) -------------------- */
-  75 | const DEDUP_RATE = 220; // ms
-  76 | let lastToggleMs = 0;
-  77 | let lastSwapMs = 0;
-  78 | 
-  79 | function dispatchHotkey(type) {
-  80 |   const now = Date.now();
-  81 |   if (type === "toggle") {
-  82 |     if (now - lastToggleMs < DEDUP_RATE) return;
-  83 |     lastToggleMs = now;
-  84 |     overlayWindow?.webContents.send("global-hotkey", { type: "toggle" });
-  85 |     logHK("DISPATCH toggle (dedup)");
-  86 |   } else if (type === "swap") {
-  87 |     if (now - lastSwapMs < DEDUP_RATE) return;
-  88 |     lastSwapMs = now;
-  89 |     overlayWindow?.webContents.send("global-hotkey", { type: "swap" });
-  90 |     logHK("DISPATCH swap (dedup)");
-  91 |   }
-  92 | }
-  93 | 
-  94 | /* -------------------- utils -------------------- */
-  95 | function isAlphaNumLabel(k) {
-  96 |   return typeof k === "string" && /^[A-Z0-9]$/.test(k);
-  97 | }
-  98 | 
-  99 | function applyAlwaysOnTop(win, on) {
- 100 |   try {
- 101 |     win.setAlwaysOnTop(!!on, "screen-saver");
- 102 |     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
- 103 |     win.setFullScreenable(false);
- 104 |   } catch {}
- 105 | }
- 106 | 
- 107 | function sendOverlaySettings() {
- 108 |   if (overlayWindow && !overlayWindow.isDestroyed()) {
- 109 |     const s = store.get("overlaySettings", {
- 110 |       x: 0,
- 111 |       y: 0,
- 112 |       scale: 100,
- 113 |       locked: true,
- 114 |       alwaysOnTop: true,
- 115 |     });
- 116 |     overlayWindow.webContents.send("overlay-settings", s);
- 117 |   }
- 118 | }
- 119 | 
- 120 | function recomputeOverlaySize() {
- 121 |   if (!overlayWindow || overlayWindow.isDestroyed()) return;
- 122 |   const s = store.get("overlaySettings", { scale: 100, locked: true });
- 123 |   const dragH = s.locked ? 0 : 30;
- 124 |   const scale = (s.scale || 100) / 100;
- 125 |   const w = Math.ceil(baseDims.width * scale);
- 126 |   const h = Math.ceil((baseDims.height + dragH) * scale);
- 127 |   overlayWindow.setContentSize(w, h);
- 128 |   sendOverlaySettings();
- 129 | }
- 130 | 
- 131 | function sendHotkeysMode() {
- 132 |   if (mainWindow && !mainWindow.isDestroyed()) {
- 133 |     mainWindow.webContents.send("hotkeys-mode", usingUiohook ? "pass-through" : "fallback");
- 134 |   }
- 135 | }
- 136 | 
- 137 | function makeLabelFromBeforeInput(input) {
- 138 |   let k = input.key || "";
- 139 |   if (/^F\d{1,2}$/.test(k)) return k;
- 140 |   if (/^[a-z]$/.test(k)) return k.toUpperCase();
- 141 |   if (/^\d$/.test(k)) return k;
- 142 |   if (k === " ") return "SPACE";
- 143 |   const map = {
- 144 |     Escape: "ESC",
- 145 |     Tab: "TAB",
- 146 |     Enter: "ENTER",
- 147 |     Backspace: "BACKSPACE",
- 148 |     Shift: "SHIFT",
- 149 |     Control: "CTRL",
- 150 |     Alt: "ALT",
- 151 |     Meta: "META",
- 152 |     ArrowUp: "UP",
- 153 |     ArrowDown: "DOWN",
- 154 |     ArrowLeft: "LEFT",
- 155 |     ArrowRight: "RIGHT",
- 156 |   };
- 157 |   if (map[k]) return map[k];
- 158 |   const code = input.code || "";
- 159 |   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
- 160 |   if (/^Digit\d$/.test(code)) return code.slice(5);
- 161 |   return k && k.length <= 6 ? k.toUpperCase() : code || "KEY";
- 162 | }
- 163 | 
- 164 | function clearCaptureTimers() {
- 165 |   if (!captureState) return;
- 166 |   if (captureState.primaryTimer) { clearTimeout(captureState.primaryTimer); captureState.primaryTimer = null; }
- 167 |   if (captureState.secondaryTimer) { clearTimeout(captureState.secondaryTimer); captureState.secondaryTimer = null; }
- 168 | }
- 169 | 
- 170 | function finalizeCapture(reason = "done") {
- 171 |   if (!captureState) return;
- 172 |   const { type, label, code } = captureState;
- 173 |   clearCaptureTimers();
- 174 | 
- 175 |   logHK("CAPTURE FINALIZE", { reason, type, label, code });
- 176 | 
- 177 |   // Persistance si on a reçu des infos
- 178 |   if (label) {
- 179 |     hotkeysLabel = { ...hotkeysLabel, [type]: label };
- 180 |     store.set("hotkeysLabel", hotkeysLabel);
- 181 |   }
- 182 |   if (typeof code === "number") {
- 183 |     hotkeys = { ...hotkeys, [type]: code };
- 184 |     store.set("hotkeys", hotkeys);
- 185 |   }
- 186 | 
- 187 |   // Notifie le panel uniquement si on a reçu label ou code
- 188 |   if (mainWindow && !mainWindow.isDestroyed() && (label || typeof code === "number")) {
- 189 |     const payload = { type };
- 190 |     if (label) payload.label = label;
- 191 |     if (typeof code === "number") payload.keycode = code;
- 192 |     mainWindow.webContents.send("hotkeys-captured", payload);
- 193 |   }
- 194 | 
- 195 |   // Alerte uniquement si VC++ manquant ET alphanum tenté sans uIOhook
- 196 |   if (!usingUiohook && label && isAlphaNumLabel(label) && !hasVCRedist()) {
- 197 |     dialog.showMessageBox({
- 198 |       type: "info",
- 199 |       title: "Pass-Through unavailable",
- 200 |       message:
- 201 |         "A–Z / 0–9 hotkeys can’t be used in Limited Mode (without uIOhook) without stealing them from other apps.",
- 202 |       detail:
- 203 |         "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”, restart the app, "
- 204 |         + "then recapture your hotkeys to enable pass-through (so you can still type those letters in Discord, etc.).",
- 205 |       buttons: ["Install runtime (x64)", "OK"],
- 206 |       defaultId: 0,
- 207 |       cancelId: 1,
- 208 |       noLink: true,
- 209 |     }).then(({ response }) => {
- 210 |       if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
- 211 |     });
- 212 |   }
- 213 | 
- 214 |   // Si, après cette capture, on a les 2 codes et uIOhook tourne -> passer en pass-through
- 215 |   const haveBoth = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
- 216 |   if (uIOhook && haveBoth && !usingUiohook) {
- 217 |     usingUiohook = true;
- 218 |     try { globalShortcut.unregisterAll(); } catch {}
- 219 |     sendHotkeysMode();
- 220 |   }
- 221 | 
- 222 |   // Reset capture
- 223 |   captureState = null;
- 224 |   captureWaitUntil = 0;
- 225 | 
- 226 |   // Réarmer fallback si nécessaire
- 227 |   if (!usingUiohook) refreshHotkeyEngine();
- 228 | }
- 229 | 
- 230 | /** Force l’ouverture des liens http(s) dans le navigateur par défaut et bloque toute navigation sortante dans l’app */
- 231 | function enforceExternalLinks(win) {
- 232 |   if (!win || win.isDestroyed()) return;
- 233 | 
- 234 |   // window.open / target=_blank
- 235 |   win.webContents.setWindowOpenHandler(({ url }) => {
- 236 |     if (/^https?:\/\//i.test(url)) { shell.openExternal(url); return { action: "deny" }; }
- 237 |     return { action: "deny" };
- 238 |   });
- 239 | 
- 240 |   // Drag’n’drop/lien cliqué qui tenterait une navigation
- 241 |   win.webContents.on("will-navigate", (e, url) => {
- 242 |     const isLocal = url.startsWith("file:") || url.startsWith("http://localhost");
- 243 |     if (!isLocal && /^https?:\/\//i.test(url)) { e.preventDefault(); shell.openExternal(url); }
- 244 |   });
- 245 | 
- 246 |   // Pas de menu « Inspecter » en prod
- 247 |   if (!isDev) win.webContents.on("context-menu", (e) => e.preventDefault());
- 248 | }
- 249 | 
- 250 | /* -------------------- windows -------------------- */
- 251 | function createMainWindow() {
- 252 |   const saved = store.get("windowState") || {};
- 253 |   const width = Math.max(saved.width || 1120, 980);
- 254 |   const height = Math.max(saved.height || 820, 720);
- 255 | 
- 256 |   mainWindow = new BrowserWindow({
- 257 |     width,
- 258 |     height,
- 259 |     x: saved.x,
- 260 |     y: saved.y,
- 261 |     minWidth: 980,
- 262 |     minHeight: 720,
- 263 |     show: false,
- 264 |     icon: iconPath,
- 265 |     autoHideMenuBar: true,
- 266 |     webPreferences: {
- 267 |       nodeIntegration: false,
- 268 |       contextIsolation: true,
- 269 |       preload: join(__dirname, "preload.cjs"),
- 270 |       devTools: isDev,
- 271 |     },
- 272 |   });
- 273 | 
- 274 |   Menu.setApplicationMenu(null);
- 275 |   mainWindow.setMenuBarVisibility(false);
- 276 |   mainWindow.webContents.on("before-input-event", (event, input) => {
- 277 |     if (input.type === "keyDown" && (input.key === "Alt" || input.code === "AltLeft" || input.code === "AltRight")) {
- 278 |       event.preventDefault();
- 279 |     }
- 280 |   });
- 281 | 
- 282 |   if (isDev) {
- 283 |     mainWindow.loadURL("http://localhost:5173");
- 284 |     mainWindow.webContents.openDevTools({ mode: "detach" });
- 285 |   } else {
- 286 |     mainWindow.loadFile(join(__dirname, "../dist/index.html"));
- 287 |     // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
- 288 |     mainWindow.webContents.on("before-input-event", (e, input) => {
- 289 |       const combo = (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
- 290 |       if (combo || input.key === "F12") e.preventDefault();
- 291 |     });
- 292 |   }
- 293 | 
- 294 |   mainWindow.once("ready-to-show", () => mainWindow.show());
- 295 |   mainWindow.on("close", () => {
- 296 |     const b = mainWindow.getBounds();
- 297 |     store.set("windowState", b);
- 298 |   });
- 299 |   mainWindow.on("closed", () => {
- 300 |     mainWindow = null;
- 301 |     if (overlayWindow) overlayWindow.close();
+  60 | const store = new Store();
+  61 | 
+  62 | // single-instance (évite hooks dupliqués)
+  63 | if (!app.requestSingleInstanceLock()) {
+  64 |   app.quit();
+  65 | }
+  66 | 
+  67 | /* -------------------- store keys & defaults -------------------- */
+  68 | const K = {
+  69 |   WINDOW: "windowState",
+  70 |   OVERLAY: "overlaySettings",
+  71 |   TIMER: "timerData",
+  72 |   HK_CODES: "hotkeys",
+  73 |   HK_LABELS: "hotkeysLabel",
+  74 |   MOUSE_BINDS: "mouseBinds",
+  75 | };
+  76 | const defaults = {
+  77 |   [K.OVERLAY]: { x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true },
+  78 |   [K.TIMER]: {
+  79 |     player1: { name: "Player 1", score: 0 },
+  80 |     player2: { name: "Player 2", score: 0 },
+  81 |   },
+  82 |   [K.HK_CODES]: { start: null, swap: null },
+  83 |   [K.HK_LABELS]: { start: "F1", swap: "F2" },
+  84 |   [K.MOUSE_BINDS]: { start: null, swap: null },
+  85 | };
+  86 | const getStore = (key) => store.get(key) ?? defaults[key];
+  87 | 
+  88 | /* -------------------- état runtime -------------------- */
+  89 | let mainWindow = null;
+  90 | let overlayWindow = null;
+  91 | let usingUiohook = false;
+  92 | 
+  93 | // dimensions non-scalées du contenu (hors drag bar)
+  94 | let baseDims = { width: 520, height: 120 };
+  95 | 
+  96 | // hotkeys: codes (uiohook) + labels (affichage & fallback)
+  97 | let hotkeys = getStore(K.HK_CODES);
+  98 | let hotkeysLabel = getStore(K.HK_LABELS);
+  99 | let mouseBinds = getStore(K.MOUSE_BINDS);
+ 100 | 
+ 101 | // ===== debug =====
+ 102 | const logHK = (...args) => {
+ 103 |   if (DEBUG_HK) console.log("[HK]", ...args);
+ 104 | };
+ 105 | 
+ 106 | /* -------------------- helpers communs -------------------- */
+ 107 | const VC_REDIST_X64_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
+ 108 | 
+ 109 | // Détection VC++ 2015–2022 (x64)
+ 110 | function hasVCRedist() {
+ 111 |   if (FORCE_NO_VCREDIST) return false;
+ 112 |   if (process.platform !== "win32") return true;
+ 113 |   const win = process.env.windir || "C:\\Windows";
+ 114 |   const sys32 = join(win, "System32");
+ 115 |   const dlls = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"];
+ 116 |   try {
+ 117 |     return dlls.every((d) => fs.existsSync(join(sys32, d)));
+ 118 |   } catch {
+ 119 |     return false;
+ 120 |   }
+ 121 | }
+ 122 | 
+ 123 | // Dédup unifié
+ 124 | function createRateLimiter(defaultMs = 200) {
+ 125 |   const last = new Map();
+ 126 |   return (key, ms = defaultMs) => {
+ 127 |     const now = Date.now();
+ 128 |     const t = last.get(key) || 0;
+ 129 |     if (now - t < ms) return false;
+ 130 |     last.set(key, now);
+ 131 |     return true;
+ 132 |   };
+ 133 | }
+ 134 | const canFire = createRateLimiter(220);
+ 135 | 
+ 136 | function isAlphaNumLabel(k) {
+ 137 |   return typeof k === "string" && /^[A-Z0-9]$/.test(k);
+ 138 | }
+ 139 | 
+ 140 | // Normalise un label depuis before-input-event (fallback)
+ 141 | function makeLabelFromBeforeInput(input) {
+ 142 |   let k = input.key || "";
+ 143 |   if (/^F\d{1,2}$/.test(k)) return k;
+ 144 |   if (/^[a-z]$/.test(k)) return k.toUpperCase();
+ 145 |   if (/^\d$/.test(k)) return k;
+ 146 |   if (k === " ") return "SPACE";
+ 147 |   const map = {
+ 148 |     Escape: "ESC",
+ 149 |     Tab: "TAB",
+ 150 |     Enter: "ENTER",
+ 151 |     Backspace: "BACKSPACE",
+ 152 |     Shift: "SHIFT",
+ 153 |     Control: "CTRL",
+ 154 |     Alt: "ALT",
+ 155 |     Meta: "META",
+ 156 |     ArrowUp: "UP",
+ 157 |     ArrowDown: "DOWN",
+ 158 |     ArrowLeft: "LEFT",
+ 159 |     ArrowRight: "RIGHT",
+ 160 |   };
+ 161 |   if (map[k]) return k;
+ 162 |   const code = input.code || "";
+ 163 |   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
+ 164 |   if (/^Digit\d$/.test(code)) return code.slice(5);
+ 165 |   return k && k.length <= 6 ? k.toUpperCase() : code || "KEY";
+ 166 | }
+ 167 | 
+ 168 | /* -------------------- dispatch centralisé vers l’overlay -------------------- */
+ 169 | function dispatchHotkey(type) {
+ 170 |   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+ 171 |   if (!canFire(type, 220)) return;
+ 172 |   overlayWindow.webContents.send("global-hotkey", { type });
+ 173 |   logHK("DISPATCH", type);
+ 174 | }
+ 175 | 
+ 176 | /* -------------------- wiring modules -------------------- */
+ 177 | // Initialiser le module fenêtres
+ 178 | windows.initWindows({
+ 179 |   store,
+ 180 |   iconPath,
+ 181 |   isDev,
+ 182 |   baseDims,
+ 183 |   getBaseDims: () => baseDims,
+ 184 |   setBaseDims: (w, h) => {
+ 185 |     baseDims = { width: Math.max(1, Math.floor(w)), height: Math.max(1, Math.floor(h)) };
+ 186 |   },
+ 187 |   onOverlayMove: (x, y) => {
+ 188 |     // débounce léger (100ms)
+ 189 |     if (windows._moveDebounce) clearTimeout(windows._moveDebounce);
+ 190 |     windows._moveDebounce = setTimeout(() => {
+ 191 |       store.set("overlaySettings.x", x);
+ 192 |       store.set("overlaySettings.y", y);
+ 193 |     }, 120);
+ 194 |   },
+ 195 |   onOverlayReadyChange: (ready) => {
+ 196 |     if (mainWindow && !mainWindow.isDestroyed())
+ 197 |       mainWindow.webContents.send("overlay-ready", !!ready);
+ 198 |   },
+ 199 | });
+ 200 | 
+ 201 | // Initialiser le module capture
+ 202 | capture.initCapture({
+ 203 |   ipcMain,
+ 204 |   store,
+ 205 |   globalShortcut,
+ 206 |   dialog,
+ 207 |   shell,
+ 208 |   VC_REDIST_X64_URL,
+ 209 |   hasVCRedist,
+ 210 |   logHK,
+ 211 |   getMainWindow: () => mainWindow,
+ 212 |   getOverlayWindow: () => overlayWindow,
+ 213 |   getUsingUiohook: () => usingUiohook,
+ 214 |   setUsingUiohook: (v) => (usingUiohook = !!v),
+ 215 |   getHotkeys: () => hotkeys,
+ 216 |   setHotkeys: (next) => {
+ 217 |     hotkeys = next;
+ 218 |     store.set(K.HK_CODES, hotkeys);
+ 219 |   },
+ 220 |   getHotkeysLabel: () => hotkeysLabel,
+ 221 |   setHotkeysLabel: (next) => {
+ 222 |     hotkeysLabel = next;
+ 223 |     store.set(K.HK_LABELS, hotkeysLabel);
+ 224 |   },
+ 225 |   getMouseBinds: () => mouseBinds,
+ 226 |   setMouseBinds: (next) => {
+ 227 |     mouseBinds = next;
+ 228 |     store.set(K.MOUSE_BINDS, mouseBinds);
+ 229 |   },
+ 230 |   makeLabelFromBeforeInput,
+ 231 |   isAlphaNumLabel,
+ 232 |   sendHotkeysMode: (mode) => {
+ 233 |     if (mainWindow && !mainWindow.isDestroyed()) {
+ 234 |       mainWindow.webContents.send("hotkeys-mode", mode);
+ 235 |     }
+ 236 |   },
+ 237 |   dispatchHotkey,
+ 238 |   onGamepadRaw,         // ↔️ gamepad
+ 239 |   setGamepadMapping,    // ↔️ gamepad
+ 240 | });
+ 241 | 
+ 242 | // Initialiser le module uIOhook (clavier + souris)
+ 243 | uio.setupUiohook({
+ 244 |   require,            // pour charger uiohook-napi
+ 245 |   FORCE_NO_UIOHOOK,
+ 246 |   hasVCRedist,
+ 247 |   dialog,
+ 248 |   shell,
+ 249 |   VC_REDIST_X64_URL,
+ 250 |   logHK,
+ 251 |   getOverlayWindow: () => overlayWindow,
+ 252 |   dispatchHotkey,
+ 253 |   // capture integration:
+ 254 |   isCapturing: () => capture.isCapturing(),
+ 255 |   getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+ 256 |   onCaptureKeyboardCode: (code) => capture.onKeyboardCode(code),
+ 257 |   onCaptureMouseLabel: (label) => capture.onMouseLabel(label),
+ 258 |   // binds & codes
+ 259 |   getHotkeys: () => hotkeys,
+ 260 |   getMouseBinds: () => mouseBinds,
+ 261 |   setUsingUiohook: (v) => {
+ 262 |     usingUiohook = !!v;
+ 263 |     const mode = usingUiohook ? "pass-through" : "fallback";
+ 264 |     if (mainWindow && !mainWindow.isDestroyed()) {
+ 265 |       mainWindow.webContents.send("hotkeys-mode", mode);
+ 266 |     }
+ 267 |     if (!usingUiohook) {
+ 268 |       // (re)activer globalShortcut fallback
+ 269 |       capture.refreshHotkeyEngine({
+ 270 |         globalShortcut,
+ 271 |         hotkeysLabel,
+ 272 |         isAlphaNumLabel,
+ 273 |         logHK,
+ 274 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+ 275 |         dispatchHotkey,
+ 276 |       });
+ 277 |     } else {
+ 278 |       try {
+ 279 |         globalShortcut.unregisterAll();
+ 280 |       } catch {}
+ 281 |     }
+ 282 |   },
+ 283 | });
+ 284 | 
+ 285 | // Expose quelques helpers Windows au module capture
+ 286 | capture.attachWindowsAPI({
+ 287 |   sendOverlaySettings: () => windows.sendOverlaySettings(overlayWindow, store, isDev),
+ 288 | });
+ 289 | 
+ 290 | /* -------------------- IPC (panneau ↔ main) -------------------- */
+ 291 | function setupIPC() {
+ 292 |   ipcMain.handle("overlay-show", () => {
+ 293 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
+ 294 |     return true;
+ 295 |   });
+ 296 |   ipcMain.handle("overlay-hide", () => {
+ 297 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
+ 298 |     overlayWindow = null;
+ 299 |     if (mainWindow && !mainWindow.isDestroyed())
+ 300 |       mainWindow.webContents.send("overlay-ready", false);
+ 301 |     return true;
  302 |   });
- 303 | }
- 304 | 
- 305 | function createOverlayWindow() {
- 306 |   if (overlayWindow && !overlayWindow.isDestroyed()) { overlayWindow.show(); overlayWindow.focus(); return; }
- 307 | 
- 308 |   // --- INIT ROBUSTE ---
- 309 |   let s = store.get("overlaySettings") || {};
- 310 |   const pd = screen.getPrimaryDisplay();
- 311 |   const origin = pd.bounds; // coin strict de l’écran principal
- 312 | 
- 313 |   if (!Number.isFinite(s.x)) s.x = origin.x;
- 314 |   if (!Number.isFinite(s.y)) s.y = origin.y;
- 315 |   if (typeof s.scale !== "number") s.scale = 100;
- 316 |   if (typeof s.locked !== "boolean") s.locked = true;
- 317 |   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
- 318 |   store.set("overlaySettings", s);
- 319 |   // --- FIN INIT ROBUSTE
- 320 | 
- 321 |   const dragH = s.locked ? 0 : 30;
- 322 |   const scale = (s.scale || 100) / 100;
- 323 | 
- 324 |   overlayWindow = new BrowserWindow({
- 325 |     width: Math.ceil(baseDims.width * scale),
- 326 |     height: Math.ceil((baseDims.height + dragH) * scale),
- 327 |     x: s.x,
- 328 |     y: s.y,
- 329 |     frame: false,
- 330 |     transparent: true,
- 331 |     resizable: false,
- 332 |     hasShadow: false,
- 333 |     skipTaskbar: false,
- 334 |     focusable: true,
- 335 |     title: "DBD Timer Overlay by Doc & Steaxs",
- 336 |     acceptFirstMouse: true,
- 337 |     backgroundColor: "#00000000",
- 338 |     useContentSize: true,
- 339 |     show: false, // évite tout flash avant réception des settings
- 340 |     webPreferences: {
- 341 |       nodeIntegration: false,
- 342 |       contextIsolation: true,
- 343 |       preload: join(__dirname, "preload.cjs"),
- 344 |       backgroundThrottling: false,
- 345 |       devTools: isDev,
- 346 |     },
- 347 |   });
- 348 | 
- 349 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
- 350 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
- 351 | 
- 352 |   const url = isDev ? "http://localhost:5173/overlay.html" : join(__dirname, "../dist/overlay.html");
- 353 |   if (isDev) overlayWindow.loadURL(url);
- 354 |   else overlayWindow.loadFile(url);
- 355 | 
- 356 |   enforceExternalLinks(overlayWindow);
- 357 | 
- 358 |   if (!isDev) {
- 359 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
- 360 |       const combo = (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
- 361 |       if (combo || input.key === "F12") e.preventDefault();
- 362 |     });
- 363 |   }
- 364 | 
- 365 |   overlayWindow.on("closed", () => {
- 366 |     overlayWindow = null;
- 367 |     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("overlay-ready", false);
- 368 |   });
- 369 |   overlayWindow.on("move", () => {
- 370 |     const b = overlayWindow.getBounds();
- 371 |     store.set("overlaySettings.x", b.x);
- 372 |     store.set("overlaySettings.y", b.y);
- 373 |   });
- 374 | 
- 375 |   overlayWindow.webContents.on("did-finish-load", () => {
- 376 |     const data = store.get("timerData") || { player1: { name: "Player 1", score: 0 }, player2: { name: "Player 2", score: 0 } };
- 377 |     overlayWindow.webContents.send("timer-data-sync", data);
- 378 | 
- 379 |     sendOverlaySettings(); // avant affichage
- 380 |     recomputeOverlaySize();
- 381 | 
- 382 |     if (mainWindow) mainWindow.webContents.send("overlay-ready", true);
- 383 |     overlayWindow.show();
+ 303 | 
+ 304 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
+ 305 |     const current = getStore(K.OVERLAY);
+ 306 |     const next = { ...current, ...settings };
+ 307 |     store.set(K.OVERLAY, next);
+ 308 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
+ 309 | 
+ 310 |     if (settings.locked !== undefined) {
+ 311 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
+ 312 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
+ 313 |     }
+ 314 |     if (settings.alwaysOnTop !== undefined)
+ 315 |       windows.applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
+ 316 |     if (settings.x !== undefined || settings.y !== undefined) {
+ 317 |       const b = overlayWindow.getBounds();
+ 318 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
+ 319 |     }
+ 320 |     if (settings.scale !== undefined || settings.locked !== undefined)
+ 321 |       windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
+ 322 |     windows.sendOverlaySettings(overlayWindow, store, isDev);
+ 323 |     return true;
+ 324 |   });
+ 325 | 
+ 326 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
+ 327 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
+ 328 |       return false;
+ 329 |     baseDims = {
+ 330 |       width: Math.max(1, Math.floor(dims.width)),
+ 331 |       height: Math.max(1, Math.floor(dims.height)),
+ 332 |     };
+ 333 |     windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
+ 334 |     return true;
+ 335 |   });
+ 336 | 
+ 337 |   // Timer data
+ 338 |   ipcMain.handle("timer-data-get", () => getStore(K.TIMER));
+ 339 |   ipcMain.handle("timer-data-set", (_evt, data) => {
+ 340 |     store.set(K.TIMER, data);
+ 341 |     if (overlayWindow && !overlayWindow.isDestroyed())
+ 342 |       overlayWindow.webContents.send("timer-data-sync", data);
+ 343 |     return true;
+ 344 |   });
+ 345 | 
+ 346 |   // Hotkeys API
+ 347 |   ipcMain.handle("hotkeys-get", () => ({
+ 348 |     start: hotkeys.start,
+ 349 |     swap: hotkeys.swap,
+ 350 |     startLabel: hotkeysLabel.start,
+ 351 |     swapLabel: hotkeysLabel.swap,
+ 352 |     mode: usingUiohook ? "pass-through" : "fallback",
+ 353 |   }));
+ 354 | 
+ 355 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
+ 356 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
+ 357 |     store.set(K.HK_CODES, hotkeys);
+ 358 | 
+ 359 |     const haveCodes =
+ 360 |       Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
+ 361 | 
+ 362 |     if (haveCodes && uio.isLoaded()) {
+ 363 |       // on bascule en pass-through
+ 364 |       try {
+ 365 |         globalShortcut.unregisterAll();
+ 366 |       } catch {}
+ 367 |       usingUiohook = true;
+ 368 |       if (mainWindow && !mainWindow.isDestroyed())
+ 369 |         mainWindow.webContents.send("hotkeys-mode", "pass-through");
+ 370 |     } else if (!haveCodes) {
+ 371 |       usingUiohook = false;
+ 372 |       capture.refreshHotkeyEngine({
+ 373 |         globalShortcut,
+ 374 |         hotkeysLabel,
+ 375 |         isAlphaNumLabel,
+ 376 |         logHK,
+ 377 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+ 378 |         dispatchHotkey,
+ 379 |       });
+ 380 |       if (mainWindow && !mainWindow.isDestroyed())
+ 381 |         mainWindow.webContents.send("hotkeys-mode", "fallback");
+ 382 |     }
+ 383 |     return true;
  384 |   });
- 385 | }
- 386 | 
- 387 | /* -------------------- IPC -------------------- */
- 388 | function setupIPC() {
- 389 |   ipcMain.handle("overlay-show", () => { createOverlayWindow(); return true; });
- 390 |   ipcMain.handle("overlay-hide", () => {
- 391 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
- 392 |     overlayWindow = null;
- 393 |     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("overlay-ready", false);
- 394 |     return true;
- 395 |   });
- 396 | 
- 397 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
- 398 |     const current = store.get("overlaySettings", {});
- 399 |     const next = { ...current, ...settings };
- 400 |     store.set("overlaySettings", next);
- 401 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
- 402 | 
- 403 |     if (settings.locked !== undefined) {
- 404 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
- 405 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
- 406 |     }
- 407 |     if (settings.alwaysOnTop !== undefined) applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
- 408 |     if (settings.x !== undefined || settings.y !== undefined) {
- 409 |       const b = overlayWindow.getBounds();
- 410 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
- 411 |     }
- 412 |     if (settings.scale !== undefined || settings.locked !== undefined) recomputeOverlaySize();
- 413 |     sendOverlaySettings();
- 414 |     return true;
- 415 |   });
- 416 | 
- 417 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
- 418 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height)) return false;
- 419 |     baseDims = { width: Math.max(1, Math.floor(dims.width)), height: Math.max(1, Math.floor(dims.height)) };
- 420 |     recomputeOverlaySize();
- 421 |     return true;
- 422 |   });
- 423 | 
- 424 |   // Timer data
- 425 |   ipcMain.handle("timer-data-get", () => store.get("timerData") || {
- 426 |     player1: { name: "Player 1", score: 0 }, player2: { name: "Player 2", score: 0 },
- 427 |   });
- 428 |   ipcMain.handle("timer-data-set", (_evt, data) => {
- 429 |     store.set("timerData", data);
- 430 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.webContents.send("timer-data-sync", data);
- 431 |     return true;
- 432 |   });
- 433 | 
- 434 |   // Hotkeys API
- 435 |   ipcMain.handle("hotkeys-get", () => ({
- 436 |     start: hotkeys.start,
- 437 |     swap: hotkeys.swap,
- 438 |     startLabel: hotkeysLabel.start,
- 439 |     swapLabel: hotkeysLabel.swap,
- 440 |     mode: usingUiohook ? "pass-through" : "fallback",
- 441 |   }));
- 442 | 
- 443 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
- 444 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
- 445 |     store.set("hotkeys", hotkeys);
- 446 |     const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
- 447 | 
- 448 |     if (haveCodes && uIOhook) {
- 449 |       // on bascule en pass-through
- 450 |       try { globalShortcut.unregisterAll(); } catch {}
- 451 |       usingUiohook = true;
- 452 |       sendHotkeysMode();
- 453 |     } else if (!haveCodes) {
- 454 |       // rester / revenir en fallback labels (F1/F2) tant que les 2 codes ne sont pas prêts
- 455 |       usingUiohook = false;
- 456 |       refreshHotkeyEngine();
- 457 |     }
- 458 |     return true;
- 459 |   });
- 460 | 
- 461 |   // 🚀 capture 100% main-process, transactionnelle
- 462 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
- 463 |     if (!(type === "start" || type === "swap")) { finalizeCapture("cancel"); return true; }
- 464 | 
- 465 |     logHK("CAPTURE BEGIN", { type, mode: usingUiohook ? "pass-through" : "fallback" });
- 466 | 
- 467 |     // Bloquer le dispatch vers les timers pendant la capture (long pour te laisser le temps)
- 468 |     captureWaitUntil = Date.now() + 15000;
- 469 | 
- 470 |     // Reset/annule capture précédente si elle existe
- 471 |     if (captureState) { clearCaptureTimers(); captureState = null; }
- 472 | 
- 473 |     // État de capture : pas de timer court au début; on attend la première frappe
- 474 |     captureState = {
- 475 |       type,
- 476 |       label: null,
- 477 |       code: null,
- 478 |       primaryTimer: setTimeout(() => { logHK("CAPTURE PRIMARY TIMEOUT — cancel"); finalizeCapture("primary-timeout"); }, 15000),
- 479 |       secondaryTimer: null,
- 480 |     };
- 481 | 
- 482 |     // focus le panneau
- 483 |     try { mainWindow?.focus(); logHK("focused mainWindow?", mainWindow?.isFocused()); } catch (e) { logHK("focus error", e?.message || e); }
- 484 | 
- 485 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
- 486 |     if (!usingUiohook) {
- 487 |       try { globalShortcut.unregisterAll(); logHK("fallback: unregistered to let key through"); } catch {}
- 488 |     }
- 489 | 
- 490 |     // écouter une fois la prochaine touche (pour le label layout-aware)
- 491 |     const once = (event, input) => {
- 492 |       if (!captureState) return;
- 493 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
- 494 |       logHK("before-input-event keyDown", { key: input.key, code: input.code });
- 495 |       const label = makeLabelFromBeforeInput(input);
- 496 | 
- 497 |       captureState.label = label;
- 498 |       hotkeysLabel = { ...hotkeysLabel, [type]: label };
- 499 |       store.set("hotkeysLabel", hotkeysLabel);
- 500 | 
- 501 |       // notifie instantanément le panel (affichage immédiat)
- 502 |       mainWindow?.webContents.send("hotkeys-captured", { type, label });
- 503 |       logHK("label captured (instant)", { type, label });
- 504 | 
- 505 |       // Si le code est déjà là -> on finalise; sinon, petite fenêtre pour le laisser arriver
- 506 |       if (typeof captureState.code === "number") {
- 507 |         finalizeCapture("have both");
- 508 |       } else {
- 509 |         if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
- 510 |         captureState.secondaryTimer = setTimeout(() => finalizeCapture("after-label-wait"), 500);
- 511 |       }
- 512 | 
- 513 |       mainWindow?.webContents.removeListener("before-input-event", once);
- 514 |     };
- 515 |     mainWindow?.webContents.on("before-input-event", once);
- 516 |     logHK("before-input-event listener ARMED");
- 517 | 
- 518 |     return true;
- 519 |   });
- 520 | }
- 521 | 
- 522 | /* -------------------- Hotkeys engines -------------------- */
- 523 | function refreshHotkeyEngine() {
- 524 |   if (usingUiohook) { logHK("refreshHotkeyEngine: pass-through (no globalShortcut)"); return; }
- 525 |   try { globalShortcut.unregisterAll(); logHK("globalShortcut: unregistered all"); } catch {}
- 526 |   const RATE = 180;
- 527 |   let lastT = 0, lastS = 0;
- 528 | 
- 529 |   const sKey = hotkeysLabel.start || "F1";
- 530 |   const wKey = hotkeysLabel.swap || "F2";
- 531 | 
- 532 |   // En fallback, on NE PREND PAS A–Z / 0–9 pour ne pas voler la frappe aux autres apps.
- 533 |   const canUse = (label) => !isAlphaNumLabel(label);
- 534 | 
- 535 |   logHK("globalShortcut: registering (fallback)", {
- 536 |     start: canUse(sKey) ? sKey : "(skipped: alnum passthrough-only)",
- 537 |     swap:  canUse(wKey) ? wKey : "(skipped: alnum passthrough-only)",
- 538 |   });
- 539 | 
- 540 |   if (canUse(sKey)) {
- 541 |     try {
- 542 |       globalShortcut.register(sKey, () => {
- 543 |         if (Date.now() < captureWaitUntil) { logHK("fallback toggle skipped (capturing)"); return; }
- 544 |         const now = Date.now(); if (now - lastT < RATE) return; lastT = now;
- 545 |         dispatchHotkey("toggle");
- 546 |       });
- 547 |     } catch (e) { logHK("register start failed", e?.message || e); }
- 548 |   }
- 549 | 
- 550 |   if (canUse(wKey)) {
- 551 |     try {
- 552 |       globalShortcut.register(wKey, () => {
- 553 |         if (Date.now() < captureWaitUntil) { logHK("fallback swap skipped (capturing)"); return; }
- 554 |         const now = Date.now(); if (now - lastS < RATE) return; lastS = now;
- 555 |         dispatchHotkey("swap");
- 556 |       });
- 557 |     } catch (e) { logHK("register swap failed", e?.message || e); }
- 558 |   }
- 559 | }
- 560 | 
- 561 | // uIOhook global (pass-through)
- 562 | async function setupUiohook() {
- 563 |   try {
- 564 |     logHK("Trying to load uiohook-napi…");
- 565 |     if (FORCE_NO_UIOHOOK) throw new Error("uIOhook forcibly disabled via .env");
- 566 |     const lib = require("uiohook-napi");
- 567 |     uIOhook = lib.uIOhook;
- 568 |     logHK("uiohook loaded OK");
- 569 |   } catch (e) {
- 570 |     logHK("uiohook FAILED to load -> fallback", e?.message || e);
- 571 | 
- 572 |     const vcPresent = hasVCRedist();
- 573 |     if (!vcPresent) {
- 574 |       const { response } = await dialog.showMessageBox({
- 575 |         type: "warning",
- 576 |         title: "Pass-Through unavailable",
- 577 |         message: "uIOhook couldn’t start because the Microsoft C++ runtime is missing.",
- 578 |         detail:
- 579 |           "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”. "
- 580 |           + "It provides the system libraries (MSVCP140 / VCRUNTIME140) required to listen to A–Z / 0–9 without stealing them from other apps. "
- 581 |           + "After installing, restart the app and recapture your hotkeys to enable pass-through.",
- 582 |         buttons: ["Install runtime (x64)", "Continue in limited mode"],
- 583 |         defaultId: 0, cancelId: 1, noLink: true,
- 584 |       });
- 585 |       if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
- 586 |     } else {
- 587 |       await dialog.showMessageBox({
- 588 |         type: "warning",
- 589 |         title: "Pass-Through unavailable",
- 590 |         message: "uIOhook couldn’t start even though the C++ runtime is present.",
- 591 |         detail:
- 592 |           "Possible causes: antivirus/anti-cheat blocking global hooks, architecture mismatch, native module not rebuilt, or asar not unpacked.\n\n"
- 593 |           + "You can still use function keys (F1/F2) in limited mode. "
- 594 |           + "To use A–Z / 0–9 with pass-through, ensure uIOhook loads successfully.",
- 595 |         buttons: ["OK"], noLink: true,
- 596 |       });
- 597 |     }
- 598 | 
- 599 |     usingUiohook = false;
- 600 |     sendHotkeysMode();
- 601 |     refreshHotkeyEngine();
- 602 |     return;
- 603 |   }
- 604 | 
- 605 |   // --- Handlers uIOhook (toujours actifs pour la capture)
- 606 |   let lastToggle = 0, lastSwap = 0;
- 607 |   const RATE = 180;
- 608 | 
- 609 |   uIOhook.on("keydown", (e) => {
- 610 |     logHK("uiohook keydown", { keycode: e.keycode, captureState: !!captureState, now: Date.now(), blockUntil: captureWaitUntil });
- 611 | 
- 612 |     // Capture de la touche (pour récupérer le "code" même quand on est en fallback)
- 613 |     if (captureState) {
- 614 |       captureState.code = e.keycode;
- 615 |       if (captureState.label) finalizeCapture("have both");
- 616 |       else {
- 617 |         if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
- 618 |         captureState.secondaryTimer = setTimeout(() => finalizeCapture("after-code-wait"), 600);
- 619 |       }
- 620 |       return;
- 621 |     }
- 622 | 
- 623 |     // Déclenchement normal uniquement si les codes existent
- 624 |     if (!overlayWindow || overlayWindow.isDestroyed()) return;
- 625 |     if (Date.now() < captureWaitUntil) return;
- 626 | 
- 627 |     const now = Date.now();
- 628 |     if (Number.isFinite(hotkeys.start) && e.keycode === hotkeys.start) {
- 629 |       if (now - lastToggle < RATE) return; lastToggle = now;
- 630 |       dispatchHotkey("toggle");
- 631 |     } else if (Number.isFinite(hotkeys.swap) && e.keycode === hotkeys.swap) {
- 632 |       if (now - lastSwap < RATE) return; lastSwap = now;
- 633 |       dispatchHotkey("swap");
- 634 |     }
- 635 |   });
- 636 | 
- 637 |   // --- Démarrer uIOhook dans tous les cas pour permettre la capture A–Z / 0–9
- 638 |   try { uIOhook.start(); logHK("uiohook started (capture enabled)"); }
- 639 |   catch (e) { logHK("uiohook START failed -> fallback", e?.message || e); }
- 640 | 
- 641 |   // --- Mode d'entrée : fallback tant que les deux codes ne sont pas définis
- 642 |   const haveCodes = Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
- 643 |   usingUiohook = !!haveCodes;
- 644 |   sendHotkeysMode();
- 645 |   if (usingUiohook) {
- 646 |     try { globalShortcut.unregisterAll(); } catch {}
- 647 |   } else {
- 648 |     refreshHotkeyEngine(); // garder F1/F2 dispo jusqu'à ce que les 2 codes soient capturés
- 649 |   }
- 650 | }
- 651 | 
- 652 | /* -------------------- lifecycle -------------------- */
- 653 | app.commandLine.appendSwitch("enable-zero-copy");
- 654 | app.commandLine.appendSwitch("ignore-gpu-blocklist");
- 655 | 
- 656 | app.whenReady().then(() => {
- 657 |   createMainWindow();
- 658 |   setupIPC();
- 659 |   setupUiohook();
- 660 |   setTimeout(createOverlayWindow, 800);
- 661 | });
- 662 | app.on("will-quit", () => {
- 663 |   try { if (usingUiohook) uIOhook.stop(); } catch {}
- 664 |   try { globalShortcut.unregisterAll(); } catch {}
- 665 | });
- 666 | app.on("window-all-closed", () => { app.quit(); });
+ 385 | 
+ 386 |   // 🚀 Capture: tout le workflow (IPC) déplacé dans le module capture
+ 387 |   capture.setupCaptureIPC();
+ 388 | }
+ 389 | 
+ 390 | /* -------------------- lifecycle -------------------- */
+ 391 | app.commandLine.appendSwitch("enable-zero-copy");
+ 392 | app.commandLine.appendSwitch("ignore-gpu-blocklist");
+ 393 | 
+ 394 | app.whenReady().then(() => {
+ 395 |   mainWindow = windows.createMainWindow(store, iconPath, isDev);
+ 396 |   setupIPC();
+ 397 |   uio.start(); // lance uIOhook (si possible) et configure mode fallback/pass-through
+ 398 |   setTimeout(() => {
+ 399 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
+ 400 |   }, 800);
+ 401 |   setupGamepadExe();
+ 402 | }).catch(err => console.error("[Electron] whenReady error:", err));
+ 403 | 
+ 404 | app.on("second-instance", () => {
+ 405 |   if (mainWindow) {
+ 406 |     if (mainWindow.isMinimized()) mainWindow.restore();
+ 407 |     mainWindow.show();
+ 408 |     mainWindow.focus();
+ 409 |   }
+ 410 | });
+ 411 | 
+ 412 | app.on("will-quit", () => {
+ 413 |   try {
+ 414 |     if (uio.isLoaded()) uio.stop();
+ 415 |   } catch {}
+ 416 |   try {
+ 417 |     globalShortcut.unregisterAll();
+ 418 |   } catch {}
+ 419 | });
+ 420 | 
+ 421 | app.on("window-all-closed", () => {
+ 422 |   app.quit();
+ 423 | });
 
 ```
 
@@ -933,6 +1608,269 @@ dbdoverlaytools-free
 
 ```
 
+`dbdoverlaytools-free/electron\windows\windows.cjs`:
+
+```cjs
+   1 | // electron/windows/windows.cjs
+   2 | const { BrowserWindow, shell, screen, Menu } = require("electron");
+   3 | const { join } = require("node:path");
+   4 | 
+   5 | let store = null;
+   6 | let iconPath = "";
+   7 | let isDev = false;
+   8 | let baseDims = { width: 520, height: 120 };
+   9 | let _getBaseDims = () => baseDims;
+  10 | let _setBaseDims = (w, h) => (baseDims = { width: w, height: h });
+  11 | let _onOverlayMove = null;
+  12 | let _onOverlayReadyChange = null;
+  13 | 
+  14 | let mainWindow = null;
+  15 | let overlayWindow = null;
+  16 | 
+  17 | function initWindows(ctx) {
+  18 |   store = ctx.store;
+  19 |   iconPath = ctx.iconPath;
+  20 |   isDev = !!ctx.isDev;
+  21 |   baseDims = ctx.baseDims || baseDims;
+  22 |   _getBaseDims = ctx.getBaseDims || _getBaseDims;
+  23 |   _setBaseDims = ctx.setBaseDims || _setBaseDims;
+  24 |   _onOverlayMove = ctx.onOverlayMove || null;
+  25 |   _onOverlayReadyChange = ctx.onOverlayReadyChange || null;
+  26 | }
+  27 | 
+  28 | function applyAlwaysOnTop(win, on) {
+  29 |   try {
+  30 |     win.setAlwaysOnTop(!!on, "screen-saver");
+  31 |     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  32 |     win.setFullScreenable(false);
+  33 |   } catch {}
+  34 | }
+  35 | 
+  36 | function enforceExternalLinks(win) {
+  37 |   if (!win || win.isDestroyed()) return;
+  38 | 
+  39 |   // window.open / target=_blank
+  40 |   win.webContents.setWindowOpenHandler(({ url }) => {
+  41 |     if (/^https?:\/\//i.test(url)) {
+  42 |       shell.openExternal(url);
+  43 |       return { action: "deny" };
+  44 |     }
+  45 |     return { action: "deny" };
+  46 |   });
+  47 | 
+  48 |   // Drag’n’drop/lien cliqué qui tenterait une navigation
+  49 |   win.webContents.on("will-navigate", (e, url) => {
+  50 |     const isLocal = url.startsWith("file:") || url.startsWith("http://localhost");
+  51 |     if (!isLocal && /^https?:\/\//i.test(url)) {
+  52 |       e.preventDefault();
+  53 |       shell.openExternal(url);
+  54 |     }
+  55 |   });
+  56 | 
+  57 |   // Pas de menu « Inspecter » en prod
+  58 |   if (!isDev) win.webContents.on("context-menu", (e) => e.preventDefault());
+  59 | }
+  60 | 
+  61 | function sendOverlaySettings(ov, storeRef, isDevFlag) {
+  62 |   if (ov && !ov.isDestroyed()) {
+  63 |     const s = (storeRef || store).get("overlaySettings", {
+  64 |       x: 0,
+  65 |       y: 0,
+  66 |       scale: 100,
+  67 |       locked: true,
+  68 |       alwaysOnTop: true,
+  69 |     });
+  70 |     ov.webContents.send("overlay-settings", s);
+  71 |   }
+  72 | }
+  73 | 
+  74 | function recomputeOverlaySize(ov, storeRef, getBaseDims) {
+  75 |   if (!ov || ov.isDestroyed()) return;
+  76 |   const s =
+  77 |     (storeRef || store).get("overlaySettings", { scale: 100, locked: true });
+  78 |   const dragH = s.locked ? 0 : 30;
+  79 |   const scale = (s.scale || 100) / 100;
+  80 |   const dims = (getBaseDims || _getBaseDims)();
+  81 |   const w = Math.ceil(dims.width * scale);
+  82 |   const h = Math.ceil((dims.height + dragH) * scale);
+  83 |   ov.setContentSize(w, h);
+  84 |   sendOverlaySettings(ov, storeRef, isDev);
+  85 | }
+  86 | 
+  87 | function createMainWindow(storeRef, icoPath, isDevFlag) {
+  88 |   const saved = (storeRef || store).get("windowState") || {};
+  89 |   const width = Math.max(saved.width || 1120, 980);
+  90 |   const height = Math.max(saved.height || 820, 720);
+  91 | 
+  92 |   mainWindow = new BrowserWindow({
+  93 |     width,
+  94 |     height,
+  95 |     x: saved.x,
+  96 |     y: saved.y,
+  97 |     minWidth: 980,
+  98 |     minHeight: 720,
+  99 |     show: false,
+ 100 |     icon: icoPath || iconPath,
+ 101 |     autoHideMenuBar: true,
+ 102 |     webPreferences: {
+ 103 |       nodeIntegration: false,
+ 104 |       contextIsolation: true,
+ 105 |       preload: join(__dirname, "../preload.cjs"),
+ 106 |       devTools: !!isDevFlag || isDev,
+ 107 |     },
+ 108 |   });
+ 109 | 
+ 110 |   Menu.setApplicationMenu?.(null);
+ 111 |   mainWindow.setMenuBarVisibility(false);
+ 112 | 
+ 113 |   // Bloque Alt menu (évite le flash de barre menu)
+ 114 |   mainWindow.webContents.on("before-input-event", (event, input) => {
+ 115 |     if (
+ 116 |       input.type === "keyDown" &&
+ 117 |       (input.key === "Alt" || input.code === "AltLeft" || input.code === "AltRight")
+ 118 |     ) {
+ 119 |       event.preventDefault();
+ 120 |     }
+ 121 |   });
+ 122 | 
+ 123 |   if (!!isDevFlag || isDev) {
+ 124 |     mainWindow.loadURL("http://localhost:5173");
+ 125 |     mainWindow.webContents.openDevTools({ mode: "detach" });
+ 126 |   } else {
+ 127 |     mainWindow.loadFile(join(__dirname, "../../dist/index.html"));
+ 128 |     // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
+ 129 |     mainWindow.webContents.on("before-input-event", (e, input) => {
+ 130 |       const combo =
+ 131 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
+ 132 |       if (combo || input.key === "F12") e.preventDefault();
+ 133 |     });
+ 134 |   }
+ 135 | 
+ 136 |   mainWindow.once("ready-to-show", () => mainWindow.show());
+ 137 |   mainWindow.on("close", () => {
+ 138 |     const b = mainWindow.getBounds();
+ 139 |     (storeRef || store).set("windowState", b);
+ 140 |   });
+ 141 |   mainWindow.on("closed", () => {
+ 142 |     mainWindow = null;
+ 143 |     if (overlayWindow) overlayWindow.close();
+ 144 |   });
+ 145 | 
+ 146 |   return mainWindow;
+ 147 | }
+ 148 | 
+ 149 | function createOverlayWindow(currentOverlay, currentMain) {
+ 150 |   if (currentOverlay && !currentOverlay.isDestroyed()) {
+ 151 |     currentOverlay.show();
+ 152 |     currentOverlay.focus();
+ 153 |     overlayWindow = currentOverlay;
+ 154 |     return overlayWindow;
+ 155 |   }
+ 156 | 
+ 157 |   // --- INIT ROBUSTE ---
+ 158 |   let s = (store || {}).get?.("overlaySettings") || {};
+ 159 |   const pd = screen.getPrimaryDisplay();
+ 160 |   const origin = pd.bounds;
+ 161 | 
+ 162 |   if (!Number.isFinite(s.x)) s.x = origin.x;
+ 163 |   if (!Number.isFinite(s.y)) s.y = origin.y;
+ 164 |   if (typeof s.scale !== "number") s.scale = 100;
+ 165 |   if (typeof s.locked !== "boolean") s.locked = true;
+ 166 |   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
+ 167 |   store.set("overlaySettings", s);
+ 168 |   // --- FIN INIT ROBUSTE
+ 169 | 
+ 170 |   const dragH = s.locked ? 0 : 30;
+ 171 |   const scale = (s.scale || 100) / 100;
+ 172 |   const dims = _getBaseDims();
+ 173 | 
+ 174 |   overlayWindow = new BrowserWindow({
+ 175 |     width: Math.ceil(dims.width * scale),
+ 176 |     height: Math.ceil((dims.height + dragH) * scale),
+ 177 |     x: s.x,
+ 178 |     y: s.y,
+ 179 |     frame: false,
+ 180 |     transparent: true,
+ 181 |     resizable: false,
+ 182 |     hasShadow: false,
+ 183 |     skipTaskbar: false,
+ 184 |     focusable: true,
+ 185 |     title: "DBD Timer Overlay by Doc & Steaxs",
+ 186 |     acceptFirstMouse: true,
+ 187 |     backgroundColor: "#00000000",
+ 188 |     useContentSize: true,
+ 189 |     show: false,
+ 190 |     webPreferences: {
+ 191 |       nodeIntegration: false,
+ 192 |       contextIsolation: true,
+ 193 |       preload: join(__dirname, "../preload.cjs"),
+ 194 |       backgroundThrottling: false,
+ 195 |       devTools: !!isDev,
+ 196 |     },
+ 197 |   });
+ 198 | 
+ 199 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
+ 200 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
+ 201 | 
+ 202 |   const url = isDev
+ 203 |     ? "http://localhost:5173/overlay.html"
+ 204 |     : join(__dirname, "../../dist/overlay.html");
+ 205 |   if (isDev) overlayWindow.loadURL(url);
+ 206 |   else overlayWindow.loadFile(url);
+ 207 | 
+ 208 |   enforceExternalLinks(overlayWindow);
+ 209 | 
+ 210 |   if (!isDev) {
+ 211 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
+ 212 |       const combo =
+ 213 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
+ 214 |       if (combo || input.key === "F12") e.preventDefault();
+ 215 |     });
+ 216 |   }
+ 217 | 
+ 218 |   overlayWindow.on("closed", () => {
+ 219 |     overlayWindow = null;
+ 220 |     _onOverlayReadyChange && _onOverlayReadyChange(false);
+ 221 |   });
+ 222 |   overlayWindow.on("move", () => {
+ 223 |     const b = overlayWindow.getBounds();
+ 224 |     _onOverlayMove && _onOverlayMove(b.x, b.y);
+ 225 |   });
+ 226 | 
+ 227 |   overlayWindow.webContents.on("did-finish-load", () => {
+ 228 |     const data =
+ 229 |       store.get("timerData") || {
+ 230 |         player1: { name: "Player 1", score: 0 },
+ 231 |         player2: { name: "Player 2", score: 0 },
+ 232 |       };
+ 233 |     overlayWindow.webContents.send("timer-data-sync", data);
+ 234 | 
+ 235 |     sendOverlaySettings(overlayWindow, store, isDev);
+ 236 |     recomputeOverlaySize(overlayWindow, store, _getBaseDims);
+ 237 | 
+ 238 |     _onOverlayReadyChange && _onOverlayReadyChange(true);
+ 239 |     overlayWindow.show();
+ 240 |   });
+ 241 | 
+ 242 |   return overlayWindow;
+ 243 | }
+ 244 | 
+ 245 | module.exports = {
+ 246 |   initWindows,
+ 247 |   createMainWindow,
+ 248 |   createOverlayWindow,
+ 249 |   enforceExternalLinks,
+ 250 |   applyAlwaysOnTop,
+ 251 |   sendOverlaySettings,
+ 252 |   recomputeOverlaySize,
+ 253 | 
+ 254 |   // (utiles si besoin)
+ 255 |   getMainWindow: () => mainWindow,
+ 256 |   getOverlayWindow: () => overlayWindow,
+ 257 | };
+
+```
+
 `dbdoverlaytools-free/index.html`:
 
 ```html
@@ -949,6 +1887,223 @@ dbdoverlaytools-free
   11 |     <script type="module" src="/src/main.tsx"></script>
   12 |   </body>
   13 | </html>
+
+```
+
+`dbdoverlaytools-free/native\xinput_bridge.cpp`:
+
+```cpp
+   1 | // native/xinput_bridge.cpp
+   2 | // Compile : cl /O2 /EHsc xinput_bridge.cpp /link /SUBSYSTEM:CONSOLE
+   3 | // Emissions stdout (une ligne par "press") :
+   4 | //   BTN A|B|X|Y|LB|RB|LS|RS|START|BACK
+   5 | //   DPAD UP|DOWN|LEFT|RIGHT
+   6 | //   TRIGGER LT|RT
+   7 | //   AXIS LX_POS|LX_NEG|LY_POS|LY_NEG|RX_POS|RX_NEG|RY_POS|RY_NEG
+   8 | //
+   9 | // Le Node bridge mappe ensuite ces libellés vers "toggle" / "swap".
+  10 | 
+  11 | #define WIN32_LEAN_AND_MEAN
+  12 | #include <windows.h>
+  13 | #include <Xinput.h>
+  14 | #include <cstdio>
+  15 | #include <cstring>
+  16 | 
+  17 | #pragma comment(lib, "Xinput9_1_0.lib") // fallback à l’édition disponible
+  18 | 
+  19 | typedef DWORD (WINAPI *XInputGetState_t)(DWORD, XINPUT_STATE*);
+  20 | static XInputGetState_t pXInputGetState = nullptr;
+  21 | static HMODULE hXInput = nullptr;
+  22 | 
+  23 | static bool loadXInput() {
+  24 |     const wchar_t* dlls[] = {
+  25 |         L"xinput1_4.dll",   // Win8+
+  26 |         L"xinput1_3.dll",   // SDK June 2010
+  27 |         L"xinput9_1_0.dll"  // Vista/Win7
+  28 |     };
+  29 |     for (auto dll : dlls) {
+  30 |         hXInput = LoadLibraryW(dll);
+  31 |         if (hXInput) {
+  32 |             pXInputGetState = (XInputGetState_t)GetProcAddress(hXInput, "XInputGetState");
+  33 |             if (pXInputGetState) return true;
+  34 |             FreeLibrary(hXInput);
+  35 |             hXInput = nullptr;
+  36 |         }
+  37 |     }
+  38 |     return false;
+  39 | }
+  40 | 
+  41 | static inline void emit(const char* s) {
+  42 |     std::fputs(s, stdout);
+  43 |     std::fputc('\n', stdout);
+  44 |     std::fflush(stdout);
+  45 | }
+  46 | 
+  47 | struct AxisLatch {
+  48 |     bool pos = false;
+  49 |     bool neg = false;
+  50 | };
+  51 | 
+  52 | struct ControllerState {
+  53 |     bool connected = false;
+  54 |     bool initialized = false;
+  55 |     XINPUT_STATE prev{};
+  56 |     bool ltDown = false;
+  57 |     bool rtDown = false;
+  58 |     AxisLatch lx{}, ly{}, rx{}, ry{};
+  59 | };
+  60 | 
+  61 | static const int TRIGGER_THRESHOLD = 30; // 0..255
+  62 | static const SHORT LEFT_DEADZONE  = XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE;  // 7849
+  63 | static const SHORT RIGHT_DEADZONE = XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE; // 8689
+  64 | 
+  65 | static void checkButtons(const XINPUT_GAMEPAD& now, const XINPUT_GAMEPAD& old) {
+  66 |     struct Btn { WORD mask; const char* name; } btns[] = {
+  67 |         { XINPUT_GAMEPAD_A,             "BTN A" },
+  68 |         { XINPUT_GAMEPAD_B,             "BTN B" },
+  69 |         { XINPUT_GAMEPAD_X,             "BTN X" },
+  70 |         { XINPUT_GAMEPAD_Y,             "BTN Y" },
+  71 |         { XINPUT_GAMEPAD_LEFT_SHOULDER, "BTN LB" },
+  72 |         { XINPUT_GAMEPAD_RIGHT_SHOULDER,"BTN RB" },
+  73 |         { XINPUT_GAMEPAD_LEFT_THUMB,    "BTN LS" },
+  74 |         { XINPUT_GAMEPAD_RIGHT_THUMB,   "BTN RS" },
+  75 |         { XINPUT_GAMEPAD_BACK,          "BTN BACK" },
+  76 |         { XINPUT_GAMEPAD_START,         "BTN START" },
+  77 |         { XINPUT_GAMEPAD_DPAD_UP,       "DPAD UP" },
+  78 |         { XINPUT_GAMEPAD_DPAD_DOWN,     "DPAD DOWN" },
+  79 |         { XINPUT_GAMEPAD_DPAD_LEFT,     "DPAD LEFT" },
+  80 |         { XINPUT_GAMEPAD_DPAD_RIGHT,    "DPAD RIGHT" },
+  81 |     };
+  82 |     for (auto& b : btns) {
+  83 |         const bool pressedNow = (now.wButtons & b.mask) != 0;
+  84 |         const bool pressedOld = (old.wButtons & b.mask) != 0;
+  85 |         if (pressedNow && !pressedOld) {
+  86 |             emit(b.name);
+  87 |         }
+  88 |     }
+  89 | }
+  90 | 
+  91 | static void checkTriggers(ControllerState& c, const XINPUT_GAMEPAD& g) {
+  92 |     // LT
+  93 |     if (!c.ltDown && g.bLeftTrigger > TRIGGER_THRESHOLD) {
+  94 |         emit("TRIGGER LT");
+  95 |         c.ltDown = true;
+  96 |     } else if (c.ltDown && g.bLeftTrigger <= TRIGGER_THRESHOLD) {
+  97 |         c.ltDown = false;
+  98 |     }
+  99 |     // RT
+ 100 |     if (!c.rtDown && g.bRightTrigger > TRIGGER_THRESHOLD) {
+ 101 |         emit("TRIGGER RT");
+ 102 |         c.rtDown = true;
+ 103 |     } else if (c.rtDown && g.bRightTrigger <= TRIGGER_THRESHOLD) {
+ 104 |         c.rtDown = false;
+ 105 |     }
+ 106 | }
+ 107 | 
+ 108 | static void checkAxes(ControllerState& c, const XINPUT_GAMEPAD& g) {
+ 109 |     // LEFT X
+ 110 |     if (!c.lx.pos && g.sThumbLX > LEFT_DEADZONE) {
+ 111 |         emit("AXIS LX_POS");
+ 112 |         c.lx.pos = true;
+ 113 |     } else if (c.lx.pos && g.sThumbLX <= LEFT_DEADZONE) {
+ 114 |         c.lx.pos = false;
+ 115 |     }
+ 116 |     if (!c.lx.neg && g.sThumbLX < -LEFT_DEADZONE) {
+ 117 |         emit("AXIS LX_NEG");
+ 118 |         c.lx.neg = true;
+ 119 |     } else if (c.lx.neg && g.sThumbLX >= -LEFT_DEADZONE) {
+ 120 |         c.lx.neg = false;
+ 121 |     }
+ 122 | 
+ 123 |     // LEFT Y (note: Y haut = valeur positive)
+ 124 |     if (!c.ly.pos && g.sThumbLY > LEFT_DEADZONE) {
+ 125 |         emit("AXIS LY_POS");
+ 126 |         c.ly.pos = true;
+ 127 |     } else if (c.ly.pos && g.sThumbLY <= LEFT_DEADZONE) {
+ 128 |         c.ly.pos = false;
+ 129 |     }
+ 130 |     if (!c.ly.neg && g.sThumbLY < -LEFT_DEADZONE) {
+ 131 |         emit("AXIS LY_NEG");
+ 132 |         c.ly.neg = true;
+ 133 |     } else if (c.ly.neg && g.sThumbLY >= -LEFT_DEADZONE) {
+ 134 |         c.ly.neg = false;
+ 135 |     }
+ 136 | 
+ 137 |     // RIGHT X
+ 138 |     if (!c.rx.pos && g.sThumbRX > RIGHT_DEADZONE) {
+ 139 |         emit("AXIS RX_POS");
+ 140 |         c.rx.pos = true;
+ 141 |     } else if (c.rx.pos && g.sThumbRX <= RIGHT_DEADZONE) {
+ 142 |         c.rx.pos = false;
+ 143 |     }
+ 144 |     if (!c.rx.neg && g.sThumbRX < -RIGHT_DEADZONE) {
+ 145 |         emit("AXIS RX_NEG");
+ 146 |         c.rx.neg = true;
+ 147 |     } else if (c.rx.neg && g.sThumbRX >= -RIGHT_DEADZONE) {
+ 148 |         c.rx.neg = false;
+ 149 |     }
+ 150 | 
+ 151 |     // RIGHT Y
+ 152 |     if (!c.ry.pos && g.sThumbRY > RIGHT_DEADZONE) {
+ 153 |         emit("AXIS RY_POS");
+ 154 |         c.ry.pos = true;
+ 155 |     } else if (c.ry.pos && g.sThumbRY <= RIGHT_DEADZONE) {
+ 156 |         c.ry.pos = false;
+ 157 |     }
+ 158 |     if (!c.ry.neg && g.sThumbRY < -RIGHT_DEADZONE) {
+ 159 |         emit("AXIS RY_NEG");
+ 160 |         c.ry.neg = true;
+ 161 |     } else if (c.ry.neg && g.sThumbRY >= -RIGHT_DEADZONE) {
+ 162 |         c.ry.neg = false;
+ 163 |     }
+ 164 | }
+ 165 | 
+ 166 | int main() {
+ 167 |     // Pas de bruit de buffer
+ 168 |     setvbuf(stdout, nullptr, _IONBF, 0);
+ 169 | 
+ 170 |     if (!loadXInput()) {
+ 171 |         // XInput introuvable : on sort proprement (le parent peut décider de ne pas relancer)
+ 172 |         return 0;
+ 173 |     }
+ 174 | 
+ 175 |     ControllerState ctrl[4];
+ 176 | 
+ 177 |     while (true) {
+ 178 |         for (DWORD i = 0; i < 4; ++i) {
+ 179 |             XINPUT_STATE st{};
+ 180 |             DWORD res = pXInputGetState(i, &st);
+ 181 |             if (res == ERROR_SUCCESS) {
+ 182 |                 if (!ctrl[i].connected) {
+ 183 |                     ctrl[i].connected = true;
+ 184 |                     ctrl[i].initialized = false;
+ 185 |                     ctrl[i].ltDown = ctrl[i].rtDown = false;
+ 186 |                     ctrl[i].lx = AxisLatch{};
+ 187 |                     ctrl[i].ly = AxisLatch{};
+ 188 |                     ctrl[i].rx = AxisLatch{};
+ 189 |                     ctrl[i].ry = AxisLatch{};
+ 190 |                 }
+ 191 |                 if (!ctrl[i].initialized) {
+ 192 |                     ctrl[i].prev = st;
+ 193 |                     ctrl[i].initialized = true;
+ 194 |                 } else {
+ 195 |                     // boutons (détecte uniquement les fronts montants)
+ 196 |                     checkButtons(st.Gamepad, ctrl[i].prev.Gamepad);
+ 197 |                     ctrl[i].prev = st;
+ 198 |                 }
+ 199 |                 // gâchettes + axes (gérés via latch indépendants)
+ 200 |                 checkTriggers(ctrl[i], st.Gamepad);
+ 201 |                 checkAxes(ctrl[i], st.Gamepad);
+ 202 |             } else {
+ 203 |                 // déconnexion / indispo
+ 204 |                 ctrl[i] = ControllerState{};
+ 205 |             }
+ 206 |         }
+ 207 |         Sleep(8); // ~125 Hz
+ 208 |     }
+ 209 |     // Note : process stoppé par le parent (kill), pas de cleanup nécessaire
+ 210 |     return 0;
+ 211 | }
 
 ```
 
@@ -996,81 +2151,84 @@ dbdoverlaytools-free
   20 |   "dependencies": {
   21 |     "dotenv": "^17.2.1",
   22 |     "electron-store": "^9.0.0",
-  23 |     "lucide-react": "^0.539.0",
-  24 |     "react": "^18.3.1",
-  25 |     "react-dom": "^18.3.1",
-  26 |     "uiohook-napi": "^1.5.4",
-  27 |     "zustand": "^4.5.2"
-  28 |   },
-  29 |   "devDependencies": {
-  30 |     "@types/node": "^20.12.12",
-  31 |     "@types/react": "^18.3.3",
-  32 |     "@types/react-dom": "^18.3.0",
-  33 |     "@vitejs/plugin-react": "^4.3.1",
-  34 |     "autoprefixer": "^10.4.19",
-  35 |     "concurrently": "^9.0.1",
-  36 |     "cross-env": "^7.0.3",
-  37 |     "electron": "^30.0.9",
-  38 |     "electron-builder": "^24.13.3",
-  39 |     "javascript-obfuscator": "^4.0.2",
-  40 |     "postcss": "^8.4.38",
-  41 |     "tailwindcss": "^3.4.7",
-  42 |     "typescript": "^5.5.4",
-  43 |     "vite": "^5.4.19",
-  44 |     "wait-on": "^7.2.0"
-  45 |   },
-  46 |   "build": {
-  47 |     "appId": "com.steaxs.dbdtimer.free",
-  48 |     "productName": "DBD Timer Overlay",
-  49 |     "extraResources": [
-  50 |       {
-  51 |         "from": "build/icon.ico",
-  52 |         "to": "icon.ico"
-  53 |       }
-  54 |     ],
-  55 |     "directories": {
-  56 |       "output": "release"
-  57 |     },
-  58 |     "nsis": {
-  59 |       "oneClick": false,
-  60 |       "allowToChangeInstallationDirectory": true,
-  61 |       "createDesktopShortcut": "always",
-  62 |       "createStartMenuShortcut": true,
-  63 |       "shortcutName": "DBD Timer Overlay"
-  64 |     },
-  65 |     "files": [
-  66 |       "dist/**",
-  67 |       "electron/**",
-  68 |       "package.json",
-  69 |       "!**/*.map",
-  70 |       "!**/*.ts",
-  71 |       "!src/**"
-  72 |     ],
-  73 |     "asar": true,
-  74 |     "asarUnpack": [
-  75 |       "**/node_modules/uiohook-napi/**"
-  76 |     ],
-  77 |     "compression": "maximum",
-  78 |     "win": {
-  79 |       "icon": "build/icon.ico",
-  80 |       "target": [
-  81 |         {
-  82 |           "target": "nsis",
-  83 |           "arch": [
-  84 |             "x64"
-  85 |           ]
-  86 |         },
-  87 |         {
-  88 |           "target": "portable",
-  89 |           "arch": [
-  90 |             "x64"
-  91 |           ]
-  92 |         }
-  93 |       ],
-  94 |       "artifactName": "DBD-Timer-Free-${version}-Setup.exe"
-  95 |     }
-  96 |   }
-  97 | }
+  23 |     "react": "^18.3.1",
+  24 |     "react-dom": "^18.3.1",
+  25 |     "uiohook-napi": "^1.5.4",
+  26 |     "zustand": "^4.5.2"
+  27 |   },
+  28 |   "devDependencies": {
+  29 |     "@types/node": "^20.12.12",
+  30 |     "@types/react": "^18.3.3",
+  31 |     "@types/react-dom": "^18.3.0",
+  32 |     "@vitejs/plugin-react": "^4.3.1",
+  33 |     "autoprefixer": "^10.4.19",
+  34 |     "concurrently": "^9.0.1",
+  35 |     "cross-env": "^7.0.3",
+  36 |     "electron": "^30.0.9",
+  37 |     "electron-builder": "^24.13.3",
+  38 |     "javascript-obfuscator": "^4.0.2",
+  39 |     "postcss": "^8.4.38",
+  40 |     "tailwindcss": "^3.4.7",
+  41 |     "typescript": "^5.5.4",
+  42 |     "vite": "^5.4.19",
+  43 |     "wait-on": "^7.2.0"
+  44 |   },
+  45 |   "build": {
+  46 |     "appId": "com.steaxs.dbdtimer.free",
+  47 |     "productName": "DBD Timer Overlay",
+  48 |     "extraResources": [
+  49 |       {
+  50 |         "from": "build/icon.ico",
+  51 |         "to": "icon.ico"
+  52 |       },
+  53 |       {
+  54 |         "from": "native/xinput_bridge.exe",
+  55 |         "to": "."
+  56 |       }
+  57 |     ],
+  58 |     "directories": {
+  59 |       "output": "release"
+  60 |     },
+  61 |     "nsis": {
+  62 |       "oneClick": false,
+  63 |       "allowToChangeInstallationDirectory": true,
+  64 |       "createDesktopShortcut": "always",
+  65 |       "createStartMenuShortcut": true,
+  66 |       "shortcutName": "DBD Timer Overlay"
+  67 |     },
+  68 |     "files": [
+  69 |       "dist/**",
+  70 |       "electron/**",
+  71 |       "package.json",
+  72 |       "!**/*.map",
+  73 |       "!**/*.ts",
+  74 |       "!src/**"
+  75 |     ],
+  76 |     "asar": true,
+  77 |     "asarUnpack": [
+  78 |       "**/node_modules/uiohook-napi/**"
+  79 |     ],
+  80 |     "compression": "maximum",
+  81 |     "win": {
+  82 |       "icon": "build/icon.ico",
+  83 |       "target": [
+  84 |         {
+  85 |           "target": "nsis",
+  86 |           "arch": [
+  87 |             "x64"
+  88 |           ]
+  89 |         },
+  90 |         {
+  91 |           "target": "portable",
+  92 |           "arch": [
+  93 |             "x64"
+  94 |           ]
+  95 |         }
+  96 |       ],
+  97 |       "artifactName": "DBD-Timer-Free-${version}-Setup.exe"
+  98 |     }
+  99 |   }
+ 100 | }
 
 ```
 
@@ -1083,126 +2241,6 @@ dbdoverlaytools-free
    4 |     autoprefixer: {},
    5 |   },
    6 | };
-
-```
-
-`dbdoverlaytools-free/scripts\start.js`:
-
-```js
-   1 | import { spawn } from 'child_process';
-   2 | import path from 'path';
-   3 | import fs from 'fs';
-   4 | import net from 'net';
-   5 | import { fileURLToPath } from 'url';
-   6 | 
-   7 | const __filename = fileURLToPath(import.meta.url);
-   8 | const __dirname = path.dirname(__filename);
-   9 | 
-  10 | console.log('🚀 Starting DBD Timer Overlay...\n');
-  11 | 
-  12 | async function waitForServer(port, timeout = 30000) {
-  13 |   return new Promise((resolve, reject) => {
-  14 |     const startTime = Date.now();
-  15 |     let attempts = 0;
-  16 |     
-  17 |     const checkServer = () => {
-  18 |       attempts++;
-  19 |       
-  20 |       // Vérifier avec fetch au lieu de socket
-  21 |       fetch(`http://localhost:${port}`)
-  22 |         .then(() => {
-  23 |           console.log(`✅ Server ready on port ${port} after ${attempts} attempts`);
-  24 |           resolve(true);
-  25 |         })
-  26 |         .catch(() => {
-  27 |           if (Date.now() - startTime > timeout) {
-  28 |             reject(new Error(`Timeout waiting for server on port ${port}`));
-  29 |             return;
-  30 |           }
-  31 |           setTimeout(checkServer, 1000);
-  32 |         });
-  33 |     };
-  34 |     
-  35 |     // Attendre un peu avant la première vérification
-  36 |     setTimeout(checkServer, 2000);
-  37 |   });
-  38 | }
-  39 | 
-  40 | async function startApp() {
-  41 |   try {
-  42 |     console.log('📦 Starting Vite dev server...');
-  43 |     const viteProcess = spawn('npx', ['vite', '--port', '5173'], {
-  44 |       stdio: 'pipe',
-  45 |       shell: true
-  46 |     });
-  47 |     
-  48 |     viteProcess.stdout.on('data', (data) => {
-  49 |       process.stdout.write(`[VITE] ${data}`);
-  50 |     });
-  51 |     
-  52 |     await waitForServer(5173);
-  53 |     await new Promise(resolve => setTimeout(resolve, 1000));
-  54 |     
-  55 |     console.log('⚡ Starting Electron...');
-  56 |     const electronProcess = spawn('npx', ['cross-env', 'NODE_ENV=development', 'electron', '.'], {
-  57 |       stdio: 'inherit',
-  58 |       shell: true,
-  59 |       cwd: path.join(__dirname, '..')
-  60 |     });
-  61 |     
-  62 |     process.on('SIGINT', () => {
-  63 |       console.log('\n🛑 Shutting down...');
-  64 |       viteProcess.kill('SIGTERM');
-  65 |       electronProcess.kill('SIGTERM');
-  66 |       setTimeout(() => process.exit(0), 1000);
-  67 |     });
-  68 |     
-  69 |     electronProcess.on('close', (code) => {
-  70 |       console.log(`\n📱 Electron exited with code ${code}`);
-  71 |       viteProcess.kill('SIGTERM');
-  72 |       process.exit(code);
-  73 |     });
-  74 |     
-  75 |     console.log('🎉 Application started successfully!');
-  76 |     
-  77 |   } catch (error) {
-  78 |     console.error('❌ Error starting application:', error.message);
-  79 |     process.exit(1);
-  80 |   }
-  81 | }
-  82 | 
-  83 | startApp();
-
-```
-
-`dbdoverlaytools-free/src\App.tsx`:
-
-```tsx
-   1 | import React from 'react';
-   2 | import ControlPanel from './components/ControlPanel';
-   3 | 
-   4 | const App: React.FC = () => {
-   5 |   return (
-   6 |     <div className="min-h-dvh bg-[#0A0A0A] text-white flex flex-col">
-   7 |       <main className="flex-1">
-   8 |         <div className="mx-auto max-w-6xl p-6">
-   9 |           <header className="mb-6 text-center">
-  10 |             <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">
-  11 |               You are not logged in
-  12 |             </div>
-  13 |             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#B579FF]">
-  14 |               DBD OVERLAY TOOLS
-  15 |             </h1>
-  16 |           </header>
-  17 | 
-  18 |           <ControlPanel />
-  19 |         </div>
-  20 |       </main>
-  21 |     </div>
-  22 |   );
-  23 | };
-  24 | 
-  25 | export default App;
 
 ```
 
@@ -1648,174 +2686,6 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/src\components\Footer.tsx`:
-
-```tsx
-   1 | export default function Footer(){
-   2 |   return (
-   3 |     <footer className="mt-8">
-   4 |       <div className="mx-auto max-w-5xl card px-4 py-3 text-center text-zinc-400">
-   5 |         <span className="uppercase tracking-wider">
-   6 |           © by <b>DOC</b> & <b>STEAXS</b> — 2025
-   7 |         </span>
-   8 |       </div>
-   9 |     </footer>
-  10 |   );
-  11 | }
-
-```
-
-`dbdoverlaytools-free/src\components\OverlayApp.tsx`:
-
-```tsx
-   1 | import React, { useEffect, useRef, useState } from 'react';
-   2 | import { useTimerStore } from '@/store/timerStore';
-   3 | import TimerOverlay from '@/components/overlay/TimerOverlay';
-   4 | import { PreciseTimer } from '@/utils/timer';
-   5 | import type { TimerData } from '@/types';
-   6 | 
-   7 | const OverlayApp: React.FC = () => {
-   8 |   const { loadFromStorage, timerData } = useTimerStore();
-   9 | 
-  10 |   const [isInitialized, setIsInitialized] = useState(false);
-  11 |   const [localTimerData, setLocalTimerData] = useState<TimerData>(timerData);
-  12 | 
-  13 |   const timer1Ref = useRef<PreciseTimer | null>(null);
-  14 |   const timer2Ref = useRef<PreciseTimer | null>(null);
-  15 |   const syncingRef = useRef(false);
-  16 |   const lastStateRef = useRef({
-  17 |     timer1Running: false,
-  18 |     timer2Running: false,
-  19 |     timer1Value: 0,
-  20 |     timer2Value: 0
-  21 |   });
-  22 | 
-  23 |   useEffect(() => {
-  24 |     const run = async () => {
-  25 |       await loadFromStorage();
-  26 |       setIsInitialized(true);
-  27 |     };
-  28 |     run();
-  29 |   }, [loadFromStorage]);
-  30 | 
-  31 |   useEffect(() => {
-  32 |     if (!timer1Ref.current) {
-  33 |       timer1Ref.current = new PreciseTimer((value) => {
-  34 |         if (!syncingRef.current) {
-  35 |           setLocalTimerData((prev) => ({ ...prev, timer1Value: value }));
-  36 |         }
-  37 |       });
-  38 |     }
-  39 |     if (!timer2Ref.current) {
-  40 |       timer2Ref.current = new PreciseTimer((value) => {
-  41 |         if (!syncingRef.current) {
-  42 |           setLocalTimerData((prev) => ({ ...prev, timer2Value: value }));
-  43 |         }
-  44 |       });
-  45 |     }
-  46 |     return () => {
-  47 |       timer1Ref.current?.stop();
-  48 |       timer2Ref.current?.stop();
-  49 |     };
-  50 |   }, []);
-  51 | 
-  52 |   useEffect(() => {
-  53 |     if (!isInitialized) return;
-  54 | 
-  55 |     setLocalTimerData((prev) => ({
-  56 |       ...prev,
-  57 |       ...timerData,
-  58 |     }));
-  59 |   }, [isInitialized, timerData]);
-  60 | 
-  61 |   useEffect(() => {
-  62 |     if (!isInitialized || !timer1Ref.current || !timer2Ref.current) return;
-  63 |     const shouldTimer1Run = localTimerData.isRunning && localTimerData.currentTimer === 1;
-  64 |     const shouldTimer2Run = localTimerData.isRunning && localTimerData.currentTimer === 2;
-  65 |     
-  66 |   // Synchroniser timer 1
-  67 |   if (shouldTimer1Run && !timer1Ref.current.running) {
-  68 |     timer2Ref.current?.pause();
-  69 |     timer1Ref.current.start(localTimerData.timer1Value || 0);
-  70 |   } else if (!shouldTimer1Run && timer1Ref.current.running) {
-  71 |     timer1Ref.current.pause();
-  72 |   }
-  73 | 
-  74 |   // Synchroniser timer 2
-  75 |   if (shouldTimer2Run && !timer2Ref.current.running) {
-  76 |     timer1Ref.current?.pause();
-  77 |     timer2Ref.current.start(localTimerData.timer2Value || 0);
-  78 |   } else if (!shouldTimer2Run && timer2Ref.current.running) {
-  79 |     timer2Ref.current.pause();
-  80 |   }
-  81 | 
-  82 |   // Reset si nécessaire
-  83 |   if (localTimerData.timer1Value === 0 && timer1Ref.current.currentValue !== 0) {
-  84 |     timer1Ref.current.reset();
-  85 |   }
-  86 |   if (localTimerData.timer2Value === 0 && timer2Ref.current.currentValue !== 0) {
-  87 |     timer2Ref.current.reset();
-  88 |   }
-  89 | }, [isInitialized, localTimerData]);
-  90 | 
-  91 |   useEffect(() => {
-  92 |     if (!window.electronAPI) return;
-  93 |     
-  94 |     const offSync = window.electronAPI.overlay.onDataSync((data) => {
-  95 |       syncingRef.current = true;
-  96 |       setLocalTimerData(data);
-  97 |       syncingRef.current = false;
-  98 | 
-  99 |       const shouldTimer1Run = data.isRunning && data.currentTimer === 1;
- 100 |       const shouldTimer2Run = data.isRunning && data.currentTimer === 2;
- 101 | 
- 102 |       if (shouldTimer1Run) {
- 103 |         timer2Ref.current?.pause();
- 104 |         timer1Ref.current?.start(data.timer1Value || 0);
- 105 |       } else if (shouldTimer2Run) {
- 106 |         timer1Ref.current?.pause();
- 107 |         timer2Ref.current?.start(data.timer2Value || 0);
- 108 |       } else {
- 109 |         timer1Ref.current?.pause();
- 110 |         timer2Ref.current?.pause();
- 111 |       }
- 112 | 
- 113 |       if (data.timer1Value === 0 && timer1Ref.current) {
- 114 |         timer1Ref.current.reset();
- 115 |       }
- 116 |       if (data.timer2Value === 0 && timer2Ref.current) {
- 117 |         timer2Ref.current.reset();
- 118 |       }
- 119 | 
- 120 |       lastStateRef.current = {
- 121 |         timer1Running: shouldTimer1Run,
- 122 |         timer2Running: shouldTimer2Run,
- 123 |         timer1Value: data.timer1Value,
- 124 |         timer2Value: data.timer2Value
- 125 |       };
- 126 |     });
- 127 |     
- 128 |     return () => {
- 129 |       offSync?.();
- 130 |     };
- 131 |   }, []);
- 132 | 
- 133 |   useEffect(() => {
- 134 |     const root = document.getElementById('overlay-root');
- 135 |     if (root) root.style.background = 'transparent';
- 136 |   }, []);
- 137 | 
- 138 |   if (!isInitialized) {
- 139 |     return null;
- 140 |   }
- 141 | 
- 142 |   return <TimerOverlay timerData={localTimerData} />;
- 143 | };
- 144 | 
- 145 | export default OverlayApp;
-
-```
-
 `dbdoverlaytools-free/src\components\ScrollingName.tsx`:
 
 ```tsx
@@ -2170,62 +3040,6 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/src\hooks\useTimer.ts`:
-
-```ts
-   1 | import { useEffect, useCallback } from 'react';
-   2 | import { useTimerStore } from '../store/timerStore';
-   3 | 
-   4 | const useTimer = () => {
-   5 |   const {
-   6 |     timerData,
-   7 |     setTimerRunning,
-   8 |     setCurrentTimer,
-   9 |     saveToStorage
-  10 |   } = useTimerStore();
-  11 | 
-  12 |   const startTimer = useCallback(() => {
-  13 |     if (!timerData.isRunning) {
-  14 |       console.log('Starting timer, current:', timerData.currentTimer);
-  15 |       setTimerRunning(true);
-  16 |       setTimeout(() => saveToStorage(), 100);
-  17 |     }
-  18 |   }, [timerData.isRunning, timerData.currentTimer, setTimerRunning, saveToStorage]);
-  19 | 
-  20 |   const pauseTimer = useCallback(() => {
-  21 |     if (timerData.isRunning) {
-  22 |       console.log('Pausing timer, current:', timerData.currentTimer);
-  23 |       setTimerRunning(false);
-  24 |       setTimeout(() => saveToStorage(), 100);
-  25 |     }
-  26 |   }, [timerData.isRunning, timerData.currentTimer, setTimerRunning, saveToStorage]);
-  27 | 
-  28 |   const swapTimer = useCallback(() => {
-  29 |     console.log('Swapping timer from', timerData.currentTimer);
-  30 |     
-  31 |     if (timerData.isRunning) {
-  32 |       pauseTimer();
-  33 |     }
-  34 |     
-  35 |     const newTimer = timerData.currentTimer === 1 ? 2 : 1;
-  36 |     console.log('Swapping to timer:', newTimer);
-  37 |     setCurrentTimer(newTimer);
-  38 |     setTimeout(() => saveToStorage(), 100);
-  39 |   }, [timerData.currentTimer, timerData.isRunning, pauseTimer, setCurrentTimer, saveToStorage]);
-  40 | 
-  41 |   return {
-  42 |     isRunning: timerData.isRunning,
-  43 |     currentTimer: timerData.currentTimer,
-  44 |     startTimer,
-  45 |     pauseTimer,
-  46 |     swapTimer,
-  47 |   };
-  48 | };
-  49 | 
-  50 | export default useTimer;
-
-```
-
 `dbdoverlaytools-free/src\index.css`:
 
 ```css
@@ -2447,73 +3261,6 @@ dbdoverlaytools-free
 
 ```
 
-`dbdoverlaytools-free/src\styles\tokens.css`:
-
-```css
-   1 | @tailwind base;
-   2 | @tailwind components;
-   3 | @tailwind utilities;
-   4 | 
-   5 | /* Palette d'accents inspirée du mockup Figma */
-   6 | :root{
-   7 |   --violet:#B579FF; /* titres/outlines */ /* figma */
-   8 |   --pink:#FF6BCB;   /* sur-titres */      /* figma */
-   9 |   --green:#44FF41;  /* ON / valid */       /* figma */
-  10 |   --cyan:#5AC8FF;   /* valeurs */          /* figma */
-  11 |   --red:#FF4141;    /* reset / danger */   /* figma */
-  12 | }
-  13 | 
-  14 | @layer base {
-  15 |   html, body, #root { height: 100%; }
-  16 |   body {
-  17 |     scrollbar-width: thin;                                /* Firefox */
-  18 |     scrollbar-color: rgba(255,255,255,.18) transparent;   /* Firefox */
-  19 |   }
-  20 |   body::-webkit-scrollbar { width: 10px; }                /* Chrome/Edge */
-  21 |   body::-webkit-scrollbar-track { background: transparent; }
-  22 |   body::-webkit-scrollbar-thumb {
-  23 |     background-color: rgba(255,255,255,.12);
-  24 |     border-radius: 9999px;
-  25 |     border: 2px solid transparent;                        /* anneau = plus léger visuellement */
-  26 |     background-clip: content-box;
-  27 |   }
-  28 |   body:hover::-webkit-scrollbar-thumb {
-  29 |     background-color: rgba(255,255,255,.22);
-  30 |   }
-  31 | }
-  32 | 
-  33 | /* Fond app + radiaux (optionnels) */
-  34 | @layer utilities {
-  35 |   .bg-app { @apply bg-[#0A0A0A]; }
-  36 |   .card     { @apply rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)]; }
-  37 |   .subcard  { @apply rounded-xl border border-white/5  bg-white/5; }
-  38 |   .tag      { @apply text-[13px] uppercase tracking-wide font-semibold text-[color:var(--violet)]; }
-  39 |   .overtag  { @apply text-[13px] uppercase tracking-wider font-bold text-[color:var(--pink)]; }
-  40 |   .pill     { @apply rounded-lg px-3 py-2 border; }
-  41 |   .pill-on  { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10 text-[color:var(--green)]; }
-  42 |   .pill-off { @apply border-white/20 bg-white/10 text-zinc-400; }
-  43 | 
-  44 |   .btn-primary { @apply rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium px-4 py-2 transition; }
-  45 |   .btn-ghost   { @apply rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2; }
-  46 |   .btn-reset   { @apply rounded-lg border border-[color:var(--red)]/30 bg-[color:var(--red)]/15 text-[color:var(--red)] font-bold uppercase tracking-wide px-5 py-2; }
-  47 | 
-  48 |   .field      { @apply w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-[color:var(--violet)]; }
-  49 |   .keybtn     { @apply w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition; }
-  50 |   .keybtn-idle{ @apply bg-zinc-800 hover:bg-zinc-700; }
-  51 |   .keybtn-cap { @apply bg-violet-600; }
-  52 | 
-  53 |   /* Interrupteurs façon Figma */
-  54 |   .switch      { @apply relative inline-flex h-6 w-12 items-center rounded-full border transition; }
-  55 |   .switch-dot  { @apply absolute h-5 w-5 rounded-full transition; }
-  56 |   .switch-on   { @apply border-[color:var(--green)]/20 bg-[color:var(--green)]/10; }
-  57 |   .switch-on .switch-dot  { @apply translate-x-6 bg-[color:var(--green)]; }
-  58 |   .switch-off  { @apply border-white/20 bg-white/10; }
-  59 |   .switch-off .switch-dot { @apply translate-x-1 bg-zinc-500; }
-  60 | 
-  61 | }
-
-```
-
 `dbdoverlaytools-free/src\themes\default.css`:
 
 ```css
@@ -2665,127 +3412,6 @@ dbdoverlaytools-free
  146 |   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
  147 |   text-shadow: 0 0 20px rgba(255,65,65,0.35);
  148 | }
-
-```
-
-`dbdoverlaytools-free/src\types\global.d.ts`:
-
-```ts
-   1 | import type { TimerData } from './index';
-   2 | 
-   3 | declare global {
-   4 |   interface Window {
-   5 |     electronAPI?: {
-   6 |       store: {
-   7 |         get: (key: string) => Promise<any>;
-   8 |         set: (key: string, value: any) => Promise<void>;
-   9 |       };
-  10 |       overlay: {
-  11 |         show: () => Promise<{ success: boolean; error?: string }>;
-  12 |         hide: () => Promise<{ success: boolean; error?: string }>;
-  13 |         updateSettings: (settings: any) => Promise<void>;
-  14 |         styleChange: (style: any) => Promise<void>;
-  15 |         onDataSync: (callback: (data: TimerData) => void) => () => void;
-  16 |         onStyleChange: (callback: (style: any) => void) => () => void;
-  17 |         onReady: (callback: (isReady: boolean) => void) => () => void;
-  18 |       };
-  19 |       timer: {
-  20 |         syncData: (data: TimerData) => Promise<void>;
-  21 |       };
-  22 |       hotkeys: {
-  23 |         register: (hotkeys: { start: string; swap: string }) => Promise<void>;
-  24 |         onPressed: (callback: (action: string) => void) => () => void;
-  25 |       };
-  26 |       removeAllListeners: () => void;
-  27 |     };
-  28 |   }
-  29 | }
-
-```
-
-`dbdoverlaytools-free/src\types\index.ts`:
-
-```ts
-   1 | export interface TimerData {
-   2 |   player1Name: string;
-   3 |   player2Name: string;
-   4 |   player1Score: number;
-   5 |   player2Score: number;
-   6 | 
-   7 |   timer1Value: number;
-   8 |   timer2Value: number;
-   9 | 
-  10 |   selectedTimer: TimerId;
-  11 |   currentTimer: TimerId;
-  12 |   isRunning: boolean;
-  13 | 
-  14 |   timer1ClickCount: number;
-  15 |   timer2ClickCount: number;
-  16 | 
-  17 |   startHotkey: string;
-  18 |   swapHotkey: string;
-  19 | 
-  20 |   hotkeys?: { start: string; swap: string };
-  21 | }
-  22 | 
-  23 | export type TimerId = 1 | 2;
-  24 | 
-  25 | export interface OverlaySettings {
-  26 |   baseWidth: number;
-  27 |   baseHeight: number;
-  28 |   scale: number;
-  29 |   x: number;
-  30 |   y: number;
-  31 |   locked: boolean;
-  32 |   alwaysOnTop: boolean;
-  33 |   width?: number;
-  34 |   height?: number;
-  35 | }
-  36 | 
-  37 | export interface AppState {
-  38 |   timerData: TimerData;
-  39 |   overlaySettings: OverlaySettings;
-  40 |   isOverlayVisible: boolean;
-  41 | }
-  42 | 
-  43 | export interface IPCResponse {
-  44 |   success: boolean;
-  45 |   error?: string;
-  46 |   data?: any;
-  47 | }
-  48 | 
-  49 | export interface ElectronAPI {
-  50 |   store: {
-  51 |     get: (key: string) => Promise<any>;
-  52 |     set: (key: string, value: any) => Promise<void>;
-  53 |   };
-  54 |   
-  55 |   overlay: {
-  56 |     show: () => Promise<IPCResponse>;
-  57 |     hide: () => Promise<IPCResponse>;
-  58 |     updateSettings: (settings: Partial<OverlaySettings>) => Promise<IPCResponse>;
-  59 |     
-  60 |     onDataSync: (callback: (data: TimerData) => void) => () => void;
-  61 |     onReady: (callback: (isReady: boolean) => void) => () => void;
-  62 |   };
-  63 |   
-  64 |   timer: {
-  65 |     syncData: (data: TimerData) => Promise<IPCResponse>;
-  66 |   };
-  67 |   
-  68 |   hotkeys: {
-  69 |     register: (hotkeys: { start: string; swap: string }) => Promise<IPCResponse>;
-  70 |     onPressed: (callback: (action: 'start' | 'swap') => void) => () => void;
-  71 |   };
-  72 |   
-  73 |   removeAllListeners: () => void;
-  74 | }
-  75 | 
-  76 | declare global {
-  77 |   interface Window {
-  78 |     electronAPI?: ElectronAPI;
-  79 |   }
-  80 | }
 
 ```
 
@@ -2948,7 +3574,7 @@ dbdoverlaytools-free
    8 |     "target": "ES2022",
    9 |     "lib": ["ES2022"]
   10 |   },
-  11 |   "include": ["vite.config.ts", "electron/**/*", "scripts/**/*"]
+  11 |   "include": ["vite.config.ts", "electron/**/*"]
   12 | }
 
 ```
