@@ -33,13 +33,17 @@ export default function TimerOverlay() {
   const [locked, setLocked] = React.useState(false);
   const [scale, setScale] = React.useState(100);
 
+  // === Auto-score (config reçue via overlay-settings) ===
+  const [autoScoreEnabled, setAutoScoreEnabled] = React.useState(true);
+  const [autoScoreThresholdMs, setAutoScoreThresholdMs] = React.useState(25000);
+
   // IPC: names/scores only
   React.useEffect(() => {
     (async () => setPlayers(await window.api.timer.get()))();
     window.api.timer.onSync((d: any) => setPlayers(d));
   }, []);
 
-  // Receive overlay settings (lock + scale)
+  // Receive overlay settings (lock + scale + theme + auto-score)
   React.useEffect(() => {
     window.api.overlay.onSettings((s: any) => {
       setLocked(!!s.locked);
@@ -53,6 +57,11 @@ export default function TimerOverlay() {
       const root = document.documentElement;
       root.style.setProperty('--name-bg', NAME_BG[nt]);
       root.style.setProperty('--accent-gradient', ACCENTS_MAP[ak]);
+
+      // === Auto-score ===
+      setAutoScoreEnabled(s?.autoScoreEnabled !== false); // par défaut: true
+      const th = Number(s?.autoScoreThresholdSec);
+      setAutoScoreThresholdMs(Number.isFinite(th) ? th * 1000 : 25000);
     });
   }, []);
 
@@ -129,11 +138,11 @@ export default function TimerOverlay() {
 
   const s = (scale || 100) / 100;
 
-  // ---- NEW: état d’alerte sur le timer actif (approche/dépassement) ----
+  // ---- état d’alerte sur le timer actif (approche/dépassement) ----
   const DIFF20 = 20000; // 20s -> orange
   const DIFF10 = 10000; // 10s -> rouge clair clignotant
 
- const warnClass = (() => {
+  const warnClass = (() => {
     const isRunning = status[active] === "running";
     if (!isRunning) return "";
     const other = active === 1 ? 2 : 1;
@@ -148,6 +157,69 @@ export default function TimerOverlay() {
     return "";
   })();
   // ----------------------------------------------------------------------
+
+  // ===================== AUTO-SCORE =====================
+  // On déclenche à la transition running -> paused pour chaque côté,
+  // on mémorise les deux durées, puis on attribue +1 au plus long si
+  // (a) les deux côtés sont renseignés et (b) max >= seuil.
+  const prevStatusRef = React.useRef<{ 1: string; 2: string }>({
+    1: "stopped",
+    2: "stopped",
+  });
+  const pairRef = React.useRef<{ 1: number | null; 2: number | null }>({
+    1: null,
+    2: null,
+  });
+
+  React.useEffect(() => {
+    const prev = prevStatusRef.current;
+
+    // 1) détecter fin de run: running -> paused
+    ([
+      1, 2
+    ] as const).forEach((n) => {
+      if (prev[n] === "running" && status[n] === "paused") {
+        // snapshot au moment de la pause
+        pairRef.current[n] = elapsed(n);
+      }
+      // reset si l'utilisateur stoppe avant d'avoir pairé
+      if (status[n] === "stopped") {
+        pairRef.current[n] = null;
+      }
+    });
+
+    // 2) si on a les deux valeurs, décider et (éventuellement) scorer
+    const a = pairRef.current[1];
+    const b = pairRef.current[2];
+
+    if (a != null && b != null) {
+      const maxMs = Math.max(a, b);
+      if (autoScoreEnabled && maxMs >= autoScoreThresholdMs) {
+        const winner: 1 | 2 = a >= b ? 1 : 2;
+        setPlayers((prevPlayers) => {
+          const next: TD = {
+            player1: {
+              ...prevPlayers.player1,
+              score: prevPlayers.player1.score + (winner === 1 ? 1 : 0),
+            },
+            player2: {
+              ...prevPlayers.player2,
+              score: prevPlayers.player2.score + (winner === 2 ? 1 : 0),
+            },
+          };
+          // persister (et synchroniser le Control Panel)
+          window.api.timer.set(next);
+          return next;
+        });
+      }
+      // 3) réinitialiser pour la paire suivante
+      pairRef.current[1] = null;
+      pairRef.current[2] = null;
+    }
+
+    prevStatusRef.current = { ...status };
+  }, [status[1], status[2], autoScoreEnabled, autoScoreThresholdMs, elapsed]);
+  // ======================================================
 
   return (
     // wrapper extérieur = dimension exacte *après* zoom → pas de scroll

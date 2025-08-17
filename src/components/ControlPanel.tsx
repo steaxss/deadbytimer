@@ -37,6 +37,10 @@ const ControlPanel: React.FC = () => {
   const [nameTheme, setNameTheme] = useState<NameTheme>("default");
   const [accentKey, setAccentKey] = useState<AccentKey>("default");
 
+  // Auto-score (NEW)
+  const [autoScore, setAutoScore] = useState<boolean>(true);
+  const [autoScoreThresholdSec] = useState<number>(25); // fixed for now
+
   // Players
   const [players, setPlayers] = useState({
     player1: { name: "PLAYER 1", score: 0 },
@@ -67,6 +71,11 @@ const ControlPanel: React.FC = () => {
       if (s?.nameTheme) setNameTheme(s.nameTheme === "dark" ? "dark" : "default");
       if (s?.accentKey && ACCENTS.some((a) => a.key === s.accentKey))
         setAccentKey(s.accentKey);
+
+      // Auto-score (NEW)
+      if (typeof s?.autoScoreEnabled === "boolean") setAutoScore(s.autoScoreEnabled);
+      // Si tu rends le seuil éditable plus tard :
+      // if (Number.isFinite(s?.autoScoreThresholdSec)) setAutoScoreThresholdSec(Number(s.autoScoreThresholdSec));
     });
 
     window.api.timer.onSync((d: any) => {
@@ -393,7 +402,7 @@ const ControlPanel: React.FC = () => {
           </div>
         </section>
 
-        {/* Overlay Settings (no always-on-top toggle) */}
+        {/* ====== Overlay Settings (incl. Auto-score) ====== */}
         <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
             Overlay Settings
@@ -412,6 +421,43 @@ const ControlPanel: React.FC = () => {
               onChange={onScale}
               className="w-full [accent-color:#5AC8FF]"
             />
+          </div>
+
+          {/* Auto-score toggle (NEW) */}
+          <div className="mb-3 grid grid-cols-1">
+            <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
+              <span className="text-sm">
+                Auto-score winner{" "}
+                <span className="opacity-60">({autoScoreThresholdSec}s min)</span>
+              </span>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoScore}
+                onClick={() => {
+                  const next = !autoScore;
+                  setAutoScore(next);
+                  window.api.overlay.updateSettings({
+                    autoScoreEnabled: next,
+                    autoScoreThresholdSec,
+                  });
+                }}
+                className={[
+                  "relative h-6 w-11 rounded-full transition-colors",
+                  autoScore ? "bg-emerald-500" : "bg-neutral-300",
+                  "ring-1 ring-black/5",
+                ].join(" ")}
+              >
+                <span
+                  aria-hidden
+                  className={[
+                    "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    autoScore ? "translate-x-5" : "",
+                  ].join(" ")}
+                />
+              </button>
+            </label>
           </div>
 
           <div className="grid grid-cols-1">
@@ -456,6 +502,17 @@ const ControlPanel: React.FC = () => {
             {locked
               ? "Overlay is locked – clicks will go through."
               : "Overlay is unlocked – drag the purple bar to reposition."}
+          </div>
+
+          {/* How it works (NEW) */}
+          <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-zinc-300 leading-relaxed">
+            <b>How auto-score works</b>:
+            <ul className="list-disc ml-5 mt-2 space-y-1">
+              <li>Make sure the active timer is on the <b>current survivor</b> (use <b>Swap</b> before starting).</li>
+              <li>Pause each survivor’s run (F1). When <b>both</b> sides are paused, the player with the <b>longest time</b> gets +1.</li>
+              <li>Times under <b>{autoScoreThresholdSec}s</b> are ignored (prevents accidental starts).</li>
+              <li>This never stops your timers — it only updates the score.</li>
+            </ul>
           </div>
         </section>
 

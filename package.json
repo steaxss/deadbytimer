@@ -1,6 +1,6 @@
 {
   "name": "dbdoverlaytools-free",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "DBD 1v1 Timer Overlay (Free)",
   "main": "electron/main.mjs",
@@ -64,7 +64,8 @@
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": true,
-      "shortcutName": "DBD 1V1 Timer Overlay"
+      "shortcutName": "DBD 1V1 Timer Overlay",
+      "include": "build/installer.nsh"
     },
     "files": [
       "dist/**",
