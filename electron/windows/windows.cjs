@@ -66,6 +66,8 @@ function sendOverlaySettings(ov, storeRef, isDevFlag) {
       scale: 100,
       locked: true,
       alwaysOnTop: true,
+      nameTheme: 'default',
+      accentKey: 'default',
     });
     ov.webContents.send("overlay-settings", s);
   }

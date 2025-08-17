@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { ACCENTS, NAME_BG, AccentKey, NameTheme } from "@/themes/palette";
 
 type HKGet = {
   start: number | null;
@@ -7,11 +8,34 @@ type HKGet = {
   swapLabel?: string;
 };
 
+const ACCENT_LABELS_EN: Record<AccentKey, string> = {
+  default: "Blue (default)",
+  rose: "Pink",
+  rouge: "Red",
+  orange: "Orange",
+  or: "Gold",
+  jaune: "Yellow",
+  vert: "Green",
+  menthe: "Mint",
+  bleu_fonce: "Dark Blue",
+  bleu_clair: "Light Blue",
+  cyan: "Sky/Cyan",
+  violet: "Violet",
+  lavande: "Lavender",
+  marron: "Brown",
+  anthracite: "Charcoal",
+  argent: "Silver",
+  corail: "Coral/Peach",
+};
+
 const ControlPanel: React.FC = () => {
   // Overlay
   const [overlayOn, setOverlayOn] = useState(false);
   const [locked, setLocked] = useState(true);
   const [scale, setScale] = useState(100);
+
+  const [nameTheme, setNameTheme] = useState<NameTheme>("default");
+  const [accentKey, setAccentKey] = useState<AccentKey>("default");
 
   // Players
   const [players, setPlayers] = useState({
@@ -39,6 +63,10 @@ const ControlPanel: React.FC = () => {
     window.api.overlay.onSettings((s: any) => {
       if (typeof s.locked === "boolean") setLocked(!!s.locked);
       if (typeof s.scale === "number") setScale(s.scale);
+
+      if (s?.nameTheme) setNameTheme(s.nameTheme === "dark" ? "dark" : "default");
+      if (s?.accentKey && ACCENTS.some((a) => a.key === s.accentKey))
+        setAccentKey(s.accentKey);
     });
 
     window.api.timer.onSync((d: any) => {
@@ -93,6 +121,27 @@ const ControlPanel: React.FC = () => {
     savePlayers(next);
   };
 
+  // Small reusable swatch
+  const Swatch: React.FC<{
+    isActive: boolean;
+    background: string;
+    title: string;
+    onClick: () => void;
+  }> = ({ isActive, background, title, onClick }) => (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      aria-pressed={isActive}
+      className={[
+        // smaller rectangles
+        "h-7 w-14 sm:w-16 rounded-lg border transition outline-none focus:ring",
+        isActive ? "border-white/40 ring-2 ring-white/20" : "border-white/10 hover:border-white/20",
+      ].join(" ")}
+      style={{ background }}
+    />
+  );
+
   return (
     <div className="mx-auto max-w-5xl p-6 text-zinc-100">
       {/* Header */}
@@ -101,9 +150,7 @@ const ControlPanel: React.FC = () => {
           <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">
             1v1 Overlay
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            DBD Overlay Tools
-          </h1>
+          <h1 className="text-xl font-semibold tracking-tight">DBD Overlay Tools</h1>
         </div>
 
         {/* iOS toggle + status */}
@@ -139,9 +186,7 @@ const ControlPanel: React.FC = () => {
             </div>
             <button
               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturing === "start"
-                  ? "bg-violet-600"
-                  : "bg-zinc-800 hover:bg-zinc-700"
+                capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
               }`}
               onClick={() => {
                 setCapturing("start");
@@ -158,9 +203,7 @@ const ControlPanel: React.FC = () => {
             </div>
             <button
               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturing === "swap"
-                  ? "bg-violet-600"
-                  : "bg-zinc-800 hover:bg-zinc-700"
+                capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
               }`}
               onClick={() => {
                 setCapturing("swap");
@@ -285,8 +328,73 @@ const ControlPanel: React.FC = () => {
           </button>
         </div>
 
+        {/* ====== Timer Appearance (Unified) ====== */}
+        <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+            Timer Appearance
+          </h2>
+
+          {/* Name background */}
+          <div className="mb-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                Name background
+              </span>
+              <span className="text-xs text-zinc-500">
+                Applies to player name boxes
+              </span>
+            </div>
+            <div className="grid grid-cols-6 gap-2">
+              {(["default", "dark"] as NameTheme[]).map((nt) => (
+                <Swatch
+                  key={nt}
+                  title={nt === "default" ? "Default" : "Dark"}
+                  background={NAME_BG[nt]}
+                  isActive={nameTheme === nt}
+                  onClick={() => {
+                    setNameTheme(nt);
+                    window.api.overlay.updateSettings({ nameTheme: nt });
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Accent color (Score + Swap) */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                Accent color
+              </span>
+              <span className="text-xs text-zinc-500">
+                Affects score background & swap bar
+              </span>
+            </div>
+
+            <div className="grid grid-cols-8 sm:grid-cols-10 gap-2">
+              {ACCENTS.map((a) => (
+                <Swatch
+                  key={a.key}
+                  title={ACCENT_LABELS_EN[a.key as AccentKey]}
+                  background={a.gradient}
+                  isActive={accentKey === (a.key as AccentKey)}
+                  onClick={() => {
+                    const k = a.key as AccentKey;
+                    setAccentKey(k);
+                    window.api.overlay.updateSettings({ accentKey: k });
+                  }}
+                />
+              ))}
+            </div>
+
+            <p className="mt-2 text-xs text-zinc-400">
+              The swap bar automatically follows the score color.
+            </p>
+          </div>
+        </section>
+
         {/* Overlay Settings (no always-on-top toggle) */}
-        <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+        <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
             Overlay Settings
           </h2>
@@ -318,20 +426,20 @@ const ControlPanel: React.FC = () => {
                 aria-checked={locked}
                 onClick={() => {
                   const next = !locked;
-                  setLocked(next); // ton setState local si tu en as un
+                  setLocked(next);
                   window.api.overlay.updateSettings({ locked: next });
                 }}
                 className={[
                   "relative h-6 w-11 rounded-full transition-colors",
                   locked ? "bg-emerald-500" : "bg-neutral-300",
-                  "ring-1 ring-black/5"
+                  "ring-1 ring-black/5",
                 ].join(" ")}
               >
                 <span
                   aria-hidden
                   className={[
                     "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                    locked ? "translate-x-5" : ""
+                    locked ? "translate-x-5" : "",
                   ].join(" ")}
                 />
               </button>
@@ -363,8 +471,8 @@ const ControlPanel: React.FC = () => {
               Unlock more overlays & tools
             </h3>
             <p className="mt-2 text-sm text-zinc-200">
-              Join our Discord to get the premium version: <b>killer streaks</b>
-              , <b>survivor streaks</b>, <b>win/loss counter</b>,{" "}
+              Join our Discord to get the premium version: <b>killer streaks</b>,{" "}
+              <b>survivor streaks</b>, <b>win/loss counter</b>,{" "}
               <b>tournament overlay</b>, and more!
             </p>
 
@@ -420,8 +528,9 @@ const ControlPanel: React.FC = () => {
             </a>
           </div>
         </section>
+
         {/* Footer */}
-        <footer className="mt-4">
+        <footer className="mt-6">
           <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-300">
             <div className="uppercase tracking-wider">
               © BY <b>STEAXS</b> &amp; <b>DOC</b> — 2025

@@ -239,398 +239,425 @@ dbdoverlaytools-free
   24 |   sendHotkeysMode,
   25 |   dispatchHotkey,
   26 |   onGamepadRaw,
-  27 |   setGamepadMapping;
-  28 | 
-  29 | let captureState = null; // { type, label, code, primaryTimer, secondaryTimer }
-  30 | let captureWaitUntil = 0; // block timers dispatch during capture
-  31 | let offGamepadRaw = null; // ✅ NO SHADOWING BUG
-  32 | 
-  33 | function initCapture(ctx) {
-  34 |   ({
-  35 |     ipcMain,
-  36 |     store,
-  37 |     globalShortcut,
-  38 |     dialog,
-  39 |     shell,
-  40 |     VC_REDIST_X64_URL,
-  41 |     hasVCRedist,
-  42 |     logHK,
-  43 |     getMainWindow,
-  44 |     getOverlayWindow,
-  45 |     getUsingUiohook,
-  46 |     setUsingUiohook,
-  47 |     getHotkeys,
-  48 |     setHotkeys,
-  49 |     getHotkeysLabel,
-  50 |     setHotkeysLabel,
-  51 |     getMouseBinds,
-  52 |     setMouseBinds,
-  53 |     makeLabelFromBeforeInput,
-  54 |     isAlphaNumLabel,
-  55 |     sendHotkeysMode,
-  56 |     dispatchHotkey,
-  57 |     onGamepadRaw,
-  58 |     setGamepadMapping,
-  59 |   } = ctx);
-  60 | }
-  61 | 
-  62 | function isMouseLabel(label) {
-  63 |   return (
-  64 |     typeof label === "string" && /^(MOUSE\d+|WHEEL_(UP|DOWN))$/i.test(label)
-  65 |   );
-  66 | }
-  67 | 
-  68 | function isKeyboardLabel(label) {
-  69 |   // F-keys, lettres/chiffres, et quelques noms courants
-  70 |   if (typeof label !== "string") return false;
-  71 |   if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(label)) return true;
-  72 |   if (/^[A-Z0-9]$/.test(label)) return true;
-  73 |   return /^(ESC|TAB|ENTER|BACKSPACE|SHIFT|CTRL|ALT|SPACE|UP|DOWN|LEFT|RIGHT)$/i.test(
-  74 |     label
-  75 |   );
-  76 | }
-  77 | 
-  78 | function isCapturing() {
-  79 |   return !!captureState;
-  80 | }
-  81 | function getCaptureBlockUntil() {
-  82 |   return captureWaitUntil;
-  83 | }
-  84 | 
-  85 | // --- Hooks appelés par uIOhook pendant capture ---
-  86 | function onKeyboardCode(code) {
-  87 |   if (!captureState) return;
-  88 |   captureState.code = code;
-  89 |   if (captureState.label) finalizeCapture("have both");
-  90 |   else {
-  91 |     if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
-  92 |     captureState.secondaryTimer = setTimeout(
-  93 |       () => finalizeCapture("after-code-wait"),
-  94 |       600
-  95 |     );
-  96 |   }
-  97 | }
-  98 | 
-  99 | function onMouseLabel(label) {
- 100 |   if (!captureState) return;
- 101 |   const { type } = captureState;
- 102 |   captureState.label = label;
- 103 |   const labels = { ...getHotkeysLabel(), [type]: label };
- 104 |   setHotkeysLabel(labels);
- 105 | 
- 106 |   // persist binds souris
- 107 |   const binds = { ...getMouseBinds(), [type]: label };
- 108 |   setMouseBinds(binds);
- 109 | 
- 110 |   const mw = getMainWindow();
- 111 |   mw?.webContents.send("hotkeys-captured", { type, label });
- 112 | 
- 113 |   finalizeCapture("mouse");
- 114 | }
+  27 |   setGamepadMapping,
+  28 |   clearGamepadMapping; // 👈 nouveau
+  29 | 
+  30 | let captureState = null; // { type, label, code, primaryTimer, secondaryTimer }
+  31 | let captureWaitUntil = 0; // block timers dispatch during capture
+  32 | let offGamepadRaw = null; // ✅ NO SHADOWING BUG
+  33 | 
+  34 | function initCapture(ctx) {
+  35 |   ({
+  36 |     ipcMain,
+  37 |     store,
+  38 |     globalShortcut,
+  39 |     dialog,
+  40 |     shell,
+  41 |     VC_REDIST_X64_URL,
+  42 |     hasVCRedist,
+  43 |     logHK,
+  44 |     getMainWindow,
+  45 |     getOverlayWindow,
+  46 |     getUsingUiohook,
+  47 |     setUsingUiohook,
+  48 |     getHotkeys,
+  49 |     setHotkeys,
+  50 |     getHotkeysLabel,
+  51 |     setHotkeysLabel,
+  52 |     getMouseBinds,
+  53 |     setMouseBinds,
+  54 |     makeLabelFromBeforeInput,
+  55 |     isAlphaNumLabel,
+  56 |     sendHotkeysMode,
+  57 |     dispatchHotkey,
+  58 |     onGamepadRaw,
+  59 |     setGamepadMapping,
+  60 |     clearGamepadMapping, // 👈 récupéré
+  61 |   } = ctx);
+  62 | }
+  63 | 
+  64 | // Helpers label
+  65 | function isMouseLabel(label) {
+  66 |   return (
+  67 |     typeof label === "string" && /^(MOUSE\d+|WHEEL_(UP|DOWN))$/i.test(label)
+  68 |   );
+  69 | }
+  70 | function isKeyboardLabel(label) {
+  71 |   // F-keys, lettres/chiffres, et quelques noms courants
+  72 |   if (typeof label !== "string") return false;
+  73 |   if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(label)) return true;
+  74 |   if (/^[A-Z0-9]$/.test(label)) return true;
+  75 |   return /^(ESC|TAB|ENTER|BACKSPACE|SHIFT|CTRL|ALT|SPACE|UP|DOWN|LEFT|RIGHT)$/i.test(
+  76 |     label
+  77 |   );
+  78 | }
+  79 | function isGamepadLabel(label) {
+  80 |   // tout ce qui n'est ni clavier ni souris est considéré manette (ex: "BTN A", "BTN X", "DPAD UP"…)
+  81 |   return typeof label === "string" && !isKeyboardLabel(label) && !isMouseLabel(label);
+  82 | }
+  83 | 
+  84 | function isCapturing() {
+  85 |   return !!captureState;
+  86 | }
+  87 | function getCaptureBlockUntil() {
+  88 |   return captureWaitUntil;
+  89 | }
+  90 | 
+  91 | // --- Hooks appelés par uIOhook pendant capture ---
+  92 | function onKeyboardCode(code) {
+  93 |   if (!captureState) return;
+  94 |   captureState.code = code;
+  95 |   if (captureState.label) finalizeCapture("have both");
+  96 |   else {
+  97 |     if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
+  98 |     captureState.secondaryTimer = setTimeout(
+  99 |       () => finalizeCapture("after-code-wait"),
+ 100 |       600
+ 101 |     );
+ 102 |   }
+ 103 | }
+ 104 | 
+ 105 | function onMouseLabel(label) {
+ 106 |   if (!captureState) return;
+ 107 |   const { type } = captureState;
+ 108 |   captureState.label = label;
+ 109 |   const labels = { ...getHotkeysLabel(), [type]: label };
+ 110 |   setHotkeysLabel(labels);
+ 111 | 
+ 112 |   // persist binds souris (au runtime)
+ 113 |   const binds = { ...getMouseBinds(), [type]: label };
+ 114 |   setMouseBinds(binds);
  115 | 
- 116 | // --- helpers capture ---
- 117 | function clearCaptureTimers() {
- 118 |   if (!captureState) return;
- 119 |   if (captureState.primaryTimer) {
- 120 |     clearTimeout(captureState.primaryTimer);
- 121 |     captureState.primaryTimer = null;
- 122 |   }
- 123 |   if (captureState.secondaryTimer) {
- 124 |     clearTimeout(captureState.secondaryTimer);
- 125 |     captureState.secondaryTimer = null;
- 126 |   }
- 127 | }
- 128 | 
- 129 | function finalizeCapture(reason = "done") {
- 130 |   if (!captureState) return;
- 131 | 
- 132 |   // unbind manette raw
- 133 |   if (offGamepadRaw) {
- 134 |     try {
- 135 |       offGamepadRaw();
- 136 |     } catch {}
- 137 |     offGamepadRaw = null;
- 138 |   }
- 139 | 
- 140 |   const { type, label, code } = captureState;
- 141 |   clearCaptureTimers();
- 142 | 
- 143 |   logHK && logHK("CAPTURE FINALIZE", { reason, type, label, code });
- 144 | 
- 145 |   // Persistance si on a reçu des infos
- 146 |   if (label) {
- 147 |     const labels = { ...getHotkeysLabel(), [type]: label };
- 148 |     setHotkeysLabel(labels);
- 149 |   }
- 150 |   if (typeof code === "number") {
- 151 |     const codes = { ...getHotkeys(), [type]: code };
- 152 |     setHotkeys(codes);
- 153 |   }
- 154 |   // Exclusivité : si on vient de définir un label clavier -> on efface l'ancien bind souris
- 155 |   if (label && isKeyboardLabel(label)) {
- 156 |     const mb = { ...getMouseBinds() };
- 157 |     if (mb[type]) {
- 158 |       mb[type] = null;
- 159 |       setMouseBinds(mb);
- 160 |       logHK && logHK("Cleared previous MOUSE bind for", type);
- 161 |     }
- 162 |   }
- 163 |   // Si on a capturé un label souris -> on efface le code clavier pour éviter le double-trigger
- 164 |   if (label && isMouseLabel(label)) {
- 165 |     const codes = { ...getHotkeys() };
- 166 |     if (codes[type] != null) {
- 167 |       codes[type] = null;
- 168 |       setHotkeys(codes);
- 169 |       logHK && logHK("Cleared previous KEYBOARD code for", type);
- 170 |     }
- 171 |   }
- 172 | 
- 173 |   // Notifier le panel si on a label ou code
- 174 |   const mw = getMainWindow();
- 175 |   if (mw && !mw.isDestroyed() && (label || typeof code === "number")) {
- 176 |     const payload = { type };
- 177 |     if (label) payload.label = label;
- 178 |     if (typeof code === "number") payload.keycode = code;
- 179 |     mw.webContents.send("hotkeys-captured", payload);
- 180 |   }
- 181 | 
- 182 |   // Alerte uniquement si VC++ manquant ET alphanum tenté sans uIOhook
- 183 |   if (!getUsingUiohook() && label && isAlphaNumLabel(label) && !hasVCRedist()) {
- 184 |     dialog
- 185 |       .showMessageBox({
- 186 |         type: "info",
- 187 |         title: "Pass-Through unavailable",
- 188 |         message:
- 189 |           "A–Z / 0–9 hotkeys can’t be used in Limited Mode (without uIOhook) without stealing them from other apps.",
- 190 |         detail:
- 191 |           "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”, restart the app, " +
- 192 |           "then recapture your hotkeys to enable pass-through (so you can still type those letters in Discord, etc.).",
- 193 |         buttons: ["Install runtime (x64)", "OK"],
- 194 |         defaultId: 0,
- 195 |         cancelId: 1,
- 196 |         noLink: true,
- 197 |       })
- 198 |       .then(({ response }) => {
- 199 |         if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
- 200 |       });
- 201 |   }
- 202 | 
- 203 |   // Si, après cette capture, on a les 2 codes et uIOhook tourne -> passer en pass-through
- 204 |   const codes = getHotkeys();
- 205 |   const haveBoth = Number.isFinite(codes.start) && Number.isFinite(codes.swap);
- 206 |   if (haveBoth && getUsingUiohook() === false) {
- 207 |     setUsingUiohook(true);
- 208 |     try {
- 209 |       globalShortcut.unregisterAll();
- 210 |     } catch {}
- 211 |     sendHotkeysMode("pass-through");
- 212 |   }
- 213 | 
- 214 |   // Reset capture
- 215 |   captureState = null;
- 216 |   captureWaitUntil = 0;
- 217 | 
- 218 |   // Réarmer fallback si nécessaire
- 219 |   if (!getUsingUiohook()) {
- 220 |     refreshHotkeyEngine({
- 221 |       globalShortcut,
- 222 |       hotkeysLabel: getHotkeysLabel(),
- 223 |       isAlphaNumLabel,
- 224 |       logHK,
- 225 |       getCaptureBlockUntil,
- 226 |       dispatchHotkey,
- 227 |     });
+ 116 |   const mw = getMainWindow();
+ 117 |   mw?.webContents.send("hotkeys-captured", { type, label });
+ 118 | 
+ 119 |   finalizeCapture("mouse");
+ 120 | }
+ 121 | 
+ 122 | // --- helpers capture ---
+ 123 | function clearCaptureTimers() {
+ 124 |   if (!captureState) return;
+ 125 |   if (captureState.primaryTimer) {
+ 126 |     clearTimeout(captureState.primaryTimer);
+ 127 |     captureState.primaryTimer = null;
+ 128 |   }
+ 129 |   if (captureState.secondaryTimer) {
+ 130 |     clearTimeout(captureState.secondaryTimer);
+ 131 |     captureState.secondaryTimer = null;
+ 132 |   }
+ 133 | }
+ 134 | 
+ 135 | function finalizeCapture(reason = "done") {
+ 136 |   if (!captureState) return;
+ 137 | 
+ 138 |   // unbind manette raw
+ 139 |   if (offGamepadRaw) {
+ 140 |     try {
+ 141 |       offGamepadRaw();
+ 142 |     } catch {}
+ 143 |     offGamepadRaw = null;
+ 144 |   }
+ 145 | 
+ 146 |   const { type, label, code } = captureState;
+ 147 |   clearCaptureTimers();
+ 148 | 
+ 149 |   logHK && logHK("CAPTURE FINALIZE", { reason, type, label, code });
+ 150 | 
+ 151 |   // Persistance si on a reçu des infos
+ 152 |   if (label) {
+ 153 |     const labels = { ...getHotkeysLabel(), [type]: label };
+ 154 |     setHotkeysLabel(labels);
+ 155 |   }
+ 156 |   if (typeof code === "number") {
+ 157 |     const codes = { ...getHotkeys(), [type]: code };
+ 158 |     setHotkeys(codes);
+ 159 |   }
+ 160 | 
+ 161 |   // 🔒 Exclusivité par action (start/swap)
+ 162 |   if (label && isKeyboardLabel(label)) {
+ 163 |     // Si on a capturé un clavier : 1) vider bind souris, 2) vider mapping manette
+ 164 |     const mb = { ...getMouseBinds() };
+ 165 |     if (mb[type]) {
+ 166 |       mb[type] = null;
+ 167 |       setMouseBinds(mb);
+ 168 |       logHK && logHK("Cleared previous MOUSE bind for", type);
+ 169 |     }
+ 170 |     clearGamepadMapping && clearGamepadMapping(type);
+ 171 |     logHK && logHK("Cleared GAMEPAD mapping for", type);
+ 172 |   }
+ 173 |   if (label && isMouseLabel(label)) {
+ 174 |     // Si on a capturé une souris : 1) vider code clavier, 2) vider mapping manette
+ 175 |     const codes = { ...getHotkeys() };
+ 176 |     if (codes[type] != null) {
+ 177 |       codes[type] = null;
+ 178 |       setHotkeys(codes);
+ 179 |       logHK && logHK("Cleared previous KEYBOARD code for", type);
+ 180 |     }
+ 181 |     clearGamepadMapping && clearGamepadMapping(type);
+ 182 |     logHK && logHK("Cleared GAMEPAD mapping for", type);
+ 183 |   }
+ 184 |   if (label && isGamepadLabel(label)) {
+ 185 |     // Si on a capturé une manette : 1) vider code clavier, 2) vider bind souris
+ 186 |     const codes = { ...getHotkeys() };
+ 187 |     if (codes[type] != null) {
+ 188 |       codes[type] = null;
+ 189 |       setHotkeys(codes);
+ 190 |       logHK && logHK("Cleared previous KEYBOARD code for", type);
+ 191 |     }
+ 192 |     const mb = { ...getMouseBinds() };
+ 193 |     if (mb[type]) {
+ 194 |       mb[type] = null;
+ 195 |       setMouseBinds(mb);
+ 196 |       logHK && logHK("Cleared previous MOUSE bind for", type);
+ 197 |     }
+ 198 |   }
+ 199 | 
+ 200 |   // Notifier le panel si on a label ou code
+ 201 |   const mw = getMainWindow();
+ 202 |   if (mw && !mw.isDestroyed() && (label || typeof code === "number")) {
+ 203 |     const payload = { type };
+ 204 |     if (label) payload.label = label;
+ 205 |     if (typeof code === "number") payload.keycode = code;
+ 206 |     mw.webContents.send("hotkeys-captured", payload);
+ 207 |   }
+ 208 | 
+ 209 |   // Alerte uniquement si VC++ manquant ET alphanum tenté sans uIOhook
+ 210 |   if (!getUsingUiohook() && label && isAlphaNumLabel(label) && !hasVCRedist()) {
+ 211 |     dialog
+ 212 |       .showMessageBox({
+ 213 |         type: "info",
+ 214 |         title: "Pass-Through unavailable",
+ 215 |         message:
+ 216 |           "A–Z / 0–9 hotkeys can’t be used in Limited Mode (without uIOhook) without stealing them from other apps.",
+ 217 |         detail:
+ 218 |           "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”, restart the app, " +
+ 219 |           "then recapture your hotkeys to enable pass-through (so you can still type those letters in Discord, etc.).",
+ 220 |         buttons: ["Install runtime (x64)", "OK"],
+ 221 |         defaultId: 0,
+ 222 |         cancelId: 1,
+ 223 |         noLink: true,
+ 224 |       })
+ 225 |       .then(({ response }) => {
+ 226 |         if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
+ 227 |       });
  228 |   }
- 229 | }
- 230 | 
- 231 | function setupCaptureIPC() {
- 232 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
- 233 |     if (!(type === "start" || type === "swap")) {
- 234 |       finalizeCapture("cancel");
- 235 |       return true;
- 236 |     }
- 237 | 
- 238 |     logHK &&
- 239 |       logHK("CAPTURE BEGIN", {
- 240 |         type,
- 241 |         mode: getUsingUiohook() ? "pass-through" : "fallback",
- 242 |       });
- 243 | 
- 244 |     // Bloquer le dispatch vers les timers pendant la capture
- 245 |     captureWaitUntil = Date.now() + 15000;
- 246 | 
- 247 |     // Reset/annule capture précédente si elle existe
- 248 |     if (captureState) {
- 249 |       clearCaptureTimers();
- 250 |       captureState = null;
- 251 |     }
- 252 | 
- 253 |     // État de capture : pas de timer court au début; on attend la première frappe
- 254 |     captureState = {
- 255 |       type,
- 256 |       label: null,
- 257 |       code: null,
- 258 |       primaryTimer: setTimeout(() => {
- 259 |         logHK && logHK("CAPTURE PRIMARY TIMEOUT — cancel");
- 260 |         finalizeCapture("primary-timeout");
- 261 |       }, 15000),
- 262 |       secondaryTimer: null,
- 263 |     };
+ 229 | 
+ 230 |   // Si, après cette capture, on a les 2 codes et uIOhook tourne -> passer en pass-through
+ 231 |   const codes = getHotkeys();
+ 232 |   const haveBoth = Number.isFinite(codes.start) && Number.isFinite(codes.swap);
+ 233 |   if (haveBoth && getUsingUiohook() === false) {
+ 234 |     setUsingUiohook(true);
+ 235 |     try {
+ 236 |       globalShortcut.unregisterAll();
+ 237 |     } catch {}
+ 238 |     sendHotkeysMode("pass-through");
+ 239 |   }
+ 240 | 
+ 241 |   // Reset capture
+ 242 |   captureState = null;
+ 243 |   captureWaitUntil = 0;
+ 244 | 
+ 245 |   // Réarmer fallback si nécessaire
+ 246 |   if (!getUsingUiohook()) {
+ 247 |     refreshHotkeyEngine({
+ 248 |       globalShortcut,
+ 249 |       hotkeysLabel: getHotkeysLabel(),
+ 250 |       isAlphaNumLabel,
+ 251 |       logHK,
+ 252 |       getCaptureBlockUntil,
+ 253 |       dispatchHotkey,
+ 254 |     });
+ 255 |   }
+ 256 | }
+ 257 | 
+ 258 | function setupCaptureIPC() {
+ 259 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
+ 260 |     if (!(type === "start" || type === "swap")) {
+ 261 |       finalizeCapture("cancel");
+ 262 |       return true;
+ 263 |     }
  264 | 
- 265 |     // focus le panneau
- 266 |     try {
- 267 |       const mw = getMainWindow();
- 268 |       mw?.focus();
- 269 |       logHK && logHK("focused mainWindow?", mw?.isFocused());
- 270 |     } catch (e) {
- 271 |       logHK && logHK("focus error", e?.message || e);
- 272 |     }
+ 265 |     logHK &&
+ 266 |       logHK("CAPTURE BEGIN", {
+ 267 |         type,
+ 268 |         mode: getUsingUiohook() ? "pass-through" : "fallback",
+ 269 |       });
+ 270 | 
+ 271 |     // Bloquer le dispatch vers les timers pendant la capture
+ 272 |     captureWaitUntil = Date.now() + 15000;
  273 | 
- 274 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
- 275 |     if (!getUsingUiohook()) {
- 276 |       try {
- 277 |         globalShortcut.unregisterAll();
- 278 |         logHK && logHK("fallback: unregistered to let key through");
- 279 |       } catch {}
- 280 |     }
- 281 | 
- 282 |     // écouter une fois la prochaine touche (pour le label layout-aware)
- 283 |     const mw = getMainWindow();
- 284 |     const once = (event, input) => {
- 285 |       if (!captureState) return;
- 286 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
- 287 |       logHK &&
- 288 |         logHK("before-input-event keyDown", {
- 289 |           key: input.key,
- 290 |           code: input.code,
- 291 |         });
- 292 |       const label = makeLabelFromBeforeInput(input);
- 293 | 
- 294 |       captureState.label = label;
- 295 |       const labels = { ...getHotkeysLabel(), [type]: label };
- 296 |       setHotkeysLabel(labels);
- 297 | 
- 298 |       mw?.webContents.send("hotkeys-captured", { type, label });
- 299 |       logHK && logHK("label captured (instant)", { type, label });
+ 274 |     // Reset/annule capture précédente si elle existe
+ 275 |     if (captureState) {
+ 276 |       clearCaptureTimers();
+ 277 |       captureState = null;
+ 278 |     }
+ 279 | 
+ 280 |     // État de capture : pas de timer court au début; on attend la première frappe
+ 281 |     captureState = {
+ 282 |       type,
+ 283 |       label: null,
+ 284 |       code: null,
+ 285 |       primaryTimer: setTimeout(() => {
+ 286 |         logHK && logHK("CAPTURE PRIMARY TIMEOUT — cancel");
+ 287 |         finalizeCapture("primary-timeout");
+ 288 |       }, 15000),
+ 289 |       secondaryTimer: null,
+ 290 |     };
+ 291 | 
+ 292 |     // focus le panneau
+ 293 |     try {
+ 294 |       const mw = getMainWindow();
+ 295 |       mw?.focus();
+ 296 |       logHK && logHK("focused mainWindow?", mw?.isFocused());
+ 297 |     } catch (e) {
+ 298 |       logHK && logHK("focus error", e?.message || e);
+ 299 |     }
  300 | 
- 301 |       if (typeof captureState.code === "number") {
- 302 |         finalizeCapture("have both");
- 303 |       } else {
- 304 |         if (captureState.secondaryTimer)
- 305 |           clearTimeout(captureState.secondaryTimer);
- 306 |         captureState.secondaryTimer = setTimeout(
- 307 |           () => finalizeCapture("after-label-wait"),
- 308 |           500
- 309 |         );
- 310 |       }
- 311 | 
- 312 |       mw?.webContents.removeListener("before-input-event", once);
- 313 |     };
- 314 |     mw?.webContents.on("before-input-event", once);
- 315 | 
- 316 |     // Écoute RAW manette (✅ pas de shadowing : variable module-scope)
- 317 |     offGamepadRaw = onGamepadRaw((evLabel) => {
- 318 |       if (!captureState) return;
- 319 |       const { type } = captureState;
+ 301 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
+ 302 |     if (!getUsingUiohook()) {
+ 303 |       try {
+ 304 |         globalShortcut.unregisterAll();
+ 305 |         logHK && logHK("fallback: unregistered to let key through");
+ 306 |       } catch {}
+ 307 |     }
+ 308 | 
+ 309 |     // écouter une fois la prochaine touche (pour le label layout-aware)
+ 310 |     const mw = getMainWindow();
+ 311 |     const once = (event, input) => {
+ 312 |       if (!captureState) return;
+ 313 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
+ 314 |       logHK &&
+ 315 |         logHK("before-input-event keyDown", {
+ 316 |           key: input.key,
+ 317 |           code: input.code,
+ 318 |         });
+ 319 |       const label = makeLabelFromBeforeInput(input);
  320 | 
- 321 |       captureState.label = evLabel;
- 322 |       const labels = { ...getHotkeysLabel(), [type]: evLabel };
+ 321 |       captureState.label = label;
+ 322 |       const labels = { ...getHotkeysLabel(), [type]: label };
  323 |       setHotkeysLabel(labels);
- 324 |       mw?.webContents.send("hotkeys-captured", { type, label: evLabel });
- 325 | 
- 326 |       // mapping manette
- 327 |       setGamepadMapping(type, evLabel, { append: false });
- 328 | 
- 329 |       finalizeCapture("gamepad");
- 330 |     });
- 331 | 
- 332 |     logHK && logHK("before-input-event listener ARMED");
- 333 | 
- 334 |     return true;
- 335 |   });
- 336 | }
- 337 | 
- 338 | /* -------------------- Fallback engine (globalShortcut) -------------------- */
- 339 | function refreshHotkeyEngine({
- 340 |   globalShortcut,
- 341 |   hotkeysLabel,
- 342 |   isAlphaNumLabel,
- 343 |   logHK,
- 344 |   getCaptureBlockUntil,
- 345 |   dispatchHotkey,
- 346 | }) {
- 347 |   try {
- 348 |     globalShortcut.unregisterAll();
- 349 |     logHK && logHK("globalShortcut: unregistered all");
- 350 |   } catch {}
- 351 | 
- 352 |   const RATE = 180;
- 353 |   let lastT = 0,
- 354 |     lastS = 0;
+ 324 | 
+ 325 |       mw?.webContents.send("hotkeys-captured", { type, label });
+ 326 |       logHK && logHK("label captured (instant)", { type, label });
+ 327 | 
+ 328 |       if (typeof captureState.code === "number") {
+ 329 |         finalizeCapture("have both");
+ 330 |       } else {
+ 331 |         if (captureState.secondaryTimer)
+ 332 |           clearTimeout(captureState.secondaryTimer);
+ 333 |         captureState.secondaryTimer = setTimeout(
+ 334 |           () => finalizeCapture("after-label-wait"),
+ 335 |           500
+ 336 |         );
+ 337 |       }
+ 338 | 
+ 339 |       mw?.webContents.removeListener("before-input-event", once);
+ 340 |     };
+ 341 |     mw?.webContents.on("before-input-event", once);
+ 342 | 
+ 343 |     // Écoute RAW manette (✅ pas de shadowing : variable module-scope)
+ 344 |     offGamepadRaw = onGamepadRaw((evLabel) => {
+ 345 |       if (!captureState) return;
+ 346 |       const { type } = captureState;
+ 347 | 
+ 348 |       captureState.label = evLabel;
+ 349 |       const labels = { ...getHotkeysLabel(), [type]: evLabel };
+ 350 |       setHotkeysLabel(labels);
+ 351 |       mw?.webContents.send("hotkeys-captured", { type, label: evLabel });
+ 352 | 
+ 353 |       // mapping manette
+ 354 |       setGamepadMapping(type, evLabel, { append: false });
  355 | 
- 356 |   const sKey = hotkeysLabel.start || "F1";
- 357 |   const wKey = hotkeysLabel.swap || "F2";
+ 356 |       finalizeCapture("gamepad");
+ 357 |     });
  358 | 
- 359 |   // En fallback, on n'essaie de binder que des F-keys (F1..F24).
- 360 |   const canUse = (label) => /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
- 361 | 
- 362 |   logHK &&
- 363 |     logHK("globalShortcut: registering (fallback)", {
- 364 |       start: canUse(sKey) ? sKey : "(skipped: alnum passthrough-only)",
- 365 |       swap: canUse(wKey) ? wKey : "(skipped: alnum passthrough-only)",
- 366 |     });
- 367 | 
- 368 |   if (canUse(sKey)) {
- 369 |     try {
- 370 |       globalShortcut.register(sKey, () => {
- 371 |         if (Date.now() < getCaptureBlockUntil()) {
- 372 |           logHK && logHK("fallback toggle skipped (capturing)");
- 373 |           return;
- 374 |         }
- 375 |         const now = Date.now();
- 376 |         if (now - lastT < RATE) return;
- 377 |         lastT = now;
- 378 |         dispatchHotkey("toggle");
- 379 |       });
- 380 |     } catch (e) {
- 381 |       logHK && logHK("register start failed", e?.message || e);
- 382 |     }
- 383 |   }
- 384 | 
- 385 |   if (canUse(wKey)) {
- 386 |     try {
- 387 |       globalShortcut.register(wKey, () => {
- 388 |         if (Date.now() < getCaptureBlockUntil()) {
- 389 |           logHK && logHK("fallback swap skipped (capturing)");
- 390 |           return;
- 391 |         }
- 392 |         const now = Date.now();
- 393 |         if (now - lastS < RATE) return;
- 394 |         lastS = now;
- 395 |         dispatchHotkey("swap");
- 396 |       });
- 397 |     } catch (e) {
- 398 |       logHK && logHK("register swap failed", e?.message || e);
- 399 |     }
- 400 |   }
- 401 | }
- 402 | 
- 403 | /* -------------------- API complémentaire -------------------- */
- 404 | function attachWindowsAPI({ sendOverlaySettings }) {
- 405 |   // optionnel: expose si besoin
- 406 |   module.exports._sendOverlaySettings = sendOverlaySettings;
- 407 | }
- 408 | 
- 409 | module.exports = {
- 410 |   initCapture,
- 411 |   setupCaptureIPC,
- 412 |   refreshHotkeyEngine,
- 413 |   isCapturing,
- 414 |   getCaptureBlockUntil: getCaptureBlockUntil,
- 415 |   onKeyboardCode,
- 416 |   onMouseLabel,
- 417 |   attachWindowsAPI,
- 418 | };
+ 359 |     logHK && logHK("before-input-event listener ARMED");
+ 360 | 
+ 361 |     return true;
+ 362 |   });
+ 363 | }
+ 364 | 
+ 365 | /* -------------------- Fallback engine (globalShortcut) -------------------- */
+ 366 | function refreshHotkeyEngine({
+ 367 |   globalShortcut,
+ 368 |   hotkeysLabel,
+ 369 |   isAlphaNumLabel,
+ 370 |   logHK,
+ 371 |   getCaptureBlockUntil,
+ 372 |   dispatchHotkey,
+ 373 | }) {
+ 374 |   try {
+ 375 |     globalShortcut.unregisterAll();
+ 376 |     logHK && logHK("globalShortcut: unregistered all");
+ 377 |   } catch {}
+ 378 | 
+ 379 |   const RATE = 180;
+ 380 |   let lastT = 0,
+ 381 |     lastS = 0;
+ 382 | 
+ 383 |   const sKey = hotkeysLabel.start || "F1";
+ 384 |   const wKey = hotkeysLabel.swap || "F2";
+ 385 | 
+ 386 |   // En fallback, on n'essaie de binder que des F-keys (F1..F24).
+ 387 |   const canUse = (label) => /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
+ 388 | 
+ 389 |   logHK &&
+ 390 |     logHK("globalShortcut: registering (fallback)", {
+ 391 |       start: canUse(sKey) ? sKey : "(skipped: alnum passthrough-only)",
+ 392 |       swap: canUse(wKey) ? wKey : "(skipped: alnum passthrough-only)",
+ 393 |     });
+ 394 | 
+ 395 |   if (canUse(sKey)) {
+ 396 |     try {
+ 397 |       globalShortcut.register(sKey, () => {
+ 398 |         if (Date.now() < getCaptureBlockUntil()) {
+ 399 |           logHK && logHK("fallback toggle skipped (capturing)");
+ 400 |           return;
+ 401 |         }
+ 402 |         const now = Date.now();
+ 403 |         if (now - lastT < RATE) return;
+ 404 |         lastT = now;
+ 405 |         dispatchHotkey("toggle");
+ 406 |       });
+ 407 |     } catch (e) {
+ 408 |       logHK && logHK("register start failed", e?.message || e);
+ 409 |     }
+ 410 |   }
+ 411 | 
+ 412 |   if (canUse(wKey)) {
+ 413 |     try {
+ 414 |       globalShortcut.register(wKey, () => {
+ 415 |         if (Date.now() < getCaptureBlockUntil()) {
+ 416 |           logHK && logHK("fallback swap skipped (capturing)");
+ 417 |           return;
+ 418 |         }
+ 419 |         const now = Date.now();
+ 420 |         if (now - lastS < RATE) return;
+ 421 |         lastS = now;
+ 422 |         dispatchHotkey("swap");
+ 423 |       });
+ 424 |     } catch (e) {
+ 425 |       logHK && logHK("register swap failed", e?.message || e);
+ 426 |     }
+ 427 |   }
+ 428 | }
+ 429 | 
+ 430 | /* -------------------- API complémentaire -------------------- */
+ 431 | function attachWindowsAPI({ sendOverlaySettings }) {
+ 432 |   // optionnel: expose si besoin
+ 433 |   module.exports._sendOverlaySettings = sendOverlaySettings;
+ 434 | }
+ 435 | 
+ 436 | module.exports = {
+ 437 |   initCapture,
+ 438 |   setupCaptureIPC,
+ 439 |   refreshHotkeyEngine,
+ 440 |   isCapturing,
+ 441 |   getCaptureBlockUntil: getCaptureBlockUntil,
+ 442 |   onKeyboardCode,
+ 443 |   onMouseLabel,
+ 444 |   attachWindowsAPI,
+ 445 | };
 
 ```
 
@@ -771,112 +798,121 @@ dbdoverlaytools-free
  132 |   mapping = next;
  133 | }
  134 | 
- 135 | // --- Flux brut pour la capture ------------------------------------------------
- 136 | const rawListeners = new Set();
- 137 | function onGamepadRaw(cb) {
- 138 |   if (typeof cb === "function") {
- 139 |     rawListeners.add(cb);
- 140 |     return () => rawListeners.delete(cb);
- 141 |   }
- 142 |   return () => {};
- 143 | }
- 144 | function emitRaw(ev) {
- 145 |   for (const cb of rawListeners) {
- 146 |     try {
- 147 |       cb(ev);
- 148 |     } catch {}
+ 135 | // 🚿 NOUVEAU : vider complètement une action (exclusivité par action)
+ 136 | function clearGamepadMapping(action) {
+ 137 |   const key = action === "swap" ? "swap" : "toggle";
+ 138 |   const next = { ...mapping, [key]: [] };
+ 139 |   saveMapping(next);
+ 140 |   mapping = next;
+ 141 | }
+ 142 | 
+ 143 | // --- Flux brut pour la capture ------------------------------------------------
+ 144 | const rawListeners = new Set();
+ 145 | function onGamepadRaw(cb) {
+ 146 |   if (typeof cb === "function") {
+ 147 |     rawListeners.add(cb);
+ 148 |     return () => rawListeners.delete(cb);
  149 |   }
- 150 | }
- 151 | 
- 152 | // --- Process natif -----------------------------------------------------------
- 153 | function handleGamepadEventName(name) {
- 154 |   const ev = normalizeEventName(name);
- 155 |   if (!ev) return;
- 156 | 
- 157 |   // Toujours notifier le brut (capture)
- 158 |   emitRaw(ev);
+ 150 |   return () => {};
+ 151 | }
+ 152 | function emitRaw(ev) {
+ 153 |   for (const cb of rawListeners) {
+ 154 |     try {
+ 155 |       cb(ev);
+ 156 |     } catch {}
+ 157 |   }
+ 158 | }
  159 | 
- 160 |   // Déclenchement selon mapping
- 161 |   if ((mapping.toggle || []).includes(ev)) {
- 162 |     broadcastHotkey("toggle");
- 163 |     return;
- 164 |   }
- 165 |   if ((mapping.swap || []).includes(ev)) {
- 166 |     broadcastHotkey("swap");
- 167 |     return;
- 168 |   }
- 169 | }
- 170 | 
- 171 | function launch() {
- 172 |   const exe = resolveExePath();
- 173 |   if (!existsSync(exe)) return;
- 174 | 
- 175 |   child = spawn(exe, [], {
- 176 |     stdio: ["ignore", "pipe", "ignore"],
- 177 |     windowsHide: true,
- 178 |   });
- 179 | 
- 180 |   let buffer = "";
- 181 |   child.stdout.on("data", (chunk) => {
- 182 |     buffer += chunk.toString("utf8");
- 183 |     let idx;
- 184 |     while ((idx = buffer.indexOf("\n")) >= 0) {
- 185 |       const line = buffer.slice(0, idx).trim();
- 186 |       buffer = buffer.slice(idx + 1);
- 187 |       if (line) handleGamepadEventName(line);
- 188 |     }
- 189 |   });
- 190 | 
- 191 |   child.on("exit", () => {
- 192 |     child = null;
- 193 |     if (isQuitting) return;
- 194 |     clearTimeout(relaunchTimer);
- 195 |     relaunchTimer = setTimeout(launch, 1000);
- 196 |   });
- 197 | 
- 198 |   child.on("error", () => {
- 199 |     child = null;
- 200 |     if (isQuitting) return;
- 201 |     clearTimeout(relaunchTimer);
- 202 |     relaunchTimer = setTimeout(launch, 1500);
- 203 |   });
- 204 | }
+ 160 | // --- Process natif -----------------------------------------------------------
+ 161 | function handleGamepadEventName(name) {
+ 162 |   const ev = normalizeEventName(name);
+ 163 |   if (!ev) return;
+ 164 | 
+ 165 |   // Toujours notifier le brut (capture)
+ 166 |   emitRaw(ev);
+ 167 | 
+ 168 |   // Déclenchement selon mapping
+ 169 |   if ((mapping.toggle || []).includes(ev)) {
+ 170 |     broadcastHotkey("toggle");
+ 171 |     return;
+ 172 |   }
+ 173 |   if ((mapping.swap || []).includes(ev)) {
+ 174 |     broadcastHotkey("swap");
+ 175 |     return;
+ 176 |   }
+ 177 | }
+ 178 | 
+ 179 | function launch() {
+ 180 |   const exe = resolveExePath();
+ 181 |   if (!existsSync(exe)) return;
+ 182 | 
+ 183 |   child = spawn(exe, [], {
+ 184 |     stdio: ["ignore", "pipe", "ignore"],
+ 185 |     windowsHide: true,
+ 186 |   });
+ 187 | 
+ 188 |   let buffer = "";
+ 189 |   child.stdout.on("data", (chunk) => {
+ 190 |     buffer += chunk.toString("utf8");
+ 191 |     let idx;
+ 192 |     while ((idx = buffer.indexOf("\n")) >= 0) {
+ 193 |       const line = buffer.slice(0, idx).trim();
+ 194 |       buffer = buffer.slice(idx + 1);
+ 195 |       if (line) handleGamepadEventName(line);
+ 196 |     }
+ 197 |   });
+ 198 | 
+ 199 |   child.on("exit", () => {
+ 200 |     child = null;
+ 201 |     if (isQuitting) return;
+ 202 |     clearTimeout(relaunchTimer);
+ 203 |     relaunchTimer = setTimeout(launch, 1000);
+ 204 |   });
  205 | 
- 206 | function setupGamepadExe() {
- 207 |   if (process.platform !== "win32") return; // l’app est Windows-only, garde au cas où
- 208 | 
- 209 |   loadMapping();
- 210 |   try {
- 211 |     watch(configFilePath(), { persistent: false }, () => loadMapping());
- 212 |   } catch {}
+ 206 |   child.on("error", () => {
+ 207 |     child = null;
+ 208 |     if (isQuitting) return;
+ 209 |     clearTimeout(relaunchTimer);
+ 210 |     relaunchTimer = setTimeout(launch, 1500);
+ 211 |   });
+ 212 | }
  213 | 
- 214 |   launch();
- 215 | 
- 216 |   app.on("before-quit", () => {
- 217 |     isQuitting = true;
- 218 |     try {
- 219 |       clearTimeout(relaunchTimer);
- 220 |     } catch {}
- 221 |     try {
- 222 |       child?.kill();
- 223 |     } catch {}
- 224 |   });
- 225 |   app.on("will-quit", () => {
- 226 |     isQuitting = true;
- 227 |     try {
- 228 |       clearTimeout(relaunchTimer);
- 229 |     } catch {}
- 230 |     try {
- 231 |       child?.kill();
- 232 |     } catch {}
- 233 |   });
- 234 | }
- 235 | 
- 236 | module.exports = {
- 237 |   setupGamepadExe,
- 238 |   onGamepadRaw,
- 239 |   setGamepadMapping,
- 240 | };
+ 214 | function setupGamepadExe() {
+ 215 |   if (process.platform !== "win32") return; // l’app est Windows-only, garde au cas où
+ 216 | 
+ 217 |   loadMapping();
+ 218 |   try {
+ 219 |     watch(configFilePath(), { persistent: false }, () => loadMapping());
+ 220 |   } catch {}
+ 221 | 
+ 222 |   launch();
+ 223 | 
+ 224 |   app.on("before-quit", () => {
+ 225 |     isQuitting = true;
+ 226 |     try {
+ 227 |       clearTimeout(relaunchTimer);
+ 228 |     } catch {}
+ 229 |     try {
+ 230 |       child?.kill();
+ 231 |     } catch {}
+ 232 |   });
+ 233 |   app.on("will-quit", () => {
+ 234 |     isQuitting = true;
+ 235 |     try {
+ 236 |       clearTimeout(relaunchTimer);
+ 237 |     } catch {}
+ 238 |     try {
+ 239 |       child?.kill();
+ 240 |     } catch {}
+ 241 |   });
+ 242 | }
+ 243 | 
+ 244 | module.exports = {
+ 245 |   setupGamepadExe,
+ 246 |   onGamepadRaw,
+ 247 |   setGamepadMapping,
+ 248 |   clearGamepadMapping, // 👈 exporté
+ 249 | };
 
 ```
 
@@ -1155,404 +1191,406 @@ dbdoverlaytools-free
   23 |   setupGamepadExe,
   24 |   onGamepadRaw,
   25 |   setGamepadMapping,
-  26 | } = require("./input/gamepad-exe.cjs");
-  27 | 
-  28 | /** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
-  29 | (function loadDevEnv() {
-  30 |   if (app.isPackaged) return; // en prod: ne rien charger
-  31 |   let dotenv;
-  32 |   try {
-  33 |     dotenv = require("dotenv");
-  34 |   } catch {
-  35 |     return;
-  36 |   }
-  37 |   const root = process.cwd();
-  38 |   for (const name of [".env", ".env.development"]) {
-  39 |     const p = join(root, name);
-  40 |     if (fs.existsSync(p)) dotenv.config({ path: p, override: true });
-  41 |   }
-  42 | })();
-  43 | 
-  44 | /* -------------------- flags via .env -------------------- */
-  45 | const FORCE_NO_UIOHOOK = process.env.FORCE_NO_UIOHOOK === "1";
-  46 | const FORCE_NO_VCREDIST = process.env.FORCE_NO_VCREDIST === "1";
-  47 | const DEBUG_HK = process.env.DEBUG_HK === "1";
-  48 | 
-  49 | const __dirname = dirname(fileURLToPath(import.meta.url));
-  50 | const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-  51 | 
-  52 | if (process.platform === "win32") {
-  53 |   app.setAppUserModelId("com.steaxs.dbdtimer.free");
-  54 | }
-  55 | 
-  56 | const iconPath = isDev
-  57 |   ? join(__dirname, "../build/icon.ico")
-  58 |   : join(process.resourcesPath, "icon.ico");
-  59 | 
-  60 | const store = new Store();
-  61 | 
-  62 | // single-instance (évite hooks dupliqués)
-  63 | if (!app.requestSingleInstanceLock()) {
-  64 |   app.quit();
-  65 | }
-  66 | 
-  67 | /* -------------------- store keys & defaults -------------------- */
-  68 | const K = {
-  69 |   WINDOW: "windowState",
-  70 |   OVERLAY: "overlaySettings",
-  71 |   TIMER: "timerData",
-  72 |   HK_CODES: "hotkeys",
-  73 |   HK_LABELS: "hotkeysLabel",
-  74 |   MOUSE_BINDS: "mouseBinds",
-  75 | };
-  76 | const defaults = {
-  77 |   [K.OVERLAY]: { x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true },
-  78 |   [K.TIMER]: {
-  79 |     player1: { name: "Player 1", score: 0 },
-  80 |     player2: { name: "Player 2", score: 0 },
-  81 |   },
-  82 |   [K.HK_CODES]: { start: null, swap: null },
-  83 |   [K.HK_LABELS]: { start: "F1", swap: "F2" },
-  84 |   [K.MOUSE_BINDS]: { start: null, swap: null },
-  85 | };
-  86 | const getStore = (key) => store.get(key) ?? defaults[key];
-  87 | 
-  88 | /* -------------------- état runtime -------------------- */
-  89 | let mainWindow = null;
-  90 | let overlayWindow = null;
-  91 | let usingUiohook = false;
-  92 | 
-  93 | // dimensions non-scalées du contenu (hors drag bar)
-  94 | let baseDims = { width: 520, height: 120 };
-  95 | 
-  96 | // hotkeys: codes (uiohook) + labels (affichage & fallback)
-  97 | let hotkeys = getStore(K.HK_CODES);
-  98 | let hotkeysLabel = getStore(K.HK_LABELS);
-  99 | let mouseBinds = getStore(K.MOUSE_BINDS);
- 100 | 
- 101 | // ===== debug =====
- 102 | const logHK = (...args) => {
- 103 |   if (DEBUG_HK) console.log("[HK]", ...args);
- 104 | };
- 105 | 
- 106 | /* -------------------- helpers communs -------------------- */
- 107 | const VC_REDIST_X64_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
- 108 | 
- 109 | // Détection VC++ 2015–2022 (x64)
- 110 | function hasVCRedist() {
- 111 |   if (FORCE_NO_VCREDIST) return false;
- 112 |   if (process.platform !== "win32") return true;
- 113 |   const win = process.env.windir || "C:\\Windows";
- 114 |   const sys32 = join(win, "System32");
- 115 |   const dlls = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"];
- 116 |   try {
- 117 |     return dlls.every((d) => fs.existsSync(join(sys32, d)));
- 118 |   } catch {
- 119 |     return false;
- 120 |   }
- 121 | }
- 122 | 
- 123 | // Dédup unifié
- 124 | function createRateLimiter(defaultMs = 200) {
- 125 |   const last = new Map();
- 126 |   return (key, ms = defaultMs) => {
- 127 |     const now = Date.now();
- 128 |     const t = last.get(key) || 0;
- 129 |     if (now - t < ms) return false;
- 130 |     last.set(key, now);
- 131 |     return true;
- 132 |   };
- 133 | }
- 134 | const canFire = createRateLimiter(220);
- 135 | 
- 136 | function isAlphaNumLabel(k) {
- 137 |   return typeof k === "string" && /^[A-Z0-9]$/.test(k);
- 138 | }
- 139 | 
- 140 | // Normalise un label depuis before-input-event (fallback)
- 141 | function makeLabelFromBeforeInput(input) {
- 142 |   let k = input.key || "";
- 143 |   if (/^F\d{1,2}$/.test(k)) return k;
- 144 |   if (/^[a-z]$/.test(k)) return k.toUpperCase();
- 145 |   if (/^\d$/.test(k)) return k;
- 146 |   if (k === " ") return "SPACE";
- 147 |   const map = {
- 148 |     Escape: "ESC",
- 149 |     Tab: "TAB",
- 150 |     Enter: "ENTER",
- 151 |     Backspace: "BACKSPACE",
- 152 |     Shift: "SHIFT",
- 153 |     Control: "CTRL",
- 154 |     Alt: "ALT",
- 155 |     Meta: "META",
- 156 |     ArrowUp: "UP",
- 157 |     ArrowDown: "DOWN",
- 158 |     ArrowLeft: "LEFT",
- 159 |     ArrowRight: "RIGHT",
- 160 |   };
- 161 |   if (map[k]) return k;
- 162 |   const code = input.code || "";
- 163 |   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
- 164 |   if (/^Digit\d$/.test(code)) return code.slice(5);
- 165 |   return k && k.length <= 6 ? k.toUpperCase() : code || "KEY";
- 166 | }
- 167 | 
- 168 | /* -------------------- dispatch centralisé vers l’overlay -------------------- */
- 169 | function dispatchHotkey(type) {
- 170 |   if (!overlayWindow || overlayWindow.isDestroyed()) return;
- 171 |   if (!canFire(type, 220)) return;
- 172 |   overlayWindow.webContents.send("global-hotkey", { type });
- 173 |   logHK("DISPATCH", type);
- 174 | }
- 175 | 
- 176 | /* -------------------- wiring modules -------------------- */
- 177 | // Initialiser le module fenêtres
- 178 | windows.initWindows({
- 179 |   store,
- 180 |   iconPath,
- 181 |   isDev,
- 182 |   baseDims,
- 183 |   getBaseDims: () => baseDims,
- 184 |   setBaseDims: (w, h) => {
- 185 |     baseDims = { width: Math.max(1, Math.floor(w)), height: Math.max(1, Math.floor(h)) };
- 186 |   },
- 187 |   onOverlayMove: (x, y) => {
- 188 |     // débounce léger (100ms)
- 189 |     if (windows._moveDebounce) clearTimeout(windows._moveDebounce);
- 190 |     windows._moveDebounce = setTimeout(() => {
- 191 |       store.set("overlaySettings.x", x);
- 192 |       store.set("overlaySettings.y", y);
- 193 |     }, 120);
- 194 |   },
- 195 |   onOverlayReadyChange: (ready) => {
- 196 |     if (mainWindow && !mainWindow.isDestroyed())
- 197 |       mainWindow.webContents.send("overlay-ready", !!ready);
- 198 |   },
- 199 | });
- 200 | 
- 201 | // Initialiser le module capture
- 202 | capture.initCapture({
- 203 |   ipcMain,
- 204 |   store,
- 205 |   globalShortcut,
- 206 |   dialog,
- 207 |   shell,
- 208 |   VC_REDIST_X64_URL,
- 209 |   hasVCRedist,
- 210 |   logHK,
- 211 |   getMainWindow: () => mainWindow,
- 212 |   getOverlayWindow: () => overlayWindow,
- 213 |   getUsingUiohook: () => usingUiohook,
- 214 |   setUsingUiohook: (v) => (usingUiohook = !!v),
- 215 |   getHotkeys: () => hotkeys,
- 216 |   setHotkeys: (next) => {
- 217 |     hotkeys = next;
- 218 |     store.set(K.HK_CODES, hotkeys);
- 219 |   },
- 220 |   getHotkeysLabel: () => hotkeysLabel,
- 221 |   setHotkeysLabel: (next) => {
- 222 |     hotkeysLabel = next;
- 223 |     store.set(K.HK_LABELS, hotkeysLabel);
- 224 |   },
- 225 |   getMouseBinds: () => mouseBinds,
- 226 |   setMouseBinds: (next) => {
- 227 |     mouseBinds = next;
- 228 |     store.set(K.MOUSE_BINDS, mouseBinds);
- 229 |   },
- 230 |   makeLabelFromBeforeInput,
- 231 |   isAlphaNumLabel,
- 232 |   sendHotkeysMode: (mode) => {
- 233 |     if (mainWindow && !mainWindow.isDestroyed()) {
- 234 |       mainWindow.webContents.send("hotkeys-mode", mode);
- 235 |     }
- 236 |   },
- 237 |   dispatchHotkey,
- 238 |   onGamepadRaw,         // ↔️ gamepad
- 239 |   setGamepadMapping,    // ↔️ gamepad
- 240 | });
- 241 | 
- 242 | // Initialiser le module uIOhook (clavier + souris)
- 243 | uio.setupUiohook({
- 244 |   require,            // pour charger uiohook-napi
- 245 |   FORCE_NO_UIOHOOK,
- 246 |   hasVCRedist,
- 247 |   dialog,
- 248 |   shell,
- 249 |   VC_REDIST_X64_URL,
- 250 |   logHK,
- 251 |   getOverlayWindow: () => overlayWindow,
- 252 |   dispatchHotkey,
- 253 |   // capture integration:
- 254 |   isCapturing: () => capture.isCapturing(),
- 255 |   getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
- 256 |   onCaptureKeyboardCode: (code) => capture.onKeyboardCode(code),
- 257 |   onCaptureMouseLabel: (label) => capture.onMouseLabel(label),
- 258 |   // binds & codes
- 259 |   getHotkeys: () => hotkeys,
- 260 |   getMouseBinds: () => mouseBinds,
- 261 |   setUsingUiohook: (v) => {
- 262 |     usingUiohook = !!v;
- 263 |     const mode = usingUiohook ? "pass-through" : "fallback";
- 264 |     if (mainWindow && !mainWindow.isDestroyed()) {
- 265 |       mainWindow.webContents.send("hotkeys-mode", mode);
- 266 |     }
- 267 |     if (!usingUiohook) {
- 268 |       // (re)activer globalShortcut fallback
- 269 |       capture.refreshHotkeyEngine({
- 270 |         globalShortcut,
- 271 |         hotkeysLabel,
- 272 |         isAlphaNumLabel,
- 273 |         logHK,
- 274 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
- 275 |         dispatchHotkey,
- 276 |       });
- 277 |     } else {
- 278 |       try {
- 279 |         globalShortcut.unregisterAll();
- 280 |       } catch {}
- 281 |     }
- 282 |   },
- 283 | });
- 284 | 
- 285 | // Expose quelques helpers Windows au module capture
- 286 | capture.attachWindowsAPI({
- 287 |   sendOverlaySettings: () => windows.sendOverlaySettings(overlayWindow, store, isDev),
- 288 | });
- 289 | 
- 290 | /* -------------------- IPC (panneau ↔ main) -------------------- */
- 291 | function setupIPC() {
- 292 |   ipcMain.handle("overlay-show", () => {
- 293 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
- 294 |     return true;
- 295 |   });
- 296 |   ipcMain.handle("overlay-hide", () => {
- 297 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
- 298 |     overlayWindow = null;
- 299 |     if (mainWindow && !mainWindow.isDestroyed())
- 300 |       mainWindow.webContents.send("overlay-ready", false);
- 301 |     return true;
- 302 |   });
- 303 | 
- 304 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
- 305 |     const current = getStore(K.OVERLAY);
- 306 |     const next = { ...current, ...settings };
- 307 |     store.set(K.OVERLAY, next);
- 308 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
- 309 | 
- 310 |     if (settings.locked !== undefined) {
- 311 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
- 312 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
- 313 |     }
- 314 |     if (settings.alwaysOnTop !== undefined)
- 315 |       windows.applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
- 316 |     if (settings.x !== undefined || settings.y !== undefined) {
- 317 |       const b = overlayWindow.getBounds();
- 318 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
- 319 |     }
- 320 |     if (settings.scale !== undefined || settings.locked !== undefined)
- 321 |       windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
- 322 |     windows.sendOverlaySettings(overlayWindow, store, isDev);
- 323 |     return true;
- 324 |   });
- 325 | 
- 326 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
- 327 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
- 328 |       return false;
- 329 |     baseDims = {
- 330 |       width: Math.max(1, Math.floor(dims.width)),
- 331 |       height: Math.max(1, Math.floor(dims.height)),
- 332 |     };
- 333 |     windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
- 334 |     return true;
- 335 |   });
- 336 | 
- 337 |   // Timer data
- 338 |   ipcMain.handle("timer-data-get", () => getStore(K.TIMER));
- 339 |   ipcMain.handle("timer-data-set", (_evt, data) => {
- 340 |     store.set(K.TIMER, data);
- 341 |     if (overlayWindow && !overlayWindow.isDestroyed())
- 342 |       overlayWindow.webContents.send("timer-data-sync", data);
- 343 |     return true;
- 344 |   });
- 345 | 
- 346 |   // Hotkeys API
- 347 |   ipcMain.handle("hotkeys-get", () => ({
- 348 |     start: hotkeys.start,
- 349 |     swap: hotkeys.swap,
- 350 |     startLabel: hotkeysLabel.start,
- 351 |     swapLabel: hotkeysLabel.swap,
- 352 |     mode: usingUiohook ? "pass-through" : "fallback",
- 353 |   }));
- 354 | 
- 355 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
- 356 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
- 357 |     store.set(K.HK_CODES, hotkeys);
- 358 | 
- 359 |     const haveCodes =
- 360 |       Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
- 361 | 
- 362 |     if (haveCodes && uio.isLoaded()) {
- 363 |       // on bascule en pass-through
- 364 |       try {
- 365 |         globalShortcut.unregisterAll();
- 366 |       } catch {}
- 367 |       usingUiohook = true;
- 368 |       if (mainWindow && !mainWindow.isDestroyed())
- 369 |         mainWindow.webContents.send("hotkeys-mode", "pass-through");
- 370 |     } else if (!haveCodes) {
- 371 |       usingUiohook = false;
- 372 |       capture.refreshHotkeyEngine({
- 373 |         globalShortcut,
- 374 |         hotkeysLabel,
- 375 |         isAlphaNumLabel,
- 376 |         logHK,
- 377 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
- 378 |         dispatchHotkey,
- 379 |       });
- 380 |       if (mainWindow && !mainWindow.isDestroyed())
- 381 |         mainWindow.webContents.send("hotkeys-mode", "fallback");
- 382 |     }
- 383 |     return true;
- 384 |   });
- 385 | 
- 386 |   // 🚀 Capture: tout le workflow (IPC) déplacé dans le module capture
- 387 |   capture.setupCaptureIPC();
- 388 | }
- 389 | 
- 390 | /* -------------------- lifecycle -------------------- */
- 391 | app.commandLine.appendSwitch("enable-zero-copy");
- 392 | app.commandLine.appendSwitch("ignore-gpu-blocklist");
- 393 | 
- 394 | app.whenReady().then(() => {
- 395 |   mainWindow = windows.createMainWindow(store, iconPath, isDev);
- 396 |   setupIPC();
- 397 |   uio.start(); // lance uIOhook (si possible) et configure mode fallback/pass-through
- 398 |   setTimeout(() => {
- 399 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
- 400 |   }, 800);
- 401 |   setupGamepadExe();
- 402 | }).catch(err => console.error("[Electron] whenReady error:", err));
- 403 | 
- 404 | app.on("second-instance", () => {
- 405 |   if (mainWindow) {
- 406 |     if (mainWindow.isMinimized()) mainWindow.restore();
- 407 |     mainWindow.show();
- 408 |     mainWindow.focus();
- 409 |   }
- 410 | });
- 411 | 
- 412 | app.on("will-quit", () => {
- 413 |   try {
- 414 |     if (uio.isLoaded()) uio.stop();
- 415 |   } catch {}
- 416 |   try {
- 417 |     globalShortcut.unregisterAll();
- 418 |   } catch {}
- 419 | });
- 420 | 
- 421 | app.on("window-all-closed", () => {
- 422 |   app.quit();
- 423 | });
+  26 |   clearGamepadMapping,
+  27 | } = require("./input/gamepad-exe.cjs");
+  28 | 
+  29 | /** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
+  30 | (function loadDevEnv() {
+  31 |   if (app.isPackaged) return; // en prod: ne rien charger
+  32 |   let dotenv;
+  33 |   try {
+  34 |     dotenv = require("dotenv");
+  35 |   } catch {
+  36 |     return;
+  37 |   }
+  38 |   const root = process.cwd();
+  39 |   for (const name of [".env", ".env.development"]) {
+  40 |     const p = join(root, name);
+  41 |     if (fs.existsSync(p)) dotenv.config({ path: p, override: true });
+  42 |   }
+  43 | })();
+  44 | 
+  45 | /* -------------------- flags via .env -------------------- */
+  46 | const FORCE_NO_UIOHOOK = process.env.FORCE_NO_UIOHOOK === "1";
+  47 | const FORCE_NO_VCREDIST = process.env.FORCE_NO_VCREDIST === "1";
+  48 | const DEBUG_HK = process.env.DEBUG_HK === "1";
+  49 | 
+  50 | const __dirname = dirname(fileURLToPath(import.meta.url));
+  51 | const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+  52 | 
+  53 | if (process.platform === "win32") {
+  54 |   app.setAppUserModelId("com.steaxs.dbdtimer.free");
+  55 | }
+  56 | 
+  57 | const iconPath = isDev
+  58 |   ? join(__dirname, "../build/icon.ico")
+  59 |   : join(process.resourcesPath, "icon.ico");
+  60 | 
+  61 | const store = new Store();
+  62 | 
+  63 | // single-instance (évite hooks dupliqués)
+  64 | if (!app.requestSingleInstanceLock()) {
+  65 |   app.quit();
+  66 | }
+  67 | 
+  68 | /* -------------------- store keys & defaults -------------------- */
+  69 | const K = {
+  70 |   WINDOW: "windowState",
+  71 |   OVERLAY: "overlaySettings",
+  72 |   TIMER: "timerData",
+  73 |   HK_CODES: "hotkeys",
+  74 |   HK_LABELS: "hotkeysLabel",
+  75 |   MOUSE_BINDS: "mouseBinds",
+  76 | };
+  77 | const defaults = {
+  78 |   [K.OVERLAY]: { x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true },
+  79 |   [K.TIMER]: {
+  80 |     player1: { name: "Player 1", score: 0 },
+  81 |     player2: { name: "Player 2", score: 0 },
+  82 |   },
+  83 |   [K.HK_CODES]: { start: null, swap: null },
+  84 |   [K.HK_LABELS]: { start: "F1", swap: "F2" },
+  85 |   [K.MOUSE_BINDS]: { start: null, swap: null },
+  86 | };
+  87 | const getStore = (key) => store.get(key) ?? defaults[key];
+  88 | 
+  89 | /* -------------------- état runtime -------------------- */
+  90 | let mainWindow = null;
+  91 | let overlayWindow = null;
+  92 | let usingUiohook = false;
+  93 | 
+  94 | // dimensions non-scalées du contenu (hors drag bar)
+  95 | let baseDims = { width: 520, height: 120 };
+  96 | 
+  97 | // hotkeys: codes (uiohook) + labels (affichage & fallback)
+  98 | let hotkeys = getStore(K.HK_CODES);
+  99 | let hotkeysLabel = getStore(K.HK_LABELS);
+ 100 | let mouseBinds = getStore(K.MOUSE_BINDS);
+ 101 | 
+ 102 | // ===== debug =====
+ 103 | const logHK = (...args) => {
+ 104 |   if (DEBUG_HK) console.log("[HK]", ...args);
+ 105 | };
+ 106 | 
+ 107 | /* -------------------- helpers communs -------------------- */
+ 108 | const VC_REDIST_X64_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
+ 109 | 
+ 110 | // Détection VC++ 2015–2022 (x64)
+ 111 | function hasVCRedist() {
+ 112 |   if (FORCE_NO_VCREDIST) return false;
+ 113 |   if (process.platform !== "win32") return true;
+ 114 |   const win = process.env.windir || "C:\\Windows";
+ 115 |   const sys32 = join(win, "System32");
+ 116 |   const dlls = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"];
+ 117 |   try {
+ 118 |     return dlls.every((d) => fs.existsSync(join(sys32, d)));
+ 119 |   } catch {
+ 120 |     return false;
+ 121 |   }
+ 122 | }
+ 123 | 
+ 124 | // Dédup unifié
+ 125 | function createRateLimiter(defaultMs = 200) {
+ 126 |   const last = new Map();
+ 127 |   return (key, ms = defaultMs) => {
+ 128 |     const now = Date.now();
+ 129 |     const t = last.get(key) || 0;
+ 130 |     if (now - t < ms) return false;
+ 131 |     last.set(key, now);
+ 132 |     return true;
+ 133 |   };
+ 134 | }
+ 135 | const canFire = createRateLimiter(220);
+ 136 | 
+ 137 | function isAlphaNumLabel(k) {
+ 138 |   return typeof k === "string" && /^[A-Z0-9]$/.test(k);
+ 139 | }
+ 140 | 
+ 141 | // Normalise un label depuis before-input-event (fallback)
+ 142 | function makeLabelFromBeforeInput(input) {
+ 143 |   let k = input.key || "";
+ 144 |   if (/^F\d{1,2}$/.test(k)) return k;
+ 145 |   if (/^[a-z]$/.test(k)) return k.toUpperCase();
+ 146 |   if (/^\d$/.test(k)) return k;
+ 147 |   if (k === " ") return "SPACE";
+ 148 |   const map = {
+ 149 |     Escape: "ESC",
+ 150 |     Tab: "TAB",
+ 151 |     Enter: "ENTER",
+ 152 |     Backspace: "BACKSPACE",
+ 153 |     Shift: "SHIFT",
+ 154 |     Control: "CTRL",
+ 155 |     Alt: "ALT",
+ 156 |     Meta: "META",
+ 157 |     ArrowUp: "UP",
+ 158 |     ArrowDown: "DOWN",
+ 159 |     ArrowLeft: "LEFT",
+ 160 |     ArrowRight: "RIGHT",
+ 161 |   };
+ 162 |   if (map[k]) return k;
+ 163 |   const code = input.code || "";
+ 164 |   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
+ 165 |   if (/^Digit\d$/.test(code)) return code.slice(5);
+ 166 |   return k && k.length <= 6 ? k.toUpperCase() : code || "KEY";
+ 167 | }
+ 168 | 
+ 169 | /* -------------------- dispatch centralisé vers l’overlay -------------------- */
+ 170 | function dispatchHotkey(type) {
+ 171 |   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+ 172 |   if (!canFire(type, 220)) return;
+ 173 |   overlayWindow.webContents.send("global-hotkey", { type });
+ 174 |   logHK("DISPATCH", type);
+ 175 | }
+ 176 | 
+ 177 | /* -------------------- wiring modules -------------------- */
+ 178 | // Initialiser le module fenêtres
+ 179 | windows.initWindows({
+ 180 |   store,
+ 181 |   iconPath,
+ 182 |   isDev,
+ 183 |   baseDims,
+ 184 |   getBaseDims: () => baseDims,
+ 185 |   setBaseDims: (w, h) => {
+ 186 |     baseDims = { width: Math.max(1, Math.floor(w)), height: Math.max(1, Math.floor(h)) };
+ 187 |   },
+ 188 |   onOverlayMove: (x, y) => {
+ 189 |     // débounce léger (100ms)
+ 190 |     if (windows._moveDebounce) clearTimeout(windows._moveDebounce);
+ 191 |     windows._moveDebounce = setTimeout(() => {
+ 192 |       store.set("overlaySettings.x", x);
+ 193 |       store.set("overlaySettings.y", y);
+ 194 |     }, 120);
+ 195 |   },
+ 196 |   onOverlayReadyChange: (ready) => {
+ 197 |     if (mainWindow && !mainWindow.isDestroyed())
+ 198 |       mainWindow.webContents.send("overlay-ready", !!ready);
+ 199 |   },
+ 200 | });
+ 201 | 
+ 202 | // Initialiser le module capture
+ 203 | capture.initCapture({
+ 204 |   ipcMain,
+ 205 |   store,
+ 206 |   globalShortcut,
+ 207 |   dialog,
+ 208 |   shell,
+ 209 |   VC_REDIST_X64_URL,
+ 210 |   hasVCRedist,
+ 211 |   logHK,
+ 212 |   getMainWindow: () => mainWindow,
+ 213 |   getOverlayWindow: () => overlayWindow,
+ 214 |   getUsingUiohook: () => usingUiohook,
+ 215 |   setUsingUiohook: (v) => (usingUiohook = !!v),
+ 216 |   getHotkeys: () => hotkeys,
+ 217 |   setHotkeys: (next) => {
+ 218 |     hotkeys = next;
+ 219 |     store.set(K.HK_CODES, hotkeys);
+ 220 |   },
+ 221 |   getHotkeysLabel: () => hotkeysLabel,
+ 222 |   setHotkeysLabel: (next) => {
+ 223 |     hotkeysLabel = next;
+ 224 |     store.set(K.HK_LABELS, hotkeysLabel);
+ 225 |   },
+ 226 |   getMouseBinds: () => mouseBinds,
+ 227 |   setMouseBinds: (next) => {
+ 228 |     mouseBinds = next;
+ 229 |     store.set(K.MOUSE_BINDS, mouseBinds);
+ 230 |   },
+ 231 |   makeLabelFromBeforeInput,
+ 232 |   isAlphaNumLabel,
+ 233 |   sendHotkeysMode: (mode) => {
+ 234 |     if (mainWindow && !mainWindow.isDestroyed()) {
+ 235 |       mainWindow.webContents.send("hotkeys-mode", mode);
+ 236 |     }
+ 237 |   },
+ 238 |   dispatchHotkey,
+ 239 |   onGamepadRaw,         // ↔️ gamepad
+ 240 |   setGamepadMapping,
+ 241 |   clearGamepadMapping,    // ↔️ gamepad
+ 242 | });
+ 243 | 
+ 244 | // Initialiser le module uIOhook (clavier + souris)
+ 245 | uio.setupUiohook({
+ 246 |   require,            // pour charger uiohook-napi
+ 247 |   FORCE_NO_UIOHOOK,
+ 248 |   hasVCRedist,
+ 249 |   dialog,
+ 250 |   shell,
+ 251 |   VC_REDIST_X64_URL,
+ 252 |   logHK,
+ 253 |   getOverlayWindow: () => overlayWindow,
+ 254 |   dispatchHotkey,
+ 255 |   // capture integration:
+ 256 |   isCapturing: () => capture.isCapturing(),
+ 257 |   getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+ 258 |   onCaptureKeyboardCode: (code) => capture.onKeyboardCode(code),
+ 259 |   onCaptureMouseLabel: (label) => capture.onMouseLabel(label),
+ 260 |   // binds & codes
+ 261 |   getHotkeys: () => hotkeys,
+ 262 |   getMouseBinds: () => mouseBinds,
+ 263 |   setUsingUiohook: (v) => {
+ 264 |     usingUiohook = !!v;
+ 265 |     const mode = usingUiohook ? "pass-through" : "fallback";
+ 266 |     if (mainWindow && !mainWindow.isDestroyed()) {
+ 267 |       mainWindow.webContents.send("hotkeys-mode", mode);
+ 268 |     }
+ 269 |     if (!usingUiohook) {
+ 270 |       // (re)activer globalShortcut fallback
+ 271 |       capture.refreshHotkeyEngine({
+ 272 |         globalShortcut,
+ 273 |         hotkeysLabel,
+ 274 |         isAlphaNumLabel,
+ 275 |         logHK,
+ 276 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+ 277 |         dispatchHotkey,
+ 278 |       });
+ 279 |     } else {
+ 280 |       try {
+ 281 |         globalShortcut.unregisterAll();
+ 282 |       } catch {}
+ 283 |     }
+ 284 |   },
+ 285 | });
+ 286 | 
+ 287 | // Expose quelques helpers Windows au module capture
+ 288 | capture.attachWindowsAPI({
+ 289 |   sendOverlaySettings: () => windows.sendOverlaySettings(overlayWindow, store, isDev),
+ 290 | });
+ 291 | 
+ 292 | /* -------------------- IPC (panneau ↔ main) -------------------- */
+ 293 | function setupIPC() {
+ 294 |   ipcMain.handle("overlay-show", () => {
+ 295 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
+ 296 |     return true;
+ 297 |   });
+ 298 |   ipcMain.handle("overlay-hide", () => {
+ 299 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
+ 300 |     overlayWindow = null;
+ 301 |     if (mainWindow && !mainWindow.isDestroyed())
+ 302 |       mainWindow.webContents.send("overlay-ready", false);
+ 303 |     return true;
+ 304 |   });
+ 305 | 
+ 306 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
+ 307 |     const current = getStore(K.OVERLAY);
+ 308 |     const next = { ...current, ...settings };
+ 309 |     store.set(K.OVERLAY, next);
+ 310 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
+ 311 | 
+ 312 |     if (settings.locked !== undefined) {
+ 313 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
+ 314 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
+ 315 |     }
+ 316 |     if (settings.alwaysOnTop !== undefined)
+ 317 |       windows.applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
+ 318 |     if (settings.x !== undefined || settings.y !== undefined) {
+ 319 |       const b = overlayWindow.getBounds();
+ 320 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
+ 321 |     }
+ 322 |     if (settings.scale !== undefined || settings.locked !== undefined)
+ 323 |       windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
+ 324 |     windows.sendOverlaySettings(overlayWindow, store, isDev);
+ 325 |     return true;
+ 326 |   });
+ 327 | 
+ 328 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
+ 329 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
+ 330 |       return false;
+ 331 |     baseDims = {
+ 332 |       width: Math.max(1, Math.floor(dims.width)),
+ 333 |       height: Math.max(1, Math.floor(dims.height)),
+ 334 |     };
+ 335 |     windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
+ 336 |     return true;
+ 337 |   });
+ 338 | 
+ 339 |   // Timer data
+ 340 |   ipcMain.handle("timer-data-get", () => getStore(K.TIMER));
+ 341 |   ipcMain.handle("timer-data-set", (_evt, data) => {
+ 342 |     store.set(K.TIMER, data);
+ 343 |     if (overlayWindow && !overlayWindow.isDestroyed())
+ 344 |       overlayWindow.webContents.send("timer-data-sync", data);
+ 345 |     return true;
+ 346 |   });
+ 347 | 
+ 348 |   // Hotkeys API
+ 349 |   ipcMain.handle("hotkeys-get", () => ({
+ 350 |     start: hotkeys.start,
+ 351 |     swap: hotkeys.swap,
+ 352 |     startLabel: hotkeysLabel.start,
+ 353 |     swapLabel: hotkeysLabel.swap,
+ 354 |     mode: usingUiohook ? "pass-through" : "fallback",
+ 355 |   }));
+ 356 | 
+ 357 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
+ 358 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
+ 359 |     store.set(K.HK_CODES, hotkeys);
+ 360 | 
+ 361 |     const haveCodes =
+ 362 |       Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
+ 363 | 
+ 364 |     if (haveCodes && uio.isLoaded()) {
+ 365 |       // on bascule en pass-through
+ 366 |       try {
+ 367 |         globalShortcut.unregisterAll();
+ 368 |       } catch {}
+ 369 |       usingUiohook = true;
+ 370 |       if (mainWindow && !mainWindow.isDestroyed())
+ 371 |         mainWindow.webContents.send("hotkeys-mode", "pass-through");
+ 372 |     } else if (!haveCodes) {
+ 373 |       usingUiohook = false;
+ 374 |       capture.refreshHotkeyEngine({
+ 375 |         globalShortcut,
+ 376 |         hotkeysLabel,
+ 377 |         isAlphaNumLabel,
+ 378 |         logHK,
+ 379 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+ 380 |         dispatchHotkey,
+ 381 |       });
+ 382 |       if (mainWindow && !mainWindow.isDestroyed())
+ 383 |         mainWindow.webContents.send("hotkeys-mode", "fallback");
+ 384 |     }
+ 385 |     return true;
+ 386 |   });
+ 387 | 
+ 388 |   // 🚀 Capture: tout le workflow (IPC) déplacé dans le module capture
+ 389 |   capture.setupCaptureIPC();
+ 390 | }
+ 391 | 
+ 392 | /* -------------------- lifecycle -------------------- */
+ 393 | app.commandLine.appendSwitch("enable-zero-copy");
+ 394 | app.commandLine.appendSwitch("ignore-gpu-blocklist");
+ 395 | 
+ 396 | app.whenReady().then(() => {
+ 397 |   mainWindow = windows.createMainWindow(store, iconPath, isDev);
+ 398 |   setupIPC();
+ 399 |   uio.start(); // lance uIOhook (si possible) et configure mode fallback/pass-through
+ 400 |   setTimeout(() => {
+ 401 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
+ 402 |   }, 800);
+ 403 |   setupGamepadExe();
+ 404 | }).catch(err => console.error("[Electron] whenReady error:", err));
+ 405 | 
+ 406 | app.on("second-instance", () => {
+ 407 |   if (mainWindow) {
+ 408 |     if (mainWindow.isMinimized()) mainWindow.restore();
+ 409 |     mainWindow.show();
+ 410 |     mainWindow.focus();
+ 411 |   }
+ 412 | });
+ 413 | 
+ 414 | app.on("will-quit", () => {
+ 415 |   try {
+ 416 |     if (uio.isLoaded()) uio.stop();
+ 417 |   } catch {}
+ 418 |   try {
+ 419 |     globalShortcut.unregisterAll();
+ 420 |   } catch {}
+ 421 | });
+ 422 | 
+ 423 | app.on("window-all-closed", () => {
+ 424 |   app.quit();
+ 425 | });
 
 ```
 

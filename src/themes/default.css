@@ -1,8 +1,13 @@
 /* === Default Theme (ajustée) === */
 :root {
-  /* fondu latéral pour une coupe propre du texte (appliqué sur la piste, pas sur le fond) */
-  --edge-fade: 10px;
-}
+    /* fondu latéral pour une coupe propre du texte (appliqué sur la piste, pas sur le fond) */
+    --edge-fade: 10px;
+    /* === nouvelles variables thème === */
+    /* fond des .name (players) */
+    --name-bg: linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%);
+    /* accent commun : fond du score + swap bar */
+    --accent-gradient: linear-gradient(90deg, #274B90 0.06%, #09327E 40.01%, #04296F 79.97%);
+  }
 
 .timer-overlay {
   display: grid;
@@ -29,7 +34,7 @@
 
 .name, .score-value {
   border-bottom: 1px solid rgba(255,255,255,0.32);
-  background: linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%);
+  background: var(--name-bg);
   display: flex; align-items: center; justify-content: center;
   font-family: "Poppins", system-ui, sans-serif;
   font-size: 22px; font-weight: 500; color: #FFF;
@@ -41,7 +46,7 @@
 }
 .score-value {
   grid-row: 1; grid-column: 2; font-size: 24px; text-transform: uppercase;
-  background: linear-gradient(90deg, #274B90 0.06%, #09327E 40.01%, #04296F 79.97%);
+  background: var(--accent-gradient);
   padding: 0 15px; min-width: 90px; max-width: 120px;
 }
 .name.right {
@@ -111,7 +116,7 @@
 
 .timer.active::before {
   content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, #B579FF 0%, #5AC8FF 50%, #44FF41 100%);
+  background: var(--accent-gradient);
   animation: pulseBar 1s ease-in-out infinite;
 }
 @keyframes pulseBar { 0%,100%{opacity:.5} 50%{opacity:1} }
