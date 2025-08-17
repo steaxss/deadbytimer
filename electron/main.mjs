@@ -24,6 +24,7 @@ const {
   onGamepadRaw,
   setGamepadMapping,
   clearGamepadMapping,
+  getGamepadMapping,
 } = require("./input/gamepad-exe.cjs");
 
 /** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
@@ -170,7 +171,7 @@ function makeLabelFromBeforeInput(input) {
     ArrowLeft: "LEFT",
     ArrowRight: "RIGHT",
   };
-  if (map[k]) return k;
+  if (map[k]) return map[k];
   const code = input.code || "";
   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
   if (/^Digit\d$/.test(code)) return code.slice(5);
@@ -364,6 +365,12 @@ function setupIPC() {
     swapLabel: hotkeysLabel.swap,
     mode: usingUiohook ? "pass-through" : "fallback",
   }));
+  
+  ipcMain.handle("gamepad-mapping-get", () => getGamepadMapping());
+  ipcMain.handle("gamepad-mapping-clear", (_evt, action) => {
+    clearGamepadMapping(action === "swap" ? "swap" : "toggle");
+    return getGamepadMapping();
+  });
 
   ipcMain.handle("hotkeys-set", (_evt, hk) => {
     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis

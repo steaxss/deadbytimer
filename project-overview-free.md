@@ -241,424 +241,419 @@ dbdoverlaytools-free
   25 |   dispatchHotkey,
   26 |   onGamepadRaw,
   27 |   setGamepadMapping,
-  28 |   clearGamepadMapping; // 👈 nouveau
+  28 |   clearGamepadMapping; // conservé pour compat, non utilisé pour “double bind” (gamepad coexiste)
   29 | 
-  30 | let captureState = null; // { type, label, code, primaryTimer, secondaryTimer }
+  30 | let captureState = null; // { type: 'start'|'swap', source: 'any'|'desktop'|'gamepad', label, code, primaryTimer, secondaryTimer }
   31 | let captureWaitUntil = 0; // block timers dispatch during capture
-  32 | let offGamepadRaw = null; // ✅ NO SHADOWING BUG
+  32 | let offGamepadRaw = null;
   33 | 
-  34 | function initCapture(ctx) {
-  35 |   ({
-  36 |     ipcMain,
-  37 |     store,
-  38 |     globalShortcut,
-  39 |     dialog,
-  40 |     shell,
-  41 |     VC_REDIST_X64_URL,
-  42 |     hasVCRedist,
-  43 |     logHK,
-  44 |     getMainWindow,
-  45 |     getOverlayWindow,
-  46 |     getUsingUiohook,
-  47 |     setUsingUiohook,
-  48 |     getHotkeys,
-  49 |     setHotkeys,
-  50 |     getHotkeysLabel,
-  51 |     setHotkeysLabel,
-  52 |     getMouseBinds,
-  53 |     setMouseBinds,
-  54 |     makeLabelFromBeforeInput,
-  55 |     isAlphaNumLabel,
-  56 |     sendHotkeysMode,
-  57 |     dispatchHotkey,
-  58 |     onGamepadRaw,
-  59 |     setGamepadMapping,
-  60 |     clearGamepadMapping, // 👈 récupéré
-  61 |   } = ctx);
-  62 | }
-  63 | 
-  64 | // Helpers label
-  65 | function isMouseLabel(label) {
-  66 |   return (
-  67 |     typeof label === "string" && /^(MOUSE\d+|WHEEL_(UP|DOWN))$/i.test(label)
-  68 |   );
-  69 | }
-  70 | function isKeyboardLabel(label) {
-  71 |   // F-keys, lettres/chiffres, et quelques noms courants
-  72 |   if (typeof label !== "string") return false;
-  73 |   if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(label)) return true;
-  74 |   if (/^[A-Z0-9]$/.test(label)) return true;
-  75 |   return /^(ESC|TAB|ENTER|BACKSPACE|SHIFT|CTRL|ALT|SPACE|UP|DOWN|LEFT|RIGHT)$/i.test(
-  76 |     label
-  77 |   );
+  34 | // -------------------- Init --------------------
+  35 | function initCapture(ctx) {
+  36 |   ({
+  37 |     ipcMain,
+  38 |     store,
+  39 |     globalShortcut,
+  40 |     dialog,
+  41 |     shell,
+  42 |     VC_REDIST_X64_URL,
+  43 |     hasVCRedist,
+  44 |     logHK,
+  45 |     getMainWindow,
+  46 |     getOverlayWindow,
+  47 |     getUsingUiohook,
+  48 |     setUsingUiohook,
+  49 |     getHotkeys,
+  50 |     setHotkeys,
+  51 |     getHotkeysLabel,
+  52 |     setHotkeysLabel,
+  53 |     getMouseBinds,
+  54 |     setMouseBinds,
+  55 |     makeLabelFromBeforeInput,
+  56 |     isAlphaNumLabel,
+  57 |     sendHotkeysMode,
+  58 |     dispatchHotkey,
+  59 |     onGamepadRaw,
+  60 |     setGamepadMapping,
+  61 |     clearGamepadMapping,
+  62 |   } = ctx);
+  63 | }
+  64 | 
+  65 | // -------------------- Helpers label --------------------
+  66 | function isMouseLabel(label) {
+  67 |   return typeof label === "string" && /^(MOUSE\d+|WHEEL_(UP|DOWN))$/i.test(label);
+  68 | }
+  69 | function isKeyboardLabel(label) {
+  70 |   if (typeof label !== "string") return false;
+  71 |   if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(label)) return true;
+  72 |   if (/^[A-Z0-9]$/.test(label)) return true;
+  73 |   return /^(ESC|TAB|ENTER|BACKSPACE|SHIFT|CTRL|ALT|SPACE|UP|DOWN|LEFT|RIGHT)$/i.test(label);
+  74 | }
+  75 | function isGamepadLabel(label) {
+  76 |   // tout ce qui n'est ni clavier ni souris est considéré manette (ex: "BTN A", "DPAD UP"…)
+  77 |   return typeof label === "string" && !isKeyboardLabel(label) && !isMouseLabel(label);
   78 | }
-  79 | function isGamepadLabel(label) {
-  80 |   // tout ce qui n'est ni clavier ni souris est considéré manette (ex: "BTN A", "BTN X", "DPAD UP"…)
-  81 |   return typeof label === "string" && !isKeyboardLabel(label) && !isMouseLabel(label);
+  79 | 
+  80 | function isCapturing() {
+  81 |   return !!captureState;
   82 | }
-  83 | 
-  84 | function isCapturing() {
-  85 |   return !!captureState;
-  86 | }
-  87 | function getCaptureBlockUntil() {
-  88 |   return captureWaitUntil;
-  89 | }
-  90 | 
-  91 | // --- Hooks appelés par uIOhook pendant capture ---
-  92 | function onKeyboardCode(code) {
-  93 |   if (!captureState) return;
-  94 |   captureState.code = code;
-  95 |   if (captureState.label) finalizeCapture("have both");
-  96 |   else {
-  97 |     if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
-  98 |     captureState.secondaryTimer = setTimeout(
-  99 |       () => finalizeCapture("after-code-wait"),
- 100 |       600
- 101 |     );
- 102 |   }
- 103 | }
+  83 | function getCaptureBlockUntil() {
+  84 |   return captureWaitUntil;
+  85 | }
+  86 | 
+  87 | // -------------------- Hooks appelés par uIOhook pendant capture --------------------
+  88 | function onKeyboardCode(code) {
+  89 |   if (!captureState) return;
+  90 |   if (captureState.source === "gamepad") return; // si on veut capturer manette, ignorer clavier
+  91 |   captureState.code = code;
+  92 |   if (captureState.label) finalizeCapture("have both");
+  93 |   else {
+  94 |     if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
+  95 |     captureState.secondaryTimer = setTimeout(() => finalizeCapture("after-code-wait"), 600);
+  96 |   }
+  97 | }
+  98 | 
+  99 | function onMouseLabel(label) {
+ 100 |   if (!captureState) return;
+ 101 |   if (captureState.source === "gamepad") return; // si capture manette, ignorer souris
+ 102 |   const { type } = captureState;
+ 103 |   captureState.label = label;
  104 | 
- 105 | function onMouseLabel(label) {
- 106 |   if (!captureState) return;
- 107 |   const { type } = captureState;
- 108 |   captureState.label = label;
- 109 |   const labels = { ...getHotkeysLabel(), [type]: label };
- 110 |   setHotkeysLabel(labels);
- 111 | 
- 112 |   // persist binds souris (au runtime)
- 113 |   const binds = { ...getMouseBinds(), [type]: label };
- 114 |   setMouseBinds(binds);
- 115 | 
- 116 |   const mw = getMainWindow();
- 117 |   mw?.webContents.send("hotkeys-captured", { type, label });
- 118 | 
- 119 |   finalizeCapture("mouse");
- 120 | }
- 121 | 
- 122 | // --- helpers capture ---
- 123 | function clearCaptureTimers() {
- 124 |   if (!captureState) return;
- 125 |   if (captureState.primaryTimer) {
- 126 |     clearTimeout(captureState.primaryTimer);
- 127 |     captureState.primaryTimer = null;
- 128 |   }
- 129 |   if (captureState.secondaryTimer) {
- 130 |     clearTimeout(captureState.secondaryTimer);
- 131 |     captureState.secondaryTimer = null;
- 132 |   }
- 133 | }
- 134 | 
- 135 | function finalizeCapture(reason = "done") {
- 136 |   if (!captureState) return;
- 137 | 
- 138 |   // unbind manette raw
- 139 |   if (offGamepadRaw) {
- 140 |     try {
- 141 |       offGamepadRaw();
- 142 |     } catch {}
- 143 |     offGamepadRaw = null;
- 144 |   }
- 145 | 
- 146 |   const { type, label, code } = captureState;
- 147 |   clearCaptureTimers();
- 148 | 
- 149 |   logHK && logHK("CAPTURE FINALIZE", { reason, type, label, code });
- 150 | 
- 151 |   // Persistance si on a reçu des infos
- 152 |   if (label) {
- 153 |     const labels = { ...getHotkeysLabel(), [type]: label };
- 154 |     setHotkeysLabel(labels);
- 155 |   }
- 156 |   if (typeof code === "number") {
- 157 |     const codes = { ...getHotkeys(), [type]: code };
- 158 |     setHotkeys(codes);
- 159 |   }
- 160 | 
- 161 |   // 🔒 Exclusivité par action (start/swap)
- 162 |   if (label && isKeyboardLabel(label)) {
- 163 |     // Si on a capturé un clavier : 1) vider bind souris, 2) vider mapping manette
- 164 |     const mb = { ...getMouseBinds() };
- 165 |     if (mb[type]) {
- 166 |       mb[type] = null;
- 167 |       setMouseBinds(mb);
- 168 |       logHK && logHK("Cleared previous MOUSE bind for", type);
- 169 |     }
- 170 |     clearGamepadMapping && clearGamepadMapping(type);
- 171 |     logHK && logHK("Cleared GAMEPAD mapping for", type);
- 172 |   }
- 173 |   if (label && isMouseLabel(label)) {
- 174 |     // Si on a capturé une souris : 1) vider code clavier, 2) vider mapping manette
- 175 |     const codes = { ...getHotkeys() };
- 176 |     if (codes[type] != null) {
- 177 |       codes[type] = null;
- 178 |       setHotkeys(codes);
- 179 |       logHK && logHK("Cleared previous KEYBOARD code for", type);
- 180 |     }
- 181 |     clearGamepadMapping && clearGamepadMapping(type);
- 182 |     logHK && logHK("Cleared GAMEPAD mapping for", type);
- 183 |   }
- 184 |   if (label && isGamepadLabel(label)) {
- 185 |     // Si on a capturé une manette : 1) vider code clavier, 2) vider bind souris
- 186 |     const codes = { ...getHotkeys() };
- 187 |     if (codes[type] != null) {
- 188 |       codes[type] = null;
- 189 |       setHotkeys(codes);
- 190 |       logHK && logHK("Cleared previous KEYBOARD code for", type);
- 191 |     }
- 192 |     const mb = { ...getMouseBinds() };
- 193 |     if (mb[type]) {
- 194 |       mb[type] = null;
- 195 |       setMouseBinds(mb);
- 196 |       logHK && logHK("Cleared previous MOUSE bind for", type);
- 197 |     }
- 198 |   }
- 199 | 
- 200 |   // Notifier le panel si on a label ou code
- 201 |   const mw = getMainWindow();
- 202 |   if (mw && !mw.isDestroyed() && (label || typeof code === "number")) {
- 203 |     const payload = { type };
- 204 |     if (label) payload.label = label;
- 205 |     if (typeof code === "number") payload.keycode = code;
- 206 |     mw.webContents.send("hotkeys-captured", payload);
- 207 |   }
- 208 | 
- 209 |   // Alerte uniquement si VC++ manquant ET alphanum tenté sans uIOhook
- 210 |   if (!getUsingUiohook() && label && isAlphaNumLabel(label) && !hasVCRedist()) {
- 211 |     dialog
- 212 |       .showMessageBox({
- 213 |         type: "info",
- 214 |         title: "Pass-Through unavailable",
- 215 |         message:
- 216 |           "A–Z / 0–9 hotkeys can’t be used in Limited Mode (without uIOhook) without stealing them from other apps.",
- 217 |         detail:
- 218 |           "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”, restart the app, " +
- 219 |           "then recapture your hotkeys to enable pass-through (so you can still type those letters in Discord, etc.).",
- 220 |         buttons: ["Install runtime (x64)", "OK"],
- 221 |         defaultId: 0,
- 222 |         cancelId: 1,
- 223 |         noLink: true,
- 224 |       })
- 225 |       .then(({ response }) => {
- 226 |         if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
- 227 |       });
- 228 |   }
- 229 | 
- 230 |   // Si, après cette capture, on a les 2 codes et uIOhook tourne -> passer en pass-through
- 231 |   const codes = getHotkeys();
- 232 |   const haveBoth = Number.isFinite(codes.start) && Number.isFinite(codes.swap);
- 233 |   if (haveBoth && getUsingUiohook() === false) {
- 234 |     setUsingUiohook(true);
- 235 |     try {
- 236 |       globalShortcut.unregisterAll();
- 237 |     } catch {}
- 238 |     sendHotkeysMode("pass-through");
- 239 |   }
- 240 | 
- 241 |   // Reset capture
- 242 |   captureState = null;
- 243 |   captureWaitUntil = 0;
- 244 | 
- 245 |   // Réarmer fallback si nécessaire
- 246 |   if (!getUsingUiohook()) {
- 247 |     refreshHotkeyEngine({
- 248 |       globalShortcut,
- 249 |       hotkeysLabel: getHotkeysLabel(),
- 250 |       isAlphaNumLabel,
- 251 |       logHK,
- 252 |       getCaptureBlockUntil,
- 253 |       dispatchHotkey,
- 254 |     });
- 255 |   }
- 256 | }
- 257 | 
- 258 | function setupCaptureIPC() {
- 259 |   ipcMain.handle("hotkeys-capture", (_evt, type) => {
- 260 |     if (!(type === "start" || type === "swap")) {
- 261 |       finalizeCapture("cancel");
- 262 |       return true;
- 263 |     }
- 264 | 
- 265 |     logHK &&
- 266 |       logHK("CAPTURE BEGIN", {
- 267 |         type,
- 268 |         mode: getUsingUiohook() ? "pass-through" : "fallback",
- 269 |       });
- 270 | 
- 271 |     // Bloquer le dispatch vers les timers pendant la capture
- 272 |     captureWaitUntil = Date.now() + 15000;
+ 105 |   const labels = { ...getHotkeysLabel(), [type]: label };
+ 106 |   setHotkeysLabel(labels);
+ 107 | 
+ 108 |   const binds = { ...getMouseBinds(), [type]: label };
+ 109 |   setMouseBinds(binds);
+ 110 | 
+ 111 |   const mw = getMainWindow();
+ 112 |   mw?.webContents.send("hotkeys-captured", { type, label });
+ 113 | 
+ 114 |   finalizeCapture("mouse");
+ 115 | }
+ 116 | 
+ 117 | // -------------------- helpers capture --------------------
+ 118 | function clearCaptureTimers() {
+ 119 |   if (!captureState) return;
+ 120 |   if (captureState.primaryTimer) {
+ 121 |     clearTimeout(captureState.primaryTimer);
+ 122 |     captureState.primaryTimer = null;
+ 123 |   }
+ 124 |   if (captureState.secondaryTimer) {
+ 125 |     clearTimeout(captureState.secondaryTimer);
+ 126 |     captureState.secondaryTimer = null;
+ 127 |   }
+ 128 | }
+ 129 | 
+ 130 | // règle d’exclusivité voulue :
+ 131 | // - “desktop” = clavier OU souris (jamais les deux pour une même action)
+ 132 | // - manette coexiste toujours avec “desktop”.
+ 133 | function enforceDesktopExclusivityAfter(label, code, type) {
+ 134 |   const isKb = isKeyboardLabel(label) || typeof code === "number";
+ 135 |   const isMs = isMouseLabel(label);
+ 136 | 
+ 137 |   if (isKb) {
+ 138 |     // on garde clavier (et éventuel code), on supprime la souris pour cette action
+ 139 |     const mb = { ...getMouseBinds() };
+ 140 |     if (mb[type]) {
+ 141 |       mb[type] = null;
+ 142 |       setMouseBinds(mb);
+ 143 |       logHK && logHK("Desktop exclusivity: cleared MOUSE for", type);
+ 144 |     }
+ 145 |   } else if (isMs) {
+ 146 |     // on garde souris, on efface le code clavier pour cette action
+ 147 |     const hk = { ...getHotkeys() };
+ 148 |     if (hk[type] != null) {
+ 149 |       hk[type] = null;
+ 150 |       setHotkeys(hk);
+ 151 |       logHK && logHK("Desktop exclusivity: cleared KEYCODE for", type);
+ 152 |     }
+ 153 |   }
+ 154 |   // manette: ne rien effacer (elle coexiste)
+ 155 | }
+ 156 | 
+ 157 | function finalizeCapture(reason = "done") {
+ 158 |   if (!captureState) return;
+ 159 | 
+ 160 |   // unbind manette raw
+ 161 |   if (offGamepadRaw) {
+ 162 |     try { offGamepadRaw(); } catch {}
+ 163 |     offGamepadRaw = null;
+ 164 |   }
+ 165 | 
+ 166 |   const { type, label, code } = captureState;
+ 167 |   clearCaptureTimers();
+ 168 | 
+ 169 |   logHK && logHK("CAPTURE FINALIZE", { reason, type, label, code });
+ 170 | 
+ 171 |   // Persistance si on a reçu des infos
+ 172 |   if (label) {
+ 173 |     const labels = { ...getHotkeysLabel(), [type]: label };
+ 174 |     setHotkeysLabel(labels);
+ 175 |   }
+ 176 |   if (typeof code === "number") {
+ 177 |     const codes = { ...getHotkeys(), [type]: code };
+ 178 |     setHotkeys(codes);
+ 179 |   }
+ 180 | 
+ 181 |   // ⚖️ Exclusivité “desktop” (clavier OU souris), manette à part
+ 182 |   if (label || typeof code === "number") {
+ 183 |     enforceDesktopExclusivityAfter(label, code, type);
+ 184 | 
+ 185 |     // cas précis: on a capturé un label clavier mais PAS de code → effacer tout ancien code pour éviter l’ancien “F” qui continue de marcher
+ 186 |     if (label && isKeyboardLabel(label) && typeof code !== "number") {
+ 187 |       const hk = { ...getHotkeys() };
+ 188 |       if (hk[type] != null) {
+ 189 |         hk[type] = null;
+ 190 |         setHotkeys(hk);
+ 191 |         logHK && logHK("Cleared stale KEYCODE because only keyboard label was captured", type);
+ 192 |       }
+ 193 |     }
+ 194 |   }
+ 195 | 
+ 196 |   // Notifier le panel si on a label ou code
+ 197 |   const mw = getMainWindow();
+ 198 |   if (mw && !mw.isDestroyed() && (label || typeof code === "number")) {
+ 199 |     const payload = { type };
+ 200 |     if (label) payload.label = label;
+ 201 |     if (typeof code === "number") payload.keycode = code;
+ 202 |     mw.webContents.send("hotkeys-captured", payload);
+ 203 |   }
+ 204 | 
+ 205 |   // Alerte VC++ si besoin
+ 206 |   if (!getUsingUiohook() && label && isAlphaNumLabel(label) && !hasVCRedist()) {
+ 207 |     dialog
+ 208 |       .showMessageBox({
+ 209 |         type: "info",
+ 210 |         title: "Pass-Through unavailable",
+ 211 |         message:
+ 212 |           "A–Z / 0–9 hotkeys can’t be used in Limited Mode (without uIOhook) without stealing them from other apps.",
+ 213 |         detail:
+ 214 |           "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”, restart the app, then recapture your hotkeys.",
+ 215 |         buttons: ["Install runtime (x64)", "OK"],
+ 216 |         defaultId: 0,
+ 217 |         cancelId: 1,
+ 218 |         noLink: true,
+ 219 |       })
+ 220 |       .then(({ response }) => {
+ 221 |         if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
+ 222 |       });
+ 223 |   }
+ 224 | 
+ 225 |   // Pass-through si on a les 2 codes
+ 226 |   const codes = getHotkeys();
+ 227 |   const haveBoth = Number.isFinite(codes.start) && Number.isFinite(codes.swap);
+ 228 |   if (haveBoth && getUsingUiohook() === false) {
+ 229 |     setUsingUiohook(true);
+ 230 |     try { globalShortcut.unregisterAll(); } catch {}
+ 231 |     sendHotkeysMode("pass-through");
+ 232 |   }
+ 233 | 
+ 234 |   // Reset capture
+ 235 |   captureState = null;
+ 236 |   captureWaitUntil = 0;
+ 237 | 
+ 238 |   // Réarmer fallback si nécessaire
+ 239 |   if (!getUsingUiohook()) {
+ 240 |     refreshHotkeyEngine({
+ 241 |       globalShortcut,
+ 242 |       hotkeysLabel: getHotkeysLabel(),
+ 243 |       isAlphaNumLabel,
+ 244 |       logHK,
+ 245 |       getCaptureBlockUntil,
+ 246 |       dispatchHotkey,
+ 247 |     });
+ 248 |   }
+ 249 | }
+ 250 | 
+ 251 | // -------------------- IPC capture --------------------
+ 252 | function parseCaptureArgs(arg1, arg2) {
+ 253 |   // compat: hotkeys.capture('start') OU hotkeys.capture('start','gamepad') OU hotkeys.capture({type:'start', source:'gamepad'})
+ 254 |   if (typeof arg1 === "object" && arg1) {
+ 255 |     return { type: arg1.type, source: arg1.source || "any" };
+ 256 |   }
+ 257 |   return { type: arg1, source: arg2 || "any" };
+ 258 | }
+ 259 | 
+ 260 | function setupCaptureIPC() {
+ 261 |   ipcMain.handle("hotkeys-capture", (_evt, arg1, arg2) => {
+ 262 |     const { type, source } = parseCaptureArgs(arg1, arg2);
+ 263 |     if (!(type === "start" || type === "swap")) {
+ 264 |       finalizeCapture("cancel");
+ 265 |       return true;
+ 266 |     }
+ 267 | 
+ 268 |     logHK && logHK("CAPTURE BEGIN", {
+ 269 |       type,
+ 270 |       source, // 'any' | 'desktop' | 'gamepad'
+ 271 |       mode: getUsingUiohook() ? "pass-through" : "fallback",
+ 272 |     });
  273 | 
- 274 |     // Reset/annule capture précédente si elle existe
- 275 |     if (captureState) {
- 276 |       clearCaptureTimers();
- 277 |       captureState = null;
- 278 |     }
- 279 | 
- 280 |     // État de capture : pas de timer court au début; on attend la première frappe
- 281 |     captureState = {
- 282 |       type,
- 283 |       label: null,
- 284 |       code: null,
- 285 |       primaryTimer: setTimeout(() => {
- 286 |         logHK && logHK("CAPTURE PRIMARY TIMEOUT — cancel");
- 287 |         finalizeCapture("primary-timeout");
- 288 |       }, 15000),
- 289 |       secondaryTimer: null,
- 290 |     };
- 291 | 
- 292 |     // focus le panneau
- 293 |     try {
- 294 |       const mw = getMainWindow();
- 295 |       mw?.focus();
- 296 |       logHK && logHK("focused mainWindow?", mw?.isFocused());
- 297 |     } catch (e) {
- 298 |       logHK && logHK("focus error", e?.message || e);
- 299 |     }
- 300 | 
- 301 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
- 302 |     if (!getUsingUiohook()) {
- 303 |       try {
- 304 |         globalShortcut.unregisterAll();
- 305 |         logHK && logHK("fallback: unregistered to let key through");
- 306 |       } catch {}
- 307 |     }
- 308 | 
- 309 |     // écouter une fois la prochaine touche (pour le label layout-aware)
- 310 |     const mw = getMainWindow();
- 311 |     const once = (event, input) => {
- 312 |       if (!captureState) return;
- 313 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
- 314 |       logHK &&
- 315 |         logHK("before-input-event keyDown", {
- 316 |           key: input.key,
- 317 |           code: input.code,
- 318 |         });
- 319 |       const label = makeLabelFromBeforeInput(input);
- 320 | 
- 321 |       captureState.label = label;
- 322 |       const labels = { ...getHotkeysLabel(), [type]: label };
- 323 |       setHotkeysLabel(labels);
- 324 | 
- 325 |       mw?.webContents.send("hotkeys-captured", { type, label });
- 326 |       logHK && logHK("label captured (instant)", { type, label });
- 327 | 
- 328 |       if (typeof captureState.code === "number") {
- 329 |         finalizeCapture("have both");
- 330 |       } else {
- 331 |         if (captureState.secondaryTimer)
- 332 |           clearTimeout(captureState.secondaryTimer);
- 333 |         captureState.secondaryTimer = setTimeout(
- 334 |           () => finalizeCapture("after-label-wait"),
- 335 |           500
- 336 |         );
- 337 |       }
- 338 | 
- 339 |       mw?.webContents.removeListener("before-input-event", once);
- 340 |     };
- 341 |     mw?.webContents.on("before-input-event", once);
- 342 | 
- 343 |     // Écoute RAW manette (✅ pas de shadowing : variable module-scope)
- 344 |     offGamepadRaw = onGamepadRaw((evLabel) => {
- 345 |       if (!captureState) return;
- 346 |       const { type } = captureState;
- 347 | 
- 348 |       captureState.label = evLabel;
- 349 |       const labels = { ...getHotkeysLabel(), [type]: evLabel };
- 350 |       setHotkeysLabel(labels);
- 351 |       mw?.webContents.send("hotkeys-captured", { type, label: evLabel });
- 352 | 
- 353 |       // mapping manette
- 354 |       setGamepadMapping(type, evLabel, { append: false });
- 355 | 
- 356 |       finalizeCapture("gamepad");
- 357 |     });
- 358 | 
- 359 |     logHK && logHK("before-input-event listener ARMED");
- 360 | 
- 361 |     return true;
- 362 |   });
- 363 | }
- 364 | 
- 365 | /* -------------------- Fallback engine (globalShortcut) -------------------- */
- 366 | function refreshHotkeyEngine({
- 367 |   globalShortcut,
- 368 |   hotkeysLabel,
- 369 |   isAlphaNumLabel,
- 370 |   logHK,
- 371 |   getCaptureBlockUntil,
- 372 |   dispatchHotkey,
- 373 | }) {
- 374 |   try {
- 375 |     globalShortcut.unregisterAll();
- 376 |     logHK && logHK("globalShortcut: unregistered all");
- 377 |   } catch {}
+ 274 |     // Bloquer le dispatch vers les timers pendant la capture
+ 275 |     captureWaitUntil = Date.now() + 15000;
+ 276 | 
+ 277 |     // Reset/annule capture précédente si elle existe
+ 278 |     if (captureState) {
+ 279 |       clearCaptureTimers();
+ 280 |       captureState = null;
+ 281 |     }
+ 282 | 
+ 283 |     // État de capture
+ 284 |     captureState = {
+ 285 |       type,
+ 286 |       source: source || "any",
+ 287 |       label: null,
+ 288 |       code: null,
+ 289 |       primaryTimer: setTimeout(() => {
+ 290 |         logHK && logHK("CAPTURE PRIMARY TIMEOUT — cancel");
+ 291 |         finalizeCapture("primary-timeout");
+ 292 |       }, 15000),
+ 293 |       secondaryTimer: null,
+ 294 |     };
+ 295 | 
+ 296 |     // focus le panneau
+ 297 |     try {
+ 298 |       const mw = getMainWindow();
+ 299 |       mw?.focus();
+ 300 |       logHK && logHK("focused mainWindow?", mw?.isFocused());
+ 301 |     } catch (e) {
+ 302 |       logHK && logHK("focus error", e?.message || e);
+ 303 |     }
+ 304 | 
+ 305 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
+ 306 |     if (!getUsingUiohook()) {
+ 307 |       try {
+ 308 |         globalShortcut.unregisterAll();
+ 309 |         logHK && logHK("fallback: unregistered to let key through");
+ 310 |       } catch {}
+ 311 |     }
+ 312 | 
+ 313 |     // écouter une fois la prochaine touche (pour le label layout-aware)
+ 314 |     const mw = getMainWindow();
+ 315 |     const once = (event, input) => {
+ 316 |       if (!captureState) return;
+ 317 |       if (captureState.source === "gamepad") return; // si on veut capturer manette, ignorer clavier
+ 318 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
+ 319 | 
+ 320 |       const label = makeLabelFromBeforeInput(input);
+ 321 | 
+ 322 |       captureState.label = label;
+ 323 |       const labels = { ...getHotkeysLabel(), [type]: label };
+ 324 |       setHotkeysLabel(labels);
+ 325 | 
+ 326 |       mw?.webContents.send("hotkeys-captured", { type, label });
+ 327 |       logHK && logHK("label captured (instant)", { type, label });
+ 328 | 
+ 329 |       if (typeof captureState.code === "number") {
+ 330 |         finalizeCapture("have both");
+ 331 |       } else {
+ 332 |         if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
+ 333 |         captureState.secondaryTimer = setTimeout(() => finalizeCapture("after-label-wait"), 500);
+ 334 |       }
+ 335 | 
+ 336 |       mw?.webContents.removeListener("before-input-event", once);
+ 337 |     };
+ 338 |     mw?.webContents.on("before-input-event", once);
+ 339 | 
+ 340 |     // Écoute RAW manette
+ 341 |     offGamepadRaw = onGamepadRaw((evLabel) => {
+ 342 |       if (!captureState) return;
+ 343 |       if (captureState.source === "desktop") return; // capture desktop: ignorer manette
+ 344 |       const { type } = captureState;
+ 345 | 
+ 346 |       captureState.label = evLabel;
+ 347 |       const labels = { ...getHotkeysLabel(), [type]: evLabel };
+ 348 |       setHotkeysLabel(labels);
+ 349 |       mw?.webContents.send("hotkeys-captured", { type, label: evLabel });
+ 350 | 
+ 351 |       // mapping manette (remplace pour l'action sélectionnée)
+ 352 |       setGamepadMapping(type, evLabel, { append: false });
+ 353 | 
+ 354 |       finalizeCapture("gamepad");
+ 355 |     });
+ 356 | 
+ 357 |     logHK && logHK("before-input-event listener ARMED");
+ 358 |     return true;
+ 359 |   });
+ 360 | }
+ 361 | 
+ 362 | // -------------------- Fallback engine (globalShortcut) --------------------
+ 363 | function refreshHotkeyEngine({
+ 364 |   globalShortcut,
+ 365 |   hotkeysLabel,
+ 366 |   isAlphaNumLabel,
+ 367 |   logHK,
+ 368 |   getCaptureBlockUntil,
+ 369 |   dispatchHotkey,
+ 370 | }) {
+ 371 |   try {
+ 372 |     globalShortcut.unregisterAll();
+ 373 |     logHK && logHK("globalShortcut: unregistered all");
+ 374 |   } catch {}
+ 375 | 
+ 376 |   const RATE = 180;
+ 377 |   let lastT = 0, lastS = 0;
  378 | 
- 379 |   const RATE = 180;
- 380 |   let lastT = 0,
- 381 |     lastS = 0;
- 382 | 
- 383 |   const sKey = hotkeysLabel.start || "F1";
- 384 |   const wKey = hotkeysLabel.swap || "F2";
- 385 | 
- 386 |   // En fallback, on n'essaie de binder que des F-keys (F1..F24).
- 387 |   const canUse = (label) => /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
- 388 | 
- 389 |   logHK &&
- 390 |     logHK("globalShortcut: registering (fallback)", {
- 391 |       start: canUse(sKey) ? sKey : "(skipped: alnum passthrough-only)",
- 392 |       swap: canUse(wKey) ? wKey : "(skipped: alnum passthrough-only)",
- 393 |     });
- 394 | 
- 395 |   if (canUse(sKey)) {
- 396 |     try {
- 397 |       globalShortcut.register(sKey, () => {
- 398 |         if (Date.now() < getCaptureBlockUntil()) {
- 399 |           logHK && logHK("fallback toggle skipped (capturing)");
- 400 |           return;
- 401 |         }
- 402 |         const now = Date.now();
- 403 |         if (now - lastT < RATE) return;
- 404 |         lastT = now;
- 405 |         dispatchHotkey("toggle");
- 406 |       });
- 407 |     } catch (e) {
- 408 |       logHK && logHK("register start failed", e?.message || e);
- 409 |     }
- 410 |   }
- 411 | 
- 412 |   if (canUse(wKey)) {
- 413 |     try {
- 414 |       globalShortcut.register(wKey, () => {
- 415 |         if (Date.now() < getCaptureBlockUntil()) {
- 416 |           logHK && logHK("fallback swap skipped (capturing)");
- 417 |           return;
- 418 |         }
- 419 |         const now = Date.now();
- 420 |         if (now - lastS < RATE) return;
- 421 |         lastS = now;
- 422 |         dispatchHotkey("swap");
- 423 |       });
- 424 |     } catch (e) {
- 425 |       logHK && logHK("register swap failed", e?.message || e);
- 426 |     }
- 427 |   }
- 428 | }
- 429 | 
- 430 | /* -------------------- API complémentaire -------------------- */
- 431 | function attachWindowsAPI({ sendOverlaySettings }) {
- 432 |   // optionnel: expose si besoin
- 433 |   module.exports._sendOverlaySettings = sendOverlaySettings;
- 434 | }
- 435 | 
- 436 | module.exports = {
- 437 |   initCapture,
- 438 |   setupCaptureIPC,
- 439 |   refreshHotkeyEngine,
- 440 |   isCapturing,
- 441 |   getCaptureBlockUntil: getCaptureBlockUntil,
- 442 |   onKeyboardCode,
- 443 |   onMouseLabel,
- 444 |   attachWindowsAPI,
- 445 | };
+ 379 |   const sKey = hotkeysLabel.start || "F1";
+ 380 |   const wKey = hotkeysLabel.swap || "F2";
+ 381 | 
+ 382 |   // En fallback, on n’essaie que F-keys
+ 383 |   const canUse = (label) => /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
+ 384 | 
+ 385 |   logHK &&
+ 386 |     logHK("globalShortcut: registering (fallback)", {
+ 387 |       start: canUse(sKey) ? sKey : "(skipped: alnum passthrough-only)",
+ 388 |       swap: canUse(wKey) ? wKey : "(skipped: alnum passthrough-only)",
+ 389 |     });
+ 390 | 
+ 391 |   if (canUse(sKey)) {
+ 392 |     try {
+ 393 |       globalShortcut.register(sKey, () => {
+ 394 |         if (Date.now() < getCaptureBlockUntil()) {
+ 395 |           logHK && logHK("fallback toggle skipped (capturing)");
+ 396 |           return;
+ 397 |         }
+ 398 |         const now = Date.now();
+ 399 |         if (now - lastT < RATE) return;
+ 400 |         lastT = now;
+ 401 |         dispatchHotkey("toggle");
+ 402 |       });
+ 403 |     } catch (e) {
+ 404 |       logHK && logHK("register start failed", e?.message || e);
+ 405 |     }
+ 406 |   }
+ 407 | 
+ 408 |   if (canUse(wKey)) {
+ 409 |     try {
+ 410 |       globalShortcut.register(wKey, () => {
+ 411 |         if (Date.now() < getCaptureBlockUntil()) {
+ 412 |           logHK && logHK("fallback swap skipped (capturing)");
+ 413 |           return;
+ 414 |         }
+ 415 |         const now = Date.now();
+ 416 |         if (now - lastS < RATE) return;
+ 417 |         lastS = now;
+ 418 |         dispatchHotkey("swap");
+ 419 |       });
+ 420 |     } catch (e) {
+ 421 |       logHK && logHK("register swap failed", e?.message || e);
+ 422 |     }
+ 423 |   }
+ 424 | }
+ 425 | 
+ 426 | // -------------------- API complémentaire --------------------
+ 427 | function attachWindowsAPI({ sendOverlaySettings }) {
+ 428 |   module.exports._sendOverlaySettings = sendOverlaySettings;
+ 429 | }
+ 430 | 
+ 431 | module.exports = {
+ 432 |   initCapture,
+ 433 |   setupCaptureIPC,
+ 434 |   refreshHotkeyEngine,
+ 435 |   isCapturing,
+ 436 |   getCaptureBlockUntil,
+ 437 |   onKeyboardCode,
+ 438 |   onMouseLabel,
+ 439 |   attachWindowsAPI,
+ 440 | };
 
 ```
 
@@ -908,12 +903,22 @@ dbdoverlaytools-free
  241 |   });
  242 | }
  243 | 
- 244 | module.exports = {
- 245 |   setupGamepadExe,
- 246 |   onGamepadRaw,
- 247 |   setGamepadMapping,
- 248 |   clearGamepadMapping, // 👈 exporté
- 249 | };
+ 244 |   // 👇 Nouveau : expose un snapshot lisible depuis le renderer
+ 245 |   function getGamepadMapping() {
+ 246 |     return {
+ 247 |       toggle: Array.isArray(mapping.toggle) ? [...mapping.toggle] : [],
+ 248 |       swap: Array.isArray(mapping.swap) ? [...mapping.swap] : [],
+ 249 |     };
+ 250 | 
+ 251 |   }
+ 252 | 
+ 253 | module.exports = {
+ 254 |   setupGamepadExe,
+ 255 |   onGamepadRaw,
+ 256 |   setGamepadMapping,
+ 257 |   clearGamepadMapping,
+ 258 |   getGamepadMapping
+ 259 | };
 
 ```
 
@@ -1193,405 +1198,423 @@ dbdoverlaytools-free
   24 |   onGamepadRaw,
   25 |   setGamepadMapping,
   26 |   clearGamepadMapping,
-  27 | } = require("./input/gamepad-exe.cjs");
-  28 | 
-  29 | /** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
-  30 | (function loadDevEnv() {
-  31 |   if (app.isPackaged) return; // en prod: ne rien charger
-  32 |   let dotenv;
-  33 |   try {
-  34 |     dotenv = require("dotenv");
-  35 |   } catch {
-  36 |     return;
-  37 |   }
-  38 |   const root = process.cwd();
-  39 |   for (const name of [".env", ".env.development"]) {
-  40 |     const p = join(root, name);
-  41 |     if (fs.existsSync(p)) dotenv.config({ path: p, override: true });
-  42 |   }
-  43 | })();
-  44 | 
-  45 | /* -------------------- flags via .env -------------------- */
-  46 | const FORCE_NO_UIOHOOK = process.env.FORCE_NO_UIOHOOK === "1";
-  47 | const FORCE_NO_VCREDIST = process.env.FORCE_NO_VCREDIST === "1";
-  48 | const DEBUG_HK = process.env.DEBUG_HK === "1";
-  49 | 
-  50 | const __dirname = dirname(fileURLToPath(import.meta.url));
-  51 | const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-  52 | 
-  53 | if (process.platform === "win32") {
-  54 |   app.setAppUserModelId("com.steaxs.dbdtimer.free");
-  55 | }
-  56 | 
-  57 | const iconPath = isDev
-  58 |   ? join(__dirname, "../build/icon.ico")
-  59 |   : join(process.resourcesPath, "icon.ico");
-  60 | 
-  61 | const store = new Store();
-  62 | 
-  63 | // single-instance (évite hooks dupliqués)
-  64 | if (!app.requestSingleInstanceLock()) {
-  65 |   app.quit();
-  66 | }
-  67 | 
-  68 | /* -------------------- store keys & defaults -------------------- */
-  69 | const K = {
-  70 |   WINDOW: "windowState",
-  71 |   OVERLAY: "overlaySettings",
-  72 |   TIMER: "timerData",
-  73 |   HK_CODES: "hotkeys",
-  74 |   HK_LABELS: "hotkeysLabel",
-  75 |   MOUSE_BINDS: "mouseBinds",
-  76 | };
-  77 | const defaults = {
-  78 |   [K.OVERLAY]: { x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true, nameTheme: 'default', accentKey: 'default' },
-  79 |   [K.TIMER]: {
-  80 |     player1: { name: "Player 1", score: 0 },
-  81 |     player2: { name: "Player 2", score: 0 },
-  82 |   },
-  83 |   [K.HK_CODES]: { start: null, swap: null },
-  84 |   [K.HK_LABELS]: { start: "F1", swap: "F2" },
-  85 |   [K.MOUSE_BINDS]: { start: null, swap: null },
-  86 | };
-  87 | const getStore = (key) => store.get(key) ?? defaults[key];
-  88 | 
-  89 | /* -------------------- état runtime -------------------- */
-  90 | let mainWindow = null;
-  91 | let overlayWindow = null;
-  92 | let usingUiohook = false;
-  93 | 
-  94 | // dimensions non-scalées du contenu (hors drag bar)
-  95 | let baseDims = { width: 520, height: 120 };
-  96 | 
-  97 | // hotkeys: codes (uiohook) + labels (affichage & fallback)
-  98 | let hotkeys = getStore(K.HK_CODES);
-  99 | let hotkeysLabel = getStore(K.HK_LABELS);
- 100 | let mouseBinds = getStore(K.MOUSE_BINDS);
- 101 | 
- 102 | // ===== debug =====
- 103 | const logHK = (...args) => {
- 104 |   if (DEBUG_HK) console.log("[HK]", ...args);
- 105 | };
- 106 | 
- 107 | /* -------------------- helpers communs -------------------- */
- 108 | const VC_REDIST_X64_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
- 109 | 
- 110 | // Détection VC++ 2015–2022 (x64)
- 111 | function hasVCRedist() {
- 112 |   if (FORCE_NO_VCREDIST) return false;
- 113 |   if (process.platform !== "win32") return true;
- 114 |   const win = process.env.windir || "C:\\Windows";
- 115 |   const sys32 = join(win, "System32");
- 116 |   const dlls = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"];
- 117 |   try {
- 118 |     return dlls.every((d) => fs.existsSync(join(sys32, d)));
- 119 |   } catch {
- 120 |     return false;
- 121 |   }
- 122 | }
- 123 | 
- 124 | // Dédup unifié
- 125 | function createRateLimiter(defaultMs = 200) {
- 126 |   const last = new Map();
- 127 |   return (key, ms = defaultMs) => {
- 128 |     const now = Date.now();
- 129 |     const t = last.get(key) || 0;
- 130 |     if (now - t < ms) return false;
- 131 |     last.set(key, now);
- 132 |     return true;
- 133 |   };
+  27 |   getGamepadMapping,
+  28 | } = require("./input/gamepad-exe.cjs");
+  29 | 
+  30 | /** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
+  31 | (function loadDevEnv() {
+  32 |   if (app.isPackaged) return; // en prod: ne rien charger
+  33 |   let dotenv;
+  34 |   try {
+  35 |     dotenv = require("dotenv");
+  36 |   } catch {
+  37 |     return;
+  38 |   }
+  39 |   const root = process.cwd();
+  40 |   for (const name of [".env", ".env.development"]) {
+  41 |     const p = join(root, name);
+  42 |     if (fs.existsSync(p)) dotenv.config({ path: p, override: true });
+  43 |   }
+  44 | })();
+  45 | 
+  46 | /* -------------------- flags via .env -------------------- */
+  47 | const FORCE_NO_UIOHOOK = process.env.FORCE_NO_UIOHOOK === "1";
+  48 | const FORCE_NO_VCREDIST = process.env.FORCE_NO_VCREDIST === "1";
+  49 | const DEBUG_HK = process.env.DEBUG_HK === "1";
+  50 | 
+  51 | const __dirname = dirname(fileURLToPath(import.meta.url));
+  52 | const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+  53 | 
+  54 | if (process.platform === "win32") {
+  55 |   app.setAppUserModelId("com.steaxs.dbdtimer.free");
+  56 | }
+  57 | 
+  58 | const iconPath = isDev
+  59 |   ? join(__dirname, "../build/icon.ico")
+  60 |   : join(process.resourcesPath, "icon.ico");
+  61 | 
+  62 | const store = new Store();
+  63 | 
+  64 | // single-instance (évite hooks dupliqués)
+  65 | if (!app.requestSingleInstanceLock()) {
+  66 |   app.quit();
+  67 | }
+  68 | 
+  69 | /* -------------------- store keys & defaults -------------------- */
+  70 | const K = {
+  71 |   WINDOW: "windowState",
+  72 |   OVERLAY: "overlaySettings",
+  73 |   TIMER: "timerData",
+  74 |   HK_CODES: "hotkeys",
+  75 |   HK_LABELS: "hotkeysLabel",
+  76 |   MOUSE_BINDS: "mouseBinds",
+  77 | };
+  78 | const defaults = {
+  79 |   [K.OVERLAY]: {
+  80 |     x: 0,
+  81 |     y: 0,
+  82 |     scale: 100,
+  83 |     locked: true,
+  84 |     alwaysOnTop: true,
+  85 |     nameTheme: 'default',
+  86 |     accentKey: 'default',
+  87 |     autoScoreEnabled: true,         // ← NEW
+  88 |     autoScoreThresholdSec: 25,      // ← NEW
+  89 |   },
+  90 |   [K.TIMER]: {
+  91 |     player1: { name: "Player 1", score: 0 },
+  92 |     player2: { name: "Player 2", score: 0 },
+  93 |   },
+  94 |   [K.HK_CODES]: { start: null, swap: null },
+  95 |   [K.HK_LABELS]: { start: "F1", swap: "F2" },
+  96 |   [K.MOUSE_BINDS]: { start: null, swap: null },
+  97 | };
+  98 | 
+  99 | const getStore = (key) => store.get(key) ?? defaults[key];
+ 100 | 
+ 101 | /* -------------------- état runtime -------------------- */
+ 102 | let mainWindow = null;
+ 103 | let overlayWindow = null;
+ 104 | let usingUiohook = false;
+ 105 | 
+ 106 | // dimensions non-scalées du contenu (hors drag bar)
+ 107 | let baseDims = { width: 520, height: 120 };
+ 108 | 
+ 109 | // hotkeys: codes (uiohook) + labels (affichage & fallback)
+ 110 | let hotkeys = getStore(K.HK_CODES);
+ 111 | let hotkeysLabel = getStore(K.HK_LABELS);
+ 112 | let mouseBinds = getStore(K.MOUSE_BINDS);
+ 113 | 
+ 114 | // ===== debug =====
+ 115 | const logHK = (...args) => {
+ 116 |   if (DEBUG_HK) console.log("[HK]", ...args);
+ 117 | };
+ 118 | 
+ 119 | /* -------------------- helpers communs -------------------- */
+ 120 | const VC_REDIST_X64_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
+ 121 | 
+ 122 | // Détection VC++ 2015–2022 (x64)
+ 123 | function hasVCRedist() {
+ 124 |   if (FORCE_NO_VCREDIST) return false;
+ 125 |   if (process.platform !== "win32") return true;
+ 126 |   const win = process.env.windir || "C:\\Windows";
+ 127 |   const sys32 = join(win, "System32");
+ 128 |   const dlls = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"];
+ 129 |   try {
+ 130 |     return dlls.every((d) => fs.existsSync(join(sys32, d)));
+ 131 |   } catch {
+ 132 |     return false;
+ 133 |   }
  134 | }
- 135 | const canFire = createRateLimiter(220);
- 136 | 
- 137 | function isAlphaNumLabel(k) {
- 138 |   return typeof k === "string" && /^[A-Z0-9]$/.test(k);
- 139 | }
- 140 | 
- 141 | // Normalise un label depuis before-input-event (fallback)
- 142 | function makeLabelFromBeforeInput(input) {
- 143 |   let k = input.key || "";
- 144 |   if (/^F\d{1,2}$/.test(k)) return k;
- 145 |   if (/^[a-z]$/.test(k)) return k.toUpperCase();
- 146 |   if (/^\d$/.test(k)) return k;
- 147 |   if (k === " ") return "SPACE";
- 148 |   const map = {
- 149 |     Escape: "ESC",
- 150 |     Tab: "TAB",
- 151 |     Enter: "ENTER",
- 152 |     Backspace: "BACKSPACE",
- 153 |     Shift: "SHIFT",
- 154 |     Control: "CTRL",
- 155 |     Alt: "ALT",
- 156 |     Meta: "META",
- 157 |     ArrowUp: "UP",
- 158 |     ArrowDown: "DOWN",
- 159 |     ArrowLeft: "LEFT",
- 160 |     ArrowRight: "RIGHT",
- 161 |   };
- 162 |   if (map[k]) return k;
- 163 |   const code = input.code || "";
- 164 |   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
- 165 |   if (/^Digit\d$/.test(code)) return code.slice(5);
- 166 |   return k && k.length <= 6 ? k.toUpperCase() : code || "KEY";
- 167 | }
- 168 | 
- 169 | /* -------------------- dispatch centralisé vers l’overlay -------------------- */
- 170 | function dispatchHotkey(type) {
- 171 |   if (!overlayWindow || overlayWindow.isDestroyed()) return;
- 172 |   if (!canFire(type, 220)) return;
- 173 |   overlayWindow.webContents.send("global-hotkey", { type });
- 174 |   logHK("DISPATCH", type);
- 175 | }
- 176 | 
- 177 | /* -------------------- wiring modules -------------------- */
- 178 | // Initialiser le module fenêtres
- 179 | windows.initWindows({
- 180 |   store,
- 181 |   iconPath,
- 182 |   isDev,
- 183 |   baseDims,
- 184 |   getBaseDims: () => baseDims,
- 185 |   setBaseDims: (w, h) => {
- 186 |     baseDims = { width: Math.max(1, Math.floor(w)), height: Math.max(1, Math.floor(h)) };
- 187 |   },
- 188 |   onOverlayMove: (x, y) => {
- 189 |     // débounce léger (100ms)
- 190 |     if (windows._moveDebounce) clearTimeout(windows._moveDebounce);
- 191 |     windows._moveDebounce = setTimeout(() => {
- 192 |       store.set("overlaySettings.x", x);
- 193 |       store.set("overlaySettings.y", y);
- 194 |     }, 120);
- 195 |   },
- 196 |   onOverlayReadyChange: (ready) => {
- 197 |     if (mainWindow && !mainWindow.isDestroyed())
- 198 |       mainWindow.webContents.send("overlay-ready", !!ready);
+ 135 | 
+ 136 | // Dédup unifié
+ 137 | function createRateLimiter(defaultMs = 200) {
+ 138 |   const last = new Map();
+ 139 |   return (key, ms = defaultMs) => {
+ 140 |     const now = Date.now();
+ 141 |     const t = last.get(key) || 0;
+ 142 |     if (now - t < ms) return false;
+ 143 |     last.set(key, now);
+ 144 |     return true;
+ 145 |   };
+ 146 | }
+ 147 | const canFire = createRateLimiter(220);
+ 148 | 
+ 149 | function isAlphaNumLabel(k) {
+ 150 |   return typeof k === "string" && /^[A-Z0-9]$/.test(k);
+ 151 | }
+ 152 | 
+ 153 | // Normalise un label depuis before-input-event (fallback)
+ 154 | function makeLabelFromBeforeInput(input) {
+ 155 |   let k = input.key || "";
+ 156 |   if (/^F\d{1,2}$/.test(k)) return k;
+ 157 |   if (/^[a-z]$/.test(k)) return k.toUpperCase();
+ 158 |   if (/^\d$/.test(k)) return k;
+ 159 |   if (k === " ") return "SPACE";
+ 160 |   const map = {
+ 161 |     Escape: "ESC",
+ 162 |     Tab: "TAB",
+ 163 |     Enter: "ENTER",
+ 164 |     Backspace: "BACKSPACE",
+ 165 |     Shift: "SHIFT",
+ 166 |     Control: "CTRL",
+ 167 |     Alt: "ALT",
+ 168 |     Meta: "META",
+ 169 |     ArrowUp: "UP",
+ 170 |     ArrowDown: "DOWN",
+ 171 |     ArrowLeft: "LEFT",
+ 172 |     ArrowRight: "RIGHT",
+ 173 |   };
+ 174 |   if (map[k]) return k;
+ 175 |   const code = input.code || "";
+ 176 |   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
+ 177 |   if (/^Digit\d$/.test(code)) return code.slice(5);
+ 178 |   return k && k.length <= 6 ? k.toUpperCase() : code || "KEY";
+ 179 | }
+ 180 | 
+ 181 | /* -------------------- dispatch centralisé vers l’overlay -------------------- */
+ 182 | function dispatchHotkey(type) {
+ 183 |   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+ 184 |   if (!canFire(type, 220)) return;
+ 185 |   overlayWindow.webContents.send("global-hotkey", { type });
+ 186 |   logHK("DISPATCH", type);
+ 187 | }
+ 188 | 
+ 189 | /* -------------------- wiring modules -------------------- */
+ 190 | // Initialiser le module fenêtres
+ 191 | windows.initWindows({
+ 192 |   store,
+ 193 |   iconPath,
+ 194 |   isDev,
+ 195 |   baseDims,
+ 196 |   getBaseDims: () => baseDims,
+ 197 |   setBaseDims: (w, h) => {
+ 198 |     baseDims = { width: Math.max(1, Math.floor(w)), height: Math.max(1, Math.floor(h)) };
  199 |   },
- 200 | });
- 201 | 
- 202 | // Initialiser le module capture
- 203 | capture.initCapture({
- 204 |   ipcMain,
- 205 |   store,
- 206 |   globalShortcut,
- 207 |   dialog,
- 208 |   shell,
- 209 |   VC_REDIST_X64_URL,
- 210 |   hasVCRedist,
- 211 |   logHK,
- 212 |   getMainWindow: () => mainWindow,
- 213 |   getOverlayWindow: () => overlayWindow,
- 214 |   getUsingUiohook: () => usingUiohook,
- 215 |   setUsingUiohook: (v) => (usingUiohook = !!v),
- 216 |   getHotkeys: () => hotkeys,
- 217 |   setHotkeys: (next) => {
- 218 |     hotkeys = next;
- 219 |     store.set(K.HK_CODES, hotkeys);
- 220 |   },
- 221 |   getHotkeysLabel: () => hotkeysLabel,
- 222 |   setHotkeysLabel: (next) => {
- 223 |     hotkeysLabel = next;
- 224 |     store.set(K.HK_LABELS, hotkeysLabel);
- 225 |   },
- 226 |   getMouseBinds: () => mouseBinds,
- 227 |   setMouseBinds: (next) => {
- 228 |     mouseBinds = next;
- 229 |     store.set(K.MOUSE_BINDS, mouseBinds);
- 230 |   },
- 231 |   makeLabelFromBeforeInput,
- 232 |   isAlphaNumLabel,
- 233 |   sendHotkeysMode: (mode) => {
- 234 |     if (mainWindow && !mainWindow.isDestroyed()) {
- 235 |       mainWindow.webContents.send("hotkeys-mode", mode);
- 236 |     }
+ 200 |   onOverlayMove: (x, y) => {
+ 201 |     // débounce léger (100ms)
+ 202 |     if (windows._moveDebounce) clearTimeout(windows._moveDebounce);
+ 203 |     windows._moveDebounce = setTimeout(() => {
+ 204 |       store.set("overlaySettings.x", x);
+ 205 |       store.set("overlaySettings.y", y);
+ 206 |     }, 120);
+ 207 |   },
+ 208 |   onOverlayReadyChange: (ready) => {
+ 209 |     if (mainWindow && !mainWindow.isDestroyed())
+ 210 |       mainWindow.webContents.send("overlay-ready", !!ready);
+ 211 |   },
+ 212 | });
+ 213 | 
+ 214 | // Initialiser le module capture
+ 215 | capture.initCapture({
+ 216 |   ipcMain,
+ 217 |   store,
+ 218 |   globalShortcut,
+ 219 |   dialog,
+ 220 |   shell,
+ 221 |   VC_REDIST_X64_URL,
+ 222 |   hasVCRedist,
+ 223 |   logHK,
+ 224 |   getMainWindow: () => mainWindow,
+ 225 |   getOverlayWindow: () => overlayWindow,
+ 226 |   getUsingUiohook: () => usingUiohook,
+ 227 |   setUsingUiohook: (v) => (usingUiohook = !!v),
+ 228 |   getHotkeys: () => hotkeys,
+ 229 |   setHotkeys: (next) => {
+ 230 |     hotkeys = next;
+ 231 |     store.set(K.HK_CODES, hotkeys);
+ 232 |   },
+ 233 |   getHotkeysLabel: () => hotkeysLabel,
+ 234 |   setHotkeysLabel: (next) => {
+ 235 |     hotkeysLabel = next;
+ 236 |     store.set(K.HK_LABELS, hotkeysLabel);
  237 |   },
- 238 |   dispatchHotkey,
- 239 |   onGamepadRaw,         // ↔️ gamepad
- 240 |   setGamepadMapping,
- 241 |   clearGamepadMapping,    // ↔️ gamepad
- 242 | });
- 243 | 
- 244 | // Initialiser le module uIOhook (clavier + souris)
- 245 | uio.setupUiohook({
- 246 |   require,            // pour charger uiohook-napi
- 247 |   FORCE_NO_UIOHOOK,
- 248 |   hasVCRedist,
- 249 |   dialog,
- 250 |   shell,
- 251 |   VC_REDIST_X64_URL,
- 252 |   logHK,
- 253 |   getOverlayWindow: () => overlayWindow,
- 254 |   dispatchHotkey,
- 255 |   // capture integration:
- 256 |   isCapturing: () => capture.isCapturing(),
- 257 |   getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
- 258 |   onCaptureKeyboardCode: (code) => capture.onKeyboardCode(code),
- 259 |   onCaptureMouseLabel: (label) => capture.onMouseLabel(label),
- 260 |   // binds & codes
- 261 |   getHotkeys: () => hotkeys,
- 262 |   getMouseBinds: () => mouseBinds,
- 263 |   setUsingUiohook: (v) => {
- 264 |     usingUiohook = !!v;
- 265 |     const mode = usingUiohook ? "pass-through" : "fallback";
- 266 |     if (mainWindow && !mainWindow.isDestroyed()) {
- 267 |       mainWindow.webContents.send("hotkeys-mode", mode);
- 268 |     }
- 269 |     if (!usingUiohook) {
- 270 |       // (re)activer globalShortcut fallback
- 271 |       capture.refreshHotkeyEngine({
- 272 |         globalShortcut,
- 273 |         hotkeysLabel,
- 274 |         isAlphaNumLabel,
- 275 |         logHK,
- 276 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
- 277 |         dispatchHotkey,
- 278 |       });
- 279 |     } else {
- 280 |       try {
- 281 |         globalShortcut.unregisterAll();
- 282 |       } catch {}
- 283 |     }
- 284 |   },
- 285 | });
- 286 | 
- 287 | // Expose quelques helpers Windows au module capture
- 288 | capture.attachWindowsAPI({
- 289 |   sendOverlaySettings: () => windows.sendOverlaySettings(overlayWindow, store, isDev),
- 290 | });
- 291 | 
- 292 | /* -------------------- IPC (panneau ↔ main) -------------------- */
- 293 | function setupIPC() {
- 294 |   ipcMain.handle("overlay-show", () => {
- 295 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
- 296 |     return true;
- 297 |   });
- 298 |   ipcMain.handle("overlay-hide", () => {
- 299 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
- 300 |     overlayWindow = null;
- 301 |     if (mainWindow && !mainWindow.isDestroyed())
- 302 |       mainWindow.webContents.send("overlay-ready", false);
- 303 |     return true;
- 304 |   });
- 305 | 
- 306 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
- 307 |     const current = getStore(K.OVERLAY);
- 308 |     const next = { ...current, ...settings };
- 309 |     store.set(K.OVERLAY, next);
- 310 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
- 311 | 
- 312 |     if (settings.locked !== undefined) {
- 313 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
- 314 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
- 315 |     }
- 316 |     if (settings.alwaysOnTop !== undefined)
- 317 |       windows.applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
- 318 |     if (settings.x !== undefined || settings.y !== undefined) {
- 319 |       const b = overlayWindow.getBounds();
- 320 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
- 321 |     }
- 322 |     if (settings.scale !== undefined || settings.locked !== undefined)
- 323 |       windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
- 324 |     windows.sendOverlaySettings(overlayWindow, store, isDev);
- 325 |     return true;
- 326 |   });
- 327 | 
- 328 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
- 329 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
- 330 |       return false;
- 331 |     baseDims = {
- 332 |       width: Math.max(1, Math.floor(dims.width)),
- 333 |       height: Math.max(1, Math.floor(dims.height)),
- 334 |     };
- 335 |     windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
- 336 |     return true;
- 337 |   });
- 338 | 
- 339 |   // Timer data
- 340 |   ipcMain.handle("timer-data-get", () => getStore(K.TIMER));
- 341 |   ipcMain.handle("timer-data-set", (_evt, data) => {
- 342 |     store.set(K.TIMER, data);
- 343 |     if (overlayWindow && !overlayWindow.isDestroyed())
- 344 |       overlayWindow.webContents.send("timer-data-sync", data);
- 345 |     return true;
- 346 |   });
- 347 | 
- 348 |   // Hotkeys API
- 349 |   ipcMain.handle("hotkeys-get", () => ({
- 350 |     start: hotkeys.start,
- 351 |     swap: hotkeys.swap,
- 352 |     startLabel: hotkeysLabel.start,
- 353 |     swapLabel: hotkeysLabel.swap,
- 354 |     mode: usingUiohook ? "pass-through" : "fallback",
- 355 |   }));
- 356 | 
- 357 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
- 358 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
- 359 |     store.set(K.HK_CODES, hotkeys);
- 360 | 
- 361 |     const haveCodes =
- 362 |       Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
- 363 | 
- 364 |     if (haveCodes && uio.isLoaded()) {
- 365 |       // on bascule en pass-through
- 366 |       try {
- 367 |         globalShortcut.unregisterAll();
- 368 |       } catch {}
- 369 |       usingUiohook = true;
- 370 |       if (mainWindow && !mainWindow.isDestroyed())
- 371 |         mainWindow.webContents.send("hotkeys-mode", "pass-through");
- 372 |     } else if (!haveCodes) {
- 373 |       usingUiohook = false;
- 374 |       capture.refreshHotkeyEngine({
- 375 |         globalShortcut,
- 376 |         hotkeysLabel,
- 377 |         isAlphaNumLabel,
- 378 |         logHK,
- 379 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
- 380 |         dispatchHotkey,
- 381 |       });
- 382 |       if (mainWindow && !mainWindow.isDestroyed())
- 383 |         mainWindow.webContents.send("hotkeys-mode", "fallback");
- 384 |     }
- 385 |     return true;
- 386 |   });
- 387 | 
- 388 |   // 🚀 Capture: tout le workflow (IPC) déplacé dans le module capture
- 389 |   capture.setupCaptureIPC();
- 390 | }
- 391 | 
- 392 | /* -------------------- lifecycle -------------------- */
- 393 | app.commandLine.appendSwitch("enable-zero-copy");
- 394 | app.commandLine.appendSwitch("ignore-gpu-blocklist");
- 395 | 
- 396 | app.whenReady().then(() => {
- 397 |   mainWindow = windows.createMainWindow(store, iconPath, isDev);
- 398 |   setupIPC();
- 399 |   uio.start(); // lance uIOhook (si possible) et configure mode fallback/pass-through
- 400 |   setTimeout(() => {
- 401 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
- 402 |   }, 800);
- 403 |   setupGamepadExe();
- 404 | }).catch(err => console.error("[Electron] whenReady error:", err));
+ 238 |   getMouseBinds: () => mouseBinds,
+ 239 |   setMouseBinds: (next) => {
+ 240 |     mouseBinds = next;
+ 241 |     store.set(K.MOUSE_BINDS, mouseBinds);
+ 242 |   },
+ 243 |   makeLabelFromBeforeInput,
+ 244 |   isAlphaNumLabel,
+ 245 |   sendHotkeysMode: (mode) => {
+ 246 |     if (mainWindow && !mainWindow.isDestroyed()) {
+ 247 |       mainWindow.webContents.send("hotkeys-mode", mode);
+ 248 |     }
+ 249 |   },
+ 250 |   dispatchHotkey,
+ 251 |   onGamepadRaw,         // ↔️ gamepad
+ 252 |   setGamepadMapping,
+ 253 |   clearGamepadMapping,    // ↔️ gamepad
+ 254 | });
+ 255 | 
+ 256 | // Initialiser le module uIOhook (clavier + souris)
+ 257 | uio.setupUiohook({
+ 258 |   require,            // pour charger uiohook-napi
+ 259 |   FORCE_NO_UIOHOOK,
+ 260 |   hasVCRedist,
+ 261 |   dialog,
+ 262 |   shell,
+ 263 |   VC_REDIST_X64_URL,
+ 264 |   logHK,
+ 265 |   getOverlayWindow: () => overlayWindow,
+ 266 |   dispatchHotkey,
+ 267 |   // capture integration:
+ 268 |   isCapturing: () => capture.isCapturing(),
+ 269 |   getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+ 270 |   onCaptureKeyboardCode: (code) => capture.onKeyboardCode(code),
+ 271 |   onCaptureMouseLabel: (label) => capture.onMouseLabel(label),
+ 272 |   // binds & codes
+ 273 |   getHotkeys: () => hotkeys,
+ 274 |   getMouseBinds: () => mouseBinds,
+ 275 |   setUsingUiohook: (v) => {
+ 276 |     usingUiohook = !!v;
+ 277 |     const mode = usingUiohook ? "pass-through" : "fallback";
+ 278 |     if (mainWindow && !mainWindow.isDestroyed()) {
+ 279 |       mainWindow.webContents.send("hotkeys-mode", mode);
+ 280 |     }
+ 281 |     if (!usingUiohook) {
+ 282 |       // (re)activer globalShortcut fallback
+ 283 |       capture.refreshHotkeyEngine({
+ 284 |         globalShortcut,
+ 285 |         hotkeysLabel,
+ 286 |         isAlphaNumLabel,
+ 287 |         logHK,
+ 288 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+ 289 |         dispatchHotkey,
+ 290 |       });
+ 291 |     } else {
+ 292 |       try {
+ 293 |         globalShortcut.unregisterAll();
+ 294 |       } catch {}
+ 295 |     }
+ 296 |   },
+ 297 | });
+ 298 | 
+ 299 | // Expose quelques helpers Windows au module capture
+ 300 | capture.attachWindowsAPI({
+ 301 |   sendOverlaySettings: () => windows.sendOverlaySettings(overlayWindow, store, isDev),
+ 302 | });
+ 303 | 
+ 304 | /* -------------------- IPC (panneau ↔ main) -------------------- */
+ 305 | function setupIPC() {
+ 306 |   ipcMain.handle("overlay-show", () => {
+ 307 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
+ 308 |     return true;
+ 309 |   });
+ 310 |   ipcMain.handle("overlay-hide", () => {
+ 311 |     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
+ 312 |     overlayWindow = null;
+ 313 |     if (mainWindow && !mainWindow.isDestroyed())
+ 314 |       mainWindow.webContents.send("overlay-ready", false);
+ 315 |     return true;
+ 316 |   });
+ 317 | 
+ 318 |   ipcMain.handle("overlay-settings-update", (_evt, settings) => {
+ 319 |     const current = getStore(K.OVERLAY);
+ 320 |     const next = { ...current, ...settings };
+ 321 |     store.set(K.OVERLAY, next);
+ 322 |     if (!overlayWindow || overlayWindow.isDestroyed()) return true;
+ 323 | 
+ 324 |     if (settings.locked !== undefined) {
+ 325 |       overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
+ 326 |       overlayWindow.setFocusable(true); // OBS/Alt-Tab
+ 327 |     }
+ 328 |     if (settings.alwaysOnTop !== undefined)
+ 329 |       windows.applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
+ 330 |     if (settings.x !== undefined || settings.y !== undefined) {
+ 331 |       const b = overlayWindow.getBounds();
+ 332 |       overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
+ 333 |     }
+ 334 |     if (settings.scale !== undefined || settings.locked !== undefined)
+ 335 |       windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
+ 336 |     windows.sendOverlaySettings(overlayWindow, store, isDev);
+ 337 |     return true;
+ 338 |   });
+ 339 | 
+ 340 |   ipcMain.handle("overlay-measure", (_evt, dims) => {
+ 341 |     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
+ 342 |       return false;
+ 343 |     baseDims = {
+ 344 |       width: Math.max(1, Math.floor(dims.width)),
+ 345 |       height: Math.max(1, Math.floor(dims.height)),
+ 346 |     };
+ 347 |     windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
+ 348 |     return true;
+ 349 |   });
+ 350 | 
+ 351 |   // Timer data
+ 352 |   ipcMain.handle("timer-data-get", () => getStore(K.TIMER));
+ 353 |   ipcMain.handle("timer-data-set", (_evt, data) => {
+ 354 |     store.set(K.TIMER, data);
+ 355 |     if (overlayWindow && !overlayWindow.isDestroyed())
+ 356 |       overlayWindow.webContents.send("timer-data-sync", data);
+ 357 |     return true;
+ 358 |   });
+ 359 | 
+ 360 |   // Hotkeys API
+ 361 |   ipcMain.handle("hotkeys-get", () => ({
+ 362 |     start: hotkeys.start,
+ 363 |     swap: hotkeys.swap,
+ 364 |     startLabel: hotkeysLabel.start,
+ 365 |     swapLabel: hotkeysLabel.swap,
+ 366 |     mode: usingUiohook ? "pass-through" : "fallback",
+ 367 |   }));
+ 368 |   
+ 369 |   ipcMain.handle("gamepad-mapping-get", () => getGamepadMapping());
+ 370 |   ipcMain.handle("gamepad-mapping-clear", (_evt, action) => {
+ 371 |     clearGamepadMapping(action === "swap" ? "swap" : "toggle");
+ 372 |     return getGamepadMapping();
+ 373 |   });
+ 374 | 
+ 375 |   ipcMain.handle("hotkeys-set", (_evt, hk) => {
+ 376 |     hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
+ 377 |     store.set(K.HK_CODES, hotkeys);
+ 378 | 
+ 379 |     const haveCodes =
+ 380 |       Number.isFinite(hotkeys.start) && Number.isFinite(hotkeys.swap);
+ 381 | 
+ 382 |     if (haveCodes && uio.isLoaded()) {
+ 383 |       // on bascule en pass-through
+ 384 |       try {
+ 385 |         globalShortcut.unregisterAll();
+ 386 |       } catch {}
+ 387 |       usingUiohook = true;
+ 388 |       if (mainWindow && !mainWindow.isDestroyed())
+ 389 |         mainWindow.webContents.send("hotkeys-mode", "pass-through");
+ 390 |     } else if (!haveCodes) {
+ 391 |       usingUiohook = false;
+ 392 |       capture.refreshHotkeyEngine({
+ 393 |         globalShortcut,
+ 394 |         hotkeysLabel,
+ 395 |         isAlphaNumLabel,
+ 396 |         logHK,
+ 397 |         getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+ 398 |         dispatchHotkey,
+ 399 |       });
+ 400 |       if (mainWindow && !mainWindow.isDestroyed())
+ 401 |         mainWindow.webContents.send("hotkeys-mode", "fallback");
+ 402 |     }
+ 403 |     return true;
+ 404 |   });
  405 | 
- 406 | app.on("second-instance", () => {
- 407 |   if (mainWindow) {
- 408 |     if (mainWindow.isMinimized()) mainWindow.restore();
- 409 |     mainWindow.show();
- 410 |     mainWindow.focus();
- 411 |   }
- 412 | });
+ 406 |   // 🚀 Capture: tout le workflow (IPC) déplacé dans le module capture
+ 407 |   capture.setupCaptureIPC();
+ 408 | }
+ 409 | 
+ 410 | /* -------------------- lifecycle -------------------- */
+ 411 | app.commandLine.appendSwitch("enable-zero-copy");
+ 412 | app.commandLine.appendSwitch("ignore-gpu-blocklist");
  413 | 
- 414 | app.on("will-quit", () => {
- 415 |   try {
- 416 |     if (uio.isLoaded()) uio.stop();
- 417 |   } catch {}
- 418 |   try {
- 419 |     globalShortcut.unregisterAll();
- 420 |   } catch {}
- 421 | });
- 422 | 
- 423 | app.on("window-all-closed", () => {
- 424 |   app.quit();
- 425 | });
+ 414 | app.whenReady().then(() => {
+ 415 |   mainWindow = windows.createMainWindow(store, iconPath, isDev);
+ 416 |   setupIPC();
+ 417 |   uio.start(); // lance uIOhook (si possible) et configure mode fallback/pass-through
+ 418 |   setTimeout(() => {
+ 419 |     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
+ 420 |   }, 800);
+ 421 |   setupGamepadExe();
+ 422 | }).catch(err => console.error("[Electron] whenReady error:", err));
+ 423 | 
+ 424 | app.on("second-instance", () => {
+ 425 |   if (mainWindow) {
+ 426 |     if (mainWindow.isMinimized()) mainWindow.restore();
+ 427 |     mainWindow.show();
+ 428 |     mainWindow.focus();
+ 429 |   }
+ 430 | });
+ 431 | 
+ 432 | app.on("will-quit", () => {
+ 433 |   try {
+ 434 |     if (uio.isLoaded()) uio.stop();
+ 435 |   } catch {}
+ 436 |   try {
+ 437 |     globalShortcut.unregisterAll();
+ 438 |   } catch {}
+ 439 | });
+ 440 | 
+ 441 | app.on("window-all-closed", () => {
+ 442 |   app.quit();
+ 443 | });
 
 ```
 
@@ -1617,12 +1640,16 @@ dbdoverlaytools-free
   17 |   hotkeys: {
   18 |     get: () => ipcRenderer.invoke('hotkeys-get'),
   19 |     set: (hk) => ipcRenderer.invoke('hotkeys-set', hk),
-  20 |     capture: (type) => ipcRenderer.invoke('hotkeys-capture', type),
+  20 |     capture: (arg1, arg2) => ipcRenderer.invoke('hotkeys-capture', arg1, arg2),
   21 |     onCaptured: (cb) => ipcRenderer.on('hotkeys-captured', (_, p) => cb(p)),
   22 |     on: (cb) => ipcRenderer.on('global-hotkey', (_, payload) => cb(payload)),
   23 |     onMode: (cb) => ipcRenderer.on('hotkeys-mode', (_, mode) => cb(mode))
-  24 |   }
-  25 | });
+  24 |   },
+  25 |   gamepad: {
+  26 |     get: () => ipcRenderer.invoke('gamepad-mapping-get'),
+  27 |     clear: (action) => ipcRenderer.invoke('gamepad-mapping-clear', action),
+  28 |   }
+  29 | });
 
 ```
 
@@ -1720,196 +1747,198 @@ dbdoverlaytools-free
   68 |       alwaysOnTop: true,
   69 |       nameTheme: 'default',
   70 |       accentKey: 'default',
-  71 |     });
-  72 |     ov.webContents.send("overlay-settings", s);
-  73 |   }
-  74 | }
-  75 | 
-  76 | function recomputeOverlaySize(ov, storeRef, getBaseDims) {
-  77 |   if (!ov || ov.isDestroyed()) return;
-  78 |   const s =
-  79 |     (storeRef || store).get("overlaySettings", { scale: 100, locked: true });
-  80 |   const dragH = s.locked ? 0 : 30;
-  81 |   const scale = (s.scale || 100) / 100;
-  82 |   const dims = (getBaseDims || _getBaseDims)();
-  83 |   const w = Math.ceil(dims.width * scale);
-  84 |   const h = Math.ceil((dims.height + dragH) * scale);
-  85 |   ov.setContentSize(w, h);
-  86 |   sendOverlaySettings(ov, storeRef, isDev);
-  87 | }
-  88 | 
-  89 | function createMainWindow(storeRef, icoPath, isDevFlag) {
-  90 |   const saved = (storeRef || store).get("windowState") || {};
-  91 |   const width = Math.max(saved.width || 1120, 980);
-  92 |   const height = Math.max(saved.height || 820, 720);
-  93 | 
-  94 |   mainWindow = new BrowserWindow({
-  95 |     width,
-  96 |     height,
-  97 |     x: saved.x,
-  98 |     y: saved.y,
-  99 |     minWidth: 980,
- 100 |     minHeight: 720,
- 101 |     show: false,
- 102 |     icon: icoPath || iconPath,
- 103 |     autoHideMenuBar: true,
- 104 |     webPreferences: {
- 105 |       nodeIntegration: false,
- 106 |       contextIsolation: true,
- 107 |       preload: join(__dirname, "../preload.cjs"),
- 108 |       devTools: !!isDevFlag || isDev,
- 109 |     },
- 110 |   });
- 111 | 
- 112 |   Menu.setApplicationMenu?.(null);
- 113 |   mainWindow.setMenuBarVisibility(false);
- 114 |   enforceExternalLinks(mainWindow);
- 115 | 
- 116 |   // Bloque Alt menu (évite le flash de barre menu)
- 117 |   mainWindow.webContents.on("before-input-event", (event, input) => {
- 118 |     if (
- 119 |       input.type === "keyDown" &&
- 120 |       (input.key === "Alt" || input.code === "AltLeft" || input.code === "AltRight")
- 121 |     ) {
- 122 |       event.preventDefault();
- 123 |     }
- 124 |   });
- 125 | 
- 126 |   if (!!isDevFlag || isDev) {
- 127 |     mainWindow.loadURL("http://localhost:5173");
- 128 |     mainWindow.webContents.openDevTools({ mode: "detach" });
- 129 |   } else {
- 130 |     mainWindow.loadFile(join(__dirname, "../../dist/index.html"));
- 131 |     // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
- 132 |     mainWindow.webContents.on("before-input-event", (e, input) => {
- 133 |       const combo =
- 134 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
- 135 |       if (combo || input.key === "F12") e.preventDefault();
- 136 |     });
- 137 |   }
- 138 | 
- 139 |   mainWindow.once("ready-to-show", () => mainWindow.show());
- 140 |   mainWindow.on("close", () => {
- 141 |     const b = mainWindow.getBounds();
- 142 |     (storeRef || store).set("windowState", b);
- 143 |   });
- 144 |   mainWindow.on("closed", () => {
- 145 |     mainWindow = null;
- 146 |     if (overlayWindow) overlayWindow.close();
- 147 |   });
- 148 | 
- 149 |   return mainWindow;
- 150 | }
- 151 | 
- 152 | function createOverlayWindow(currentOverlay, currentMain) {
- 153 |   if (currentOverlay && !currentOverlay.isDestroyed()) {
- 154 |     currentOverlay.show();
- 155 |     currentOverlay.focus();
- 156 |     overlayWindow = currentOverlay;
- 157 |     return overlayWindow;
- 158 |   }
- 159 | 
- 160 |   // --- INIT ROBUSTE ---
- 161 |   let s = (store || {}).get?.("overlaySettings") || {};
- 162 |   const pd = screen.getPrimaryDisplay();
- 163 |   const origin = pd.bounds;
- 164 | 
- 165 |   if (!Number.isFinite(s.x)) s.x = origin.x;
- 166 |   if (!Number.isFinite(s.y)) s.y = origin.y;
- 167 |   if (typeof s.scale !== "number") s.scale = 100;
- 168 |   if (typeof s.locked !== "boolean") s.locked = true;
- 169 |   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
- 170 |   store.set("overlaySettings", s);
- 171 |   // --- FIN INIT ROBUSTE
- 172 | 
- 173 |   const dragH = s.locked ? 0 : 30;
- 174 |   const scale = (s.scale || 100) / 100;
- 175 |   const dims = _getBaseDims();
- 176 | 
- 177 |   overlayWindow = new BrowserWindow({
- 178 |     width: Math.ceil(dims.width * scale),
- 179 |     height: Math.ceil((dims.height + dragH) * scale),
- 180 |     x: s.x,
- 181 |     y: s.y,
- 182 |     frame: false,
- 183 |     transparent: true,
- 184 |     resizable: false,
- 185 |     hasShadow: false,
- 186 |     skipTaskbar: false,
- 187 |     focusable: true,
- 188 |     title: "DBD Timer Overlay by Doc & Steaxs",
- 189 |     acceptFirstMouse: true,
- 190 |     backgroundColor: "#00000000",
- 191 |     useContentSize: true,
- 192 |     show: false,
- 193 |     webPreferences: {
- 194 |       nodeIntegration: false,
- 195 |       contextIsolation: true,
- 196 |       preload: join(__dirname, "../preload.cjs"),
- 197 |       backgroundThrottling: false,
- 198 |       devTools: !!isDev,
- 199 |     },
- 200 |   });
- 201 | 
- 202 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
- 203 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
- 204 | 
- 205 |   const url = isDev
- 206 |     ? "http://localhost:5173/overlay.html"
- 207 |     : join(__dirname, "../../dist/overlay.html");
- 208 |   if (isDev) overlayWindow.loadURL(url);
- 209 |   else overlayWindow.loadFile(url);
- 210 | 
- 211 |   enforceExternalLinks(overlayWindow);
+  71 |       autoScoreEnabled: true,    // ← NEW
+  72 |       autoScoreThresholdSec: 25, // ← NEW
+  73 |     });
+  74 |     ov.webContents.send("overlay-settings", s);
+  75 |   }
+  76 | }
+  77 | 
+  78 | function recomputeOverlaySize(ov, storeRef, getBaseDims) {
+  79 |   if (!ov || ov.isDestroyed()) return;
+  80 |   const s =
+  81 |     (storeRef || store).get("overlaySettings", { scale: 100, locked: true });
+  82 |   const dragH = s.locked ? 0 : 30;
+  83 |   const scale = (s.scale || 100) / 100;
+  84 |   const dims = (getBaseDims || _getBaseDims)();
+  85 |   const w = Math.ceil(dims.width * scale);
+  86 |   const h = Math.ceil((dims.height + dragH) * scale);
+  87 |   ov.setContentSize(w, h);
+  88 |   sendOverlaySettings(ov, storeRef, isDev);
+  89 | }
+  90 | 
+  91 | function createMainWindow(storeRef, icoPath, isDevFlag) {
+  92 |   const saved = (storeRef || store).get("windowState") || {};
+  93 |   const width = Math.max(saved.width || 1120, 980);
+  94 |   const height = Math.max(saved.height || 820, 720);
+  95 | 
+  96 |   mainWindow = new BrowserWindow({
+  97 |     width,
+  98 |     height,
+  99 |     x: saved.x,
+ 100 |     y: saved.y,
+ 101 |     minWidth: 980,
+ 102 |     minHeight: 720,
+ 103 |     show: false,
+ 104 |     icon: icoPath || iconPath,
+ 105 |     autoHideMenuBar: true,
+ 106 |     webPreferences: {
+ 107 |       nodeIntegration: false,
+ 108 |       contextIsolation: true,
+ 109 |       preload: join(__dirname, "../preload.cjs"),
+ 110 |       devTools: !!isDevFlag || isDev,
+ 111 |     },
+ 112 |   });
+ 113 | 
+ 114 |   Menu.setApplicationMenu?.(null);
+ 115 |   mainWindow.setMenuBarVisibility(false);
+ 116 |   enforceExternalLinks(mainWindow);
+ 117 | 
+ 118 |   // Bloque Alt menu (évite le flash de barre menu)
+ 119 |   mainWindow.webContents.on("before-input-event", (event, input) => {
+ 120 |     if (
+ 121 |       input.type === "keyDown" &&
+ 122 |       (input.key === "Alt" || input.code === "AltLeft" || input.code === "AltRight")
+ 123 |     ) {
+ 124 |       event.preventDefault();
+ 125 |     }
+ 126 |   });
+ 127 | 
+ 128 |   if (!!isDevFlag || isDev) {
+ 129 |     mainWindow.loadURL("http://localhost:5173");
+ 130 |     mainWindow.webContents.openDevTools({ mode: "detach" });
+ 131 |   } else {
+ 132 |     mainWindow.loadFile(join(__dirname, "../../dist/index.html"));
+ 133 |     // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
+ 134 |     mainWindow.webContents.on("before-input-event", (e, input) => {
+ 135 |       const combo =
+ 136 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
+ 137 |       if (combo || input.key === "F12") e.preventDefault();
+ 138 |     });
+ 139 |   }
+ 140 | 
+ 141 |   mainWindow.once("ready-to-show", () => mainWindow.show());
+ 142 |   mainWindow.on("close", () => {
+ 143 |     const b = mainWindow.getBounds();
+ 144 |     (storeRef || store).set("windowState", b);
+ 145 |   });
+ 146 |   mainWindow.on("closed", () => {
+ 147 |     mainWindow = null;
+ 148 |     if (overlayWindow) overlayWindow.close();
+ 149 |   });
+ 150 | 
+ 151 |   return mainWindow;
+ 152 | }
+ 153 | 
+ 154 | function createOverlayWindow(currentOverlay, currentMain) {
+ 155 |   if (currentOverlay && !currentOverlay.isDestroyed()) {
+ 156 |     currentOverlay.show();
+ 157 |     currentOverlay.focus();
+ 158 |     overlayWindow = currentOverlay;
+ 159 |     return overlayWindow;
+ 160 |   }
+ 161 | 
+ 162 |   // --- INIT ROBUSTE ---
+ 163 |   let s = (store || {}).get?.("overlaySettings") || {};
+ 164 |   const pd = screen.getPrimaryDisplay();
+ 165 |   const origin = pd.bounds;
+ 166 | 
+ 167 |   if (!Number.isFinite(s.x)) s.x = origin.x;
+ 168 |   if (!Number.isFinite(s.y)) s.y = origin.y;
+ 169 |   if (typeof s.scale !== "number") s.scale = 100;
+ 170 |   if (typeof s.locked !== "boolean") s.locked = true;
+ 171 |   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
+ 172 |   store.set("overlaySettings", s);
+ 173 |   // --- FIN INIT ROBUSTE
+ 174 | 
+ 175 |   const dragH = s.locked ? 0 : 30;
+ 176 |   const scale = (s.scale || 100) / 100;
+ 177 |   const dims = _getBaseDims();
+ 178 | 
+ 179 |   overlayWindow = new BrowserWindow({
+ 180 |     width: Math.ceil(dims.width * scale),
+ 181 |     height: Math.ceil((dims.height + dragH) * scale),
+ 182 |     x: s.x,
+ 183 |     y: s.y,
+ 184 |     frame: false,
+ 185 |     transparent: true,
+ 186 |     resizable: false,
+ 187 |     hasShadow: false,
+ 188 |     skipTaskbar: false,
+ 189 |     focusable: true,
+ 190 |     title: "DBD Timer Overlay by Steaxs & Doc",
+ 191 |     acceptFirstMouse: true,
+ 192 |     backgroundColor: "#00000000",
+ 193 |     useContentSize: true,
+ 194 |     show: false,
+ 195 |     webPreferences: {
+ 196 |       nodeIntegration: false,
+ 197 |       contextIsolation: true,
+ 198 |       preload: join(__dirname, "../preload.cjs"),
+ 199 |       backgroundThrottling: false,
+ 200 |       devTools: !!isDev,
+ 201 |     },
+ 202 |   });
+ 203 | 
+ 204 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
+ 205 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
+ 206 | 
+ 207 |   const url = isDev
+ 208 |     ? "http://localhost:5173/overlay.html"
+ 209 |     : join(__dirname, "../../dist/overlay.html");
+ 210 |   if (isDev) overlayWindow.loadURL(url);
+ 211 |   else overlayWindow.loadFile(url);
  212 | 
- 213 |   if (!isDev) {
- 214 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
- 215 |       const combo =
- 216 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
- 217 |       if (combo || input.key === "F12") e.preventDefault();
- 218 |     });
- 219 |   }
- 220 | 
- 221 |   overlayWindow.on("closed", () => {
- 222 |     overlayWindow = null;
- 223 |     _onOverlayReadyChange && _onOverlayReadyChange(false);
- 224 |   });
- 225 |   overlayWindow.on("move", () => {
- 226 |     const b = overlayWindow.getBounds();
- 227 |     _onOverlayMove && _onOverlayMove(b.x, b.y);
- 228 |   });
- 229 | 
- 230 |   overlayWindow.webContents.on("did-finish-load", () => {
- 231 |     const data =
- 232 |       store.get("timerData") || {
- 233 |         player1: { name: "Player 1", score: 0 },
- 234 |         player2: { name: "Player 2", score: 0 },
- 235 |       };
- 236 |     overlayWindow.webContents.send("timer-data-sync", data);
- 237 | 
- 238 |     sendOverlaySettings(overlayWindow, store, isDev);
- 239 |     recomputeOverlaySize(overlayWindow, store, _getBaseDims);
- 240 | 
- 241 |     _onOverlayReadyChange && _onOverlayReadyChange(true);
- 242 |     overlayWindow.show();
- 243 |   });
- 244 | 
- 245 |   return overlayWindow;
- 246 | }
- 247 | 
- 248 | module.exports = {
- 249 |   initWindows,
- 250 |   createMainWindow,
- 251 |   createOverlayWindow,
- 252 |   enforceExternalLinks,
- 253 |   applyAlwaysOnTop,
- 254 |   sendOverlaySettings,
- 255 |   recomputeOverlaySize,
- 256 | 
- 257 |   // (utiles si besoin)
- 258 |   getMainWindow: () => mainWindow,
- 259 |   getOverlayWindow: () => overlayWindow,
- 260 | };
+ 213 |   enforceExternalLinks(overlayWindow);
+ 214 | 
+ 215 |   if (!isDev) {
+ 216 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
+ 217 |       const combo =
+ 218 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
+ 219 |       if (combo || input.key === "F12") e.preventDefault();
+ 220 |     });
+ 221 |   }
+ 222 | 
+ 223 |   overlayWindow.on("closed", () => {
+ 224 |     overlayWindow = null;
+ 225 |     _onOverlayReadyChange && _onOverlayReadyChange(false);
+ 226 |   });
+ 227 |   overlayWindow.on("move", () => {
+ 228 |     const b = overlayWindow.getBounds();
+ 229 |     _onOverlayMove && _onOverlayMove(b.x, b.y);
+ 230 |   });
+ 231 | 
+ 232 |   overlayWindow.webContents.on("did-finish-load", () => {
+ 233 |     const data =
+ 234 |       store.get("timerData") || {
+ 235 |         player1: { name: "Player 1", score: 0 },
+ 236 |         player2: { name: "Player 2", score: 0 },
+ 237 |       };
+ 238 |     overlayWindow.webContents.send("timer-data-sync", data);
+ 239 | 
+ 240 |     sendOverlaySettings(overlayWindow, store, isDev);
+ 241 |     recomputeOverlaySize(overlayWindow, store, _getBaseDims);
+ 242 | 
+ 243 |     _onOverlayReadyChange && _onOverlayReadyChange(true);
+ 244 |     overlayWindow.show();
+ 245 |   });
+ 246 | 
+ 247 |   return overlayWindow;
+ 248 | }
+ 249 | 
+ 250 | module.exports = {
+ 251 |   initWindows,
+ 252 |   createMainWindow,
+ 253 |   createOverlayWindow,
+ 254 |   enforceExternalLinks,
+ 255 |   applyAlwaysOnTop,
+ 256 |   sendOverlaySettings,
+ 257 |   recomputeOverlaySize,
+ 258 | 
+ 259 |   // (utiles si besoin)
+ 260 |   getMainWindow: () => mainWindow,
+ 261 |   getOverlayWindow: () => overlayWindow,
+ 262 | };
 
 ```
 
@@ -2158,7 +2187,7 @@ dbdoverlaytools-free
    4 |     <meta charset="UTF-8" />
    5 |     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'inline-speculation-rules'">
    6 |     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-   7 |     <title>DBD Timer - Overlay by Doc & Steaxs</title>
+   7 |     <title>DBD Timer - Overlay by Steaxs & Doc</title>
    8 |   </head>
    9 |   <body class="bg-transparent">
   10 |     <div id="root"></div>
@@ -2172,12 +2201,12 @@ dbdoverlaytools-free
 
 ```json
    1 | {
-   2 |   "name": "dbdoverlaytools-free",
-   3 |   "version": "1.0.0",
+   2 |   "name": "dbdtimer-steaxs",
+   3 |   "version": "2.0.0",
    4 |   "private": true,
-   5 |   "description": "DBD 1v1 Timer Overlay (Free)",
+   5 |   "description": "DBD 1v1 Timer Overlay by Steaxs (Free)",
    6 |   "main": "electron/main.mjs",
-   7 |   "author": "",
+   7 |   "author": "Steaxs",
    8 |   "license": "MIT",
    9 |   "type": "commonjs",
   10 |   "scripts": {
@@ -2300,541 +2329,572 @@ dbdoverlaytools-free
    8 |   swapLabel?: string;
    9 | };
   10 | 
-  11 | const ACCENT_LABELS_EN: Record<AccentKey, string> = {
-  12 |   default: "Blue (default)",
-  13 |   rose: "Pink",
-  14 |   rouge: "Red",
-  15 |   orange: "Orange",
-  16 |   or: "Gold",
-  17 |   jaune: "Yellow",
-  18 |   vert: "Green",
-  19 |   menthe: "Mint",
-  20 |   bleu_fonce: "Dark Blue",
-  21 |   bleu_clair: "Light Blue",
-  22 |   cyan: "Sky/Cyan",
-  23 |   violet: "Violet",
-  24 |   lavande: "Lavender",
-  25 |   marron: "Brown",
-  26 |   anthracite: "Charcoal",
-  27 |   argent: "Silver",
-  28 |   corail: "Coral/Peach",
-  29 | };
-  30 | 
-  31 | const ControlPanel: React.FC = () => {
-  32 |   // Overlay
-  33 |   const [overlayOn, setOverlayOn] = useState(false);
-  34 |   const [locked, setLocked] = useState(true);
-  35 |   const [scale, setScale] = useState(100);
-  36 | 
-  37 |   const [nameTheme, setNameTheme] = useState<NameTheme>("default");
-  38 |   const [accentKey, setAccentKey] = useState<AccentKey>("default");
-  39 | 
-  40 |   // Players
-  41 |   const [players, setPlayers] = useState({
-  42 |     player1: { name: "PLAYER 1", score: 0 },
-  43 |     player2: { name: "PLAYER 2", score: 0 },
-  44 |   });
-  45 | 
-  46 |   // Hotkeys
-  47 |   const [hkLabels, setHkLabels] = useState<{ start: string; swap: string }>({
-  48 |     start: "F1",
-  49 |     swap: "F2",
-  50 |   });
-  51 |   const [capturing, setCapturing] = useState<null | "start" | "swap">(null);
-  52 | 
-  53 |   useEffect(() => {
-  54 |     window.api.timer.get().then((d) => {
-  55 |       if (d?.player1 && d?.player2) setPlayers(d);
-  56 |     });
-  57 | 
-  58 |     window.api.hotkeys.get().then((h: HKGet) => {
-  59 |       setHkLabels({ start: h.startLabel || "F1", swap: h.swapLabel || "F2" });
-  60 |     });
+  11 | type GamepadMapping = {
+  12 |   toggle: string[];
+  13 |   swap: string[];
+  14 | };
+  15 | 
+  16 | const ACCENT_LABELS_EN: Record<AccentKey, string> = {
+  17 |   default: "Blue (default)",
+  18 |   rose: "Pink",
+  19 |   rouge: "Red",
+  20 |   orange: "Orange",
+  21 |   or: "Gold",
+  22 |   jaune: "Yellow",
+  23 |   vert: "Green",
+  24 |   menthe: "Mint",
+  25 |   bleu_fonce: "Dark Blue",
+  26 |   bleu_clair: "Light Blue",
+  27 |   cyan: "Sky/Cyan",
+  28 |   violet: "Violet",
+  29 |   lavande: "Lavender",
+  30 |   marron: "Brown",
+  31 |   anthracite: "Charcoal",
+  32 |   argent: "Silver",
+  33 |   corail: "Coral/Peach",
+  34 | };
+  35 | 
+  36 | const ControlPanel: React.FC = () => {
+  37 |   // Overlay
+  38 |   const [overlayOn, setOverlayOn] = useState(false);
+  39 |   const [locked, setLocked] = useState(true);
+  40 |   const [scale, setScale] = useState(100);
+  41 | 
+  42 |   const [nameTheme, setNameTheme] = useState<NameTheme>("default");
+  43 |   const [accentKey, setAccentKey] = useState<AccentKey>("default");
+  44 | 
+  45 |   // Auto-score
+  46 |   const [autoScore, setAutoScore] = useState<boolean>(true);
+  47 |   const [autoScoreThresholdSec] = useState<number>(25); // fixed
+  48 | 
+  49 |   // Players
+  50 |   const [players, setPlayers] = useState({
+  51 |     player1: { name: "PLAYER 1", score: 0 },
+  52 |     player2: { name: "PLAYER 2", score: 0 },
+  53 |   });
+  54 | 
+  55 |   // Hotkeys (desktop)
+  56 |   const [hkLabels, setHkLabels] = useState<{ start: string; swap: string }>({
+  57 |     start: "F1",
+  58 |     swap: "F2",
+  59 |   });
+  60 |   const [capturing, setCapturing] = useState<null | "start" | "swap">(null);
   61 | 
-  62 |     window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
-  63 |     window.api.overlay.onSettings((s: any) => {
-  64 |       if (typeof s.locked === "boolean") setLocked(!!s.locked);
-  65 |       if (typeof s.scale === "number") setScale(s.scale);
-  66 | 
-  67 |       if (s?.nameTheme) setNameTheme(s.nameTheme === "dark" ? "dark" : "default");
-  68 |       if (s?.accentKey && ACCENTS.some((a) => a.key === s.accentKey))
-  69 |         setAccentKey(s.accentKey);
-  70 |     });
-  71 | 
-  72 |     window.api.timer.onSync((d: any) => {
-  73 |       if (d?.player1 && d?.player2) setPlayers(d);
-  74 |     });
-  75 | 
-  76 |     window.api.hotkeys.onCaptured(
-  77 |       (p: {
-  78 |         type: "start" | "swap";
-  79 |         keycode?: number | null;
-  80 |         label?: string;
-  81 |       }) => {
-  82 |         if (p.label) setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
-  83 |         setCapturing(null);
-  84 |       }
-  85 |     );
-  86 | 
-  87 |     // Always on top (UI toggle removed)
-  88 |     window.api.overlay.updateSettings({ alwaysOnTop: true });
-  89 |   }, []);
-  90 | 
-  91 |   // Helpers
-  92 |   const savePlayers = (next: typeof players) => {
-  93 |     setPlayers(next);
-  94 |     window.api.timer.set(next);
-  95 |   };
-  96 | 
-  97 |   const onOverlayToggle = async (checked: boolean) => {
-  98 |     setOverlayOn(checked);
-  99 |     if (checked) await window.api.overlay.show();
- 100 |     else await window.api.overlay.hide();
- 101 |   };
- 102 | 
- 103 |   const onScale = (e: React.ChangeEvent<HTMLInputElement>) => {
- 104 |     const v = Number(e.target.value);
- 105 |     setScale(v);
- 106 |     window.api.overlay.updateSettings({ scale: v });
- 107 |   };
- 108 | 
- 109 |   const onLock = (e: React.ChangeEvent<HTMLInputElement>) => {
- 110 |     const v = e.target.checked;
- 111 |     setLocked(v);
- 112 |     window.api.overlay.updateSettings({ locked: v });
- 113 |   };
- 114 | 
- 115 |   const handleResetAll = () => {
- 116 |     const next = {
- 117 |       ...players,
- 118 |       player1: { ...players.player1, score: 0 },
- 119 |       player2: { ...players.player2, score: 0 },
- 120 |     };
- 121 |     savePlayers(next);
- 122 |   };
- 123 | 
- 124 |   // Small reusable swatch
- 125 |   const Swatch: React.FC<{
- 126 |     isActive: boolean;
- 127 |     background: string;
- 128 |     title: string;
- 129 |     onClick: () => void;
- 130 |   }> = ({ isActive, background, title, onClick }) => (
- 131 |     <button
- 132 |       onClick={onClick}
- 133 |       title={title}
- 134 |       aria-label={title}
- 135 |       aria-pressed={isActive}
- 136 |       className={[
- 137 |         // smaller rectangles
- 138 |         "h-7 w-14 sm:w-16 rounded-lg border transition outline-none focus:ring",
- 139 |         isActive ? "border-white/40 ring-2 ring-white/20" : "border-white/10 hover:border-white/20",
- 140 |       ].join(" ")}
- 141 |       style={{ background }}
- 142 |     />
- 143 |   );
- 144 | 
- 145 |   return (
- 146 |     <div className="mx-auto max-w-5xl p-6 text-zinc-100">
- 147 |       {/* Header */}
- 148 |       <header className="mb-4 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 flex items-center justify-between">
- 149 |         <div>
- 150 |           <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">
- 151 |             1v1 Overlay
- 152 |           </div>
- 153 |           <h1 className="text-xl font-semibold tracking-tight">DBD Overlay Tools</h1>
- 154 |         </div>
- 155 | 
- 156 |         {/* iOS toggle + status */}
- 157 |         <div className="flex items-center gap-3">
- 158 |           <span
- 159 |             className={`text-sm font-medium ${
- 160 |               overlayOn
- 161 |                 ? "text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,.8)]"
- 162 |                 : "text-zinc-400"
- 163 |             }`}
- 164 |           >
- 165 |             {overlayOn ? "Overlay Active" : "Overlay Hidden"}
- 166 |           </span>
- 167 |           <label className="relative inline-flex h-6 w-11 cursor-pointer items-center">
- 168 |             <input
- 169 |               type="checkbox"
- 170 |               className="peer sr-only"
- 171 |               checked={overlayOn}
- 172 |               onChange={(e) => onOverlayToggle(e.target.checked)}
- 173 |             />
- 174 |             <span className="absolute inset-0 rounded-full bg-zinc-700 transition peer-checked:bg-emerald-500/70" />
- 175 |             <span className="absolute h-5 w-5 translate-x-1 rounded-full bg-white transition peer-checked:translate-x-6" />
- 176 |           </label>
- 177 |         </div>
- 178 |       </header>
- 179 | 
- 180 |       <div className="scroll-thin pr-1">
- 181 |         {/* Hotkeys */}
- 182 |         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
- 183 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
- 184 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
- 185 |               Start/Stop/Reset Key
- 186 |             </div>
- 187 |             <button
- 188 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
- 189 |                 capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
- 190 |               }`}
- 191 |               onClick={() => {
- 192 |                 setCapturing("start");
- 193 |                 window.api.hotkeys.capture("start");
- 194 |               }}
- 195 |             >
- 196 |               {capturing === "start" ? "Press a key…" : hkLabels.start}
- 197 |             </button>
- 198 |           </div>
- 199 | 
- 200 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
- 201 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
- 202 |               Swap Timer Key
- 203 |             </div>
- 204 |             <button
- 205 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
- 206 |                 capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
- 207 |               }`}
- 208 |               onClick={() => {
- 209 |                 setCapturing("swap");
- 210 |                 window.api.hotkeys.capture("swap");
- 211 |               }}
- 212 |             >
- 213 |               {capturing === "swap" ? "Press a key…" : hkLabels.swap}
- 214 |             </button>
- 215 |           </div>
- 216 |         </section>
- 217 | 
- 218 |         {/* Players */}
- 219 |         <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
- 220 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 221 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">
- 222 |               Player 1
- 223 |             </div>
- 224 |             <input
- 225 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
- 226 |               value={players.player1.name}
- 227 |               onChange={(e) =>
- 228 |                 savePlayers({
- 229 |                   ...players,
- 230 |                   player1: { ...players.player1, name: e.target.value },
- 231 |                 })
- 232 |               }
- 233 |             />
- 234 |             <div className="text-xs text-zinc-400">Score</div>
- 235 |             <div className="mt-2 flex items-center gap-2">
- 236 |               <button
- 237 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
- 238 |                 onClick={() =>
- 239 |                   savePlayers({
- 240 |                     ...players,
- 241 |                     player1: {
- 242 |                       ...players.player1,
- 243 |                       score: Math.max(0, players.player1.score - 1),
- 244 |                     },
- 245 |                   })
- 246 |                 }
- 247 |               >
- 248 |                 −1
- 249 |               </button>
- 250 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">
- 251 |                 {players.player1.score}
- 252 |               </div>
+  62 |   // 🎮 Gamepad
+  63 |   const [gp, setGp] = useState<GamepadMapping>({ toggle: [], swap: [] });
+  64 |   const [capturingGp, setCapturingGp] = useState<null | "toggle" | "swap">(null);
+  65 | 
+  66 |   useEffect(() => {
+  67 |     window.api.timer.get().then((d) => {
+  68 |       if (d?.player1 && d?.player2) setPlayers(d);
+  69 |     });
+  70 | 
+  71 |     window.api.hotkeys.get().then((h: HKGet) => {
+  72 |       setHkLabels({ start: h.startLabel || "F1", swap: h.swapLabel || "F2" });
+  73 |     });
+  74 | 
+  75 |     if (window.api?.gamepad?.get) {
+  76 |       window.api.gamepad.get().then((m: any) => {
+  77 |         setGp(m && typeof m === "object" ? m : { toggle: [], swap: [] });
+  78 |       });
+  79 |     }
+  80 | 
+  81 |     window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
+  82 |     window.api.overlay.onSettings((s: any) => {
+  83 |       if (typeof s.locked === "boolean") setLocked(!!s.locked);
+  84 |       if (typeof s.scale === "number") setScale(s.scale);
+  85 |       if (s?.nameTheme) setNameTheme(s.nameTheme === "dark" ? "dark" : "default");
+  86 |       if (s?.accentKey && ACCENTS.some((a) => a.key === s.accentKey)) setAccentKey(s.accentKey);
+  87 |       if (typeof s?.autoScoreEnabled === "boolean") setAutoScore(s.autoScoreEnabled);
+  88 |     });
+  89 | 
+  90 |     window.api.timer.onSync((d: any) => {
+  91 |       if (d?.player1 && d?.player2) setPlayers(d);
+  92 |     });
+  93 | 
+  94 |     window.api.hotkeys.onCaptured((p: { type: "start" | "swap"; keycode?: number | null; label?: string }) => {
+  95 |       if (p.label) setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
+  96 |       setCapturing(null);
+  97 |       // rafraîchir affichage manette au cas où
+  98 |       if (window.api?.gamepad?.get) {
+  99 |         window.api.gamepad.get().then((m: any) => {
+ 100 |           setGp(m && typeof m === "object" ? m : { toggle: [], swap: [] });
+ 101 |         });
+ 102 |       }
+ 103 |       setCapturingGp(null);
+ 104 |     });
+ 105 | 
+ 106 |     // Always on top
+ 107 |     window.api.overlay.updateSettings({ alwaysOnTop: true });
+ 108 |   }, []);
+ 109 | 
+ 110 |   // Helpers
+ 111 |   const savePlayers = (next: typeof players) => {
+ 112 |     setPlayers(next);
+ 113 |     window.api.timer.set(next);
+ 114 |   };
+ 115 | 
+ 116 |   const onOverlayToggle = async (checked: boolean) => {
+ 117 |     setOverlayOn(checked);
+ 118 |     if (checked) await window.api.overlay.show();
+ 119 |     else await window.api.overlay.hide();
+ 120 |   };
+ 121 | 
+ 122 |   const onScale = (e: React.ChangeEvent<HTMLInputElement>) => {
+ 123 |     const v = Number(e.target.value);
+ 124 |     setScale(v);
+ 125 |     window.api.overlay.updateSettings({ scale: v });
+ 126 |   };
+ 127 | 
+ 128 |   const onLock = (e: React.ChangeEvent<HTMLInputElement>) => {
+ 129 |     const v = e.target.checked;
+ 130 |     setLocked(v);
+ 131 |     window.api.overlay.updateSettings({ locked: v });
+ 132 |   };
+ 133 | 
+ 134 |   const handleResetAll = () => {
+ 135 |     const next = {
+ 136 |       ...players,
+ 137 |       player1: { ...players.player1, score: 0 },
+ 138 |       player2: { ...players.player2, score: 0 },
+ 139 |     };
+ 140 |     savePlayers(next);
+ 141 |   };
+ 142 | 
+ 143 |   // Small reusable swatch
+ 144 |   const Swatch: React.FC<{
+ 145 |     isActive: boolean;
+ 146 |     background: string;
+ 147 |     title: string;
+ 148 |     onClick: () => void;
+ 149 |   }> = ({ isActive, background, title, onClick }) => (
+ 150 |     <button
+ 151 |       onClick={onClick}
+ 152 |       title={title}
+ 153 |       aria-label={title}
+ 154 |       aria-pressed={isActive}
+ 155 |       className={[
+ 156 |         "h-7 w-14 sm:w-16 rounded-lg border transition outline-none focus:ring",
+ 157 |         isActive ? "border-white/40 ring-2 ring-white/20" : "border-white/10 hover:border-white/20",
+ 158 |       ].join(" ")}
+ 159 |       style={{ background }}
+ 160 |     />
+ 161 |   );
+ 162 | 
+ 163 |   return (
+ 164 |     <div className="mx-auto max-w-5xl p-6 text-zinc-100">
+ 165 |       {/* Header */}
+ 166 |       <header className="mb-4 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 flex items-center justify-between">
+ 167 |         <div>
+ 168 |           <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">1v1 Overlay</div>
+ 169 |           <h1 className="text-xl font-semibold tracking-tight">DBD Overlay Tools</h1>
+ 170 |         </div>
+ 171 | 
+ 172 |         <div className="flex items-center gap-3">
+ 173 |           <span className={`text-sm font-medium ${overlayOn ? "text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,.8)]" : "text-zinc-400"}`}>
+ 174 |             {overlayOn ? "Overlay Active" : "Overlay Hidden"}
+ 175 |           </span>
+ 176 |           <label className="relative inline-flex h-6 w-11 cursor-pointer items-center">
+ 177 |             <input type="checkbox" className="peer sr-only" checked={overlayOn} onChange={(e) => onOverlayToggle(e.target.checked)} />
+ 178 |             <span className="absolute inset-0 rounded-full bg-zinc-700 transition peer-checked:bg-emerald-500/70" />
+ 179 |             <span className="absolute h-5 w-5 translate-x-1 rounded-full bg-white transition peer-checked:translate-x-6" />
+ 180 |           </label>
+ 181 |         </div>
+ 182 |       </header>
+ 183 | 
+ 184 |       <div className="scroll-thin pr-1">
+ 185 |         {/* Hotkeys (desktop) */}
+ 186 |         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+ 187 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 188 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
+ 189 |             <button
+ 190 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 191 |                 capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+ 192 |               }`}
+ 193 |               onClick={() => {
+ 194 |                 setCapturing("start");
+ 195 |                 // capture “desktop” → clavier/souris uniquement
+ 196 |                 if (window.api?.hotkeys?.capture) window.api.hotkeys.capture({ type: "start", source: "desktop" });
+ 197 |               }}
+ 198 |             >
+ 199 |               {capturing === "start" ? "Press a key…" : hkLabels.start}
+ 200 |             </button>
+ 201 |           </div>
+ 202 | 
+ 203 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 204 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
+ 205 |             <button
+ 206 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 207 |                 capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+ 208 |               }`}
+ 209 |               onClick={() => {
+ 210 |                 setCapturing("swap");
+ 211 |                 if (window.api?.hotkeys?.capture) window.api.hotkeys.capture({ type: "swap", source: "desktop" });
+ 212 |               }}
+ 213 |             >
+ 214 |               {capturing === "swap" ? "Press a key…" : hkLabels.swap}
+ 215 |             </button>
+ 216 |           </div>
+ 217 |         </section>
+ 218 | 
+ 219 |         {/* 🎮 Gamepad hotkeys — même UX */}
+ 220 |         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+ 221 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 222 |             <div className="mb-2 flex items-center justify-between">
+ 223 |               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Start/Stop/Reset (Gamepad)</div>
+ 224 |               <button
+ 225 |                 className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+ 226 |                 onClick={async () => {
+ 227 |                   try {
+ 228 |                     await window.api?.gamepad?.clear?.("toggle");
+ 229 |                     const next = await window.api?.gamepad?.get?.();
+ 230 |                     if (next) setGp(next);
+ 231 |                   } catch {}
+ 232 |                 }}
+ 233 |               >
+ 234 |                 Clear
+ 235 |               </button>
+ 236 |             </div>
+ 237 |             <button
+ 238 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 239 |                 capturingGp === "toggle" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+ 240 |               }`}
+ 241 |               onClick={() => {
+ 242 |                 setCapturingGp("toggle");
+ 243 |                 if (window.api?.hotkeys?.capture) window.api.hotkeys.capture({ type: "start", source: "gamepad" });
+ 244 |               }}
+ 245 |             >
+ 246 |               {capturingGp === "toggle" ? "Press a gamepad button…" : gp.toggle?.join(" + ") || "—"}
+ 247 |             </button>
+ 248 |           </div>
+ 249 | 
+ 250 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 251 |             <div className="mb-2 flex items-center justify-between">
+ 252 |               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Swap (Gamepad)</div>
  253 |               <button
- 254 |                 className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
- 255 |                 onClick={() =>
- 256 |                   savePlayers({
- 257 |                     ...players,
- 258 |                     player1: {
- 259 |                       ...players.player1,
- 260 |                       score: players.player1.score + 1,
- 261 |                     },
- 262 |                   })
- 263 |                 }
- 264 |               >
- 265 |                 +1
- 266 |               </button>
- 267 |             </div>
- 268 |           </div>
- 269 | 
- 270 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 271 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">
- 272 |               Player 2
- 273 |             </div>
- 274 |             <input
- 275 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
- 276 |               value={players.player2.name}
- 277 |               onChange={(e) =>
- 278 |                 savePlayers({
- 279 |                   ...players,
- 280 |                   player2: { ...players.player2, name: e.target.value },
- 281 |                 })
- 282 |               }
- 283 |             />
- 284 |             <div className="text-xs text-zinc-400">Score</div>
- 285 |             <div className="mt-2 flex items-center gap-2">
- 286 |               <button
- 287 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
- 288 |                 onClick={() =>
- 289 |                   savePlayers({
- 290 |                     ...players,
- 291 |                     player2: {
- 292 |                       ...players.player2,
- 293 |                       score: Math.max(0, players.player2.score - 1),
- 294 |                     },
- 295 |                   })
- 296 |                 }
- 297 |               >
- 298 |                 −1
- 299 |               </button>
- 300 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">
- 301 |                 {players.player2.score}
- 302 |               </div>
+ 254 |                 className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+ 255 |                 onClick={async () => {
+ 256 |                   try {
+ 257 |                     await window.api?.gamepad?.clear?.("swap");
+ 258 |                     const next = await window.api?.gamepad?.get?.();
+ 259 |                     if (next) setGp(next);
+ 260 |                   } catch {}
+ 261 |                 }}
+ 262 |               >
+ 263 |                 Clear
+ 264 |               </button>
+ 265 |             </div>
+ 266 |             <button
+ 267 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 268 |                 capturingGp === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+ 269 |               }`}
+ 270 |               onClick={() => {
+ 271 |                 setCapturingGp("swap");
+ 272 |                 if (window.api?.hotkeys?.capture) window.api.hotkeys.capture({ type: "swap", source: "gamepad" });
+ 273 |               }}
+ 274 |             >
+ 275 |               {capturingGp === "swap" ? "Press a gamepad button…" : gp.swap?.join(" + ") || "—"}
+ 276 |             </button>
+ 277 |           </div>
+ 278 |         </section>
+ 279 | 
+ 280 |         {/* Players */}
+ 281 |         <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+ 282 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 283 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 1</div>
+ 284 |             <input
+ 285 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
+ 286 |               value={players.player1.name}
+ 287 |               onChange={(e) => savePlayers({ ...players, player1: { ...players.player1, name: e.target.value } })}
+ 288 |             />
+ 289 |             <div className="text-xs text-zinc-400">Score</div>
+ 290 |             <div className="mt-2 flex items-center gap-2">
+ 291 |               <button
+ 292 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
+ 293 |                 onClick={() =>
+ 294 |                   savePlayers({
+ 295 |                     ...players,
+ 296 |                     player1: { ...players.player1, score: Math.max(0, players.player1.score - 1) },
+ 297 |                   })
+ 298 |                 }
+ 299 |               >
+ 300 |                 −1
+ 301 |               </button>
+ 302 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player1.score}</div>
  303 |               <button
  304 |                 className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
  305 |                 onClick={() =>
  306 |                   savePlayers({
  307 |                     ...players,
- 308 |                     player2: {
- 309 |                       ...players.player2,
- 310 |                       score: players.player2.score + 1,
- 311 |                     },
- 312 |                   })
- 313 |                 }
- 314 |               >
- 315 |                 +1
- 316 |               </button>
- 317 |             </div>
- 318 |           </div>
- 319 |         </section>
- 320 | 
- 321 |         {/* Global actions */}
- 322 |         <div className="mb-6 flex justify-center">
- 323 |           <button
- 324 |             className="rounded-lg border border-[#FF4141]/30 bg-[#FF4141]/15 text-[#FF4141] font-bold uppercase tracking-wide px-5 py-2"
- 325 |             onClick={handleResetAll}
- 326 |           >
- 327 |             Reset scores
- 328 |           </button>
- 329 |         </div>
- 330 | 
- 331 |         {/* ====== Timer Appearance (Unified) ====== */}
- 332 |         <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 333 |           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
- 334 |             Timer Appearance
- 335 |           </h2>
- 336 | 
- 337 |           {/* Name background */}
- 338 |           <div className="mb-4">
- 339 |             <div className="mb-2 flex items-center justify-between">
- 340 |               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
- 341 |                 Name background
- 342 |               </span>
- 343 |               <span className="text-xs text-zinc-500">
- 344 |                 Applies to player name boxes
- 345 |               </span>
- 346 |             </div>
- 347 |             <div className="grid grid-cols-6 gap-2">
- 348 |               {(["default", "dark"] as NameTheme[]).map((nt) => (
- 349 |                 <Swatch
- 350 |                   key={nt}
- 351 |                   title={nt === "default" ? "Default" : "Dark"}
- 352 |                   background={NAME_BG[nt]}
- 353 |                   isActive={nameTheme === nt}
- 354 |                   onClick={() => {
- 355 |                     setNameTheme(nt);
- 356 |                     window.api.overlay.updateSettings({ nameTheme: nt });
- 357 |                   }}
- 358 |                 />
- 359 |               ))}
- 360 |             </div>
- 361 |           </div>
+ 308 |                     player1: { ...players.player1, score: players.player1.score + 1 },
+ 309 |                   })
+ 310 |                 }
+ 311 |               >
+ 312 |                 +1
+ 313 |               </button>
+ 314 |             </div>
+ 315 |           </div>
+ 316 | 
+ 317 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 318 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 2</div>
+ 319 |             <input
+ 320 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
+ 321 |               value={players.player2.name}
+ 322 |               onChange={(e) => savePlayers({ ...players, player2: { ...players.player2, name: e.target.value } })}
+ 323 |             />
+ 324 |             <div className="text-xs text-zinc-400">Score</div>
+ 325 |             <div className="mt-2 flex items-center gap-2">
+ 326 |               <button
+ 327 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
+ 328 |                 onClick={() =>
+ 329 |                   savePlayers({
+ 330 |                     ...players,
+ 331 |                     player2: { ...players.player2, score: Math.max(0, players.player2.score - 1) },
+ 332 |                   })
+ 333 |                 }
+ 334 |               >
+ 335 |                 −1
+ 336 |               </button>
+ 337 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player2.score}</div>
+ 338 |               <button
+ 339 |                 className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
+ 340 |                 onClick={() =>
+ 341 |                   savePlayers({
+ 342 |                     ...players,
+ 343 |                     player2: { ...players.player2, score: players.player2.score + 1 },
+ 344 |                   })
+ 345 |                 }
+ 346 |               >
+ 347 |                 +1
+ 348 |               </button>
+ 349 |             </div>
+ 350 |           </div>
+ 351 |         </section>
+ 352 | 
+ 353 |         {/* Global actions */}
+ 354 |         <div className="mb-6 flex justify-center">
+ 355 |           <button
+ 356 |             className="rounded-lg border border-[#FF4141]/30 bg-[#FF4141]/15 text-[#FF4141] font-bold uppercase tracking-wide px-5 py-2"
+ 357 |             onClick={handleResetAll}
+ 358 |           >
+ 359 |             Reset scores
+ 360 |           </button>
+ 361 |         </div>
  362 | 
- 363 |           {/* Accent color (Score + Swap) */}
- 364 |           <div>
- 365 |             <div className="mb-2 flex items-center justify-between">
- 366 |               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
- 367 |                 Accent color
- 368 |               </span>
- 369 |               <span className="text-xs text-zinc-500">
- 370 |                 Affects score background & swap bar
- 371 |               </span>
+ 363 |         {/* ====== Timer Appearance ====== */}
+ 364 |         <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 365 |           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Timer Appearance</h2>
+ 366 | 
+ 367 |           {/* Name background */}
+ 368 |           <div className="mb-4">
+ 369 |             <div className="mb-2 flex items-center justify-between">
+ 370 |               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Name background</span>
+ 371 |               <span className="text-xs text-zinc-500">Applies to player name boxes</span>
  372 |             </div>
- 373 | 
- 374 |             <div className="grid grid-cols-8 sm:grid-cols-10 gap-2">
- 375 |               {ACCENTS.map((a) => (
- 376 |                 <Swatch
- 377 |                   key={a.key}
- 378 |                   title={ACCENT_LABELS_EN[a.key as AccentKey]}
- 379 |                   background={a.gradient}
- 380 |                   isActive={accentKey === (a.key as AccentKey)}
- 381 |                   onClick={() => {
- 382 |                     const k = a.key as AccentKey;
- 383 |                     setAccentKey(k);
- 384 |                     window.api.overlay.updateSettings({ accentKey: k });
- 385 |                   }}
- 386 |                 />
- 387 |               ))}
- 388 |             </div>
- 389 | 
- 390 |             <p className="mt-2 text-xs text-zinc-400">
- 391 |               The swap bar automatically follows the score color.
- 392 |             </p>
- 393 |           </div>
- 394 |         </section>
+ 373 |             <div className="grid grid-cols-6 gap-2">
+ 374 |               {(["default", "dark"] as NameTheme[]).map((nt) => (
+ 375 |                 <Swatch
+ 376 |                   key={nt}
+ 377 |                   title={nt === "default" ? "Default" : "Dark"}
+ 378 |                   background={NAME_BG[nt]}
+ 379 |                   isActive={nameTheme === nt}
+ 380 |                   onClick={() => {
+ 381 |                     setNameTheme(nt);
+ 382 |                     window.api.overlay.updateSettings({ nameTheme: nt });
+ 383 |                   }}
+ 384 |                 />
+ 385 |               ))}
+ 386 |             </div>
+ 387 |           </div>
+ 388 | 
+ 389 |           {/* Accent color */}
+ 390 |           <div>
+ 391 |             <div className="mb-2 flex items-center justify-between">
+ 392 |               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Accent color</span>
+ 393 |               <span className="text-xs text-zinc-500">Affects score background & swap bar</span>
+ 394 |             </div>
  395 | 
- 396 |         {/* Overlay Settings (no always-on-top toggle) */}
- 397 |         <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 398 |           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
- 399 |             Overlay Settings
- 400 |           </h2>
- 401 | 
- 402 |           <div className="mb-6">
- 403 |             <div className="mb-2 flex items-center justify-between text-sm">
- 404 |               <span>Scale</span>
- 405 |               <span className="font-semibold text-[#5AC8FF]">{scale}%</span>
- 406 |             </div>
- 407 |             <input
- 408 |               type="range"
- 409 |               min={50}
- 410 |               max={200}
- 411 |               value={scale}
- 412 |               onChange={onScale}
- 413 |               className="w-full [accent-color:#5AC8FF]"
- 414 |             />
- 415 |           </div>
- 416 | 
- 417 |           <div className="grid grid-cols-1">
- 418 |             <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
- 419 |               <span className="text-sm">
- 420 |                 Lock Overlay Position <span className="opacity-50">🔓</span>
- 421 |               </span>
- 422 | 
- 423 |               <button
- 424 |                 type="button"
- 425 |                 role="switch"
- 426 |                 aria-checked={locked}
- 427 |                 onClick={() => {
- 428 |                   const next = !locked;
- 429 |                   setLocked(next);
- 430 |                   window.api.overlay.updateSettings({ locked: next });
- 431 |                 }}
- 432 |                 className={[
- 433 |                   "relative h-6 w-11 rounded-full transition-colors",
- 434 |                   locked ? "bg-emerald-500" : "bg-neutral-300",
- 435 |                   "ring-1 ring-black/5",
- 436 |                 ].join(" ")}
- 437 |               >
- 438 |                 <span
- 439 |                   aria-hidden
- 440 |                   className={[
- 441 |                     "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
- 442 |                     locked ? "translate-x-5" : "",
- 443 |                   ].join(" ")}
- 444 |                 />
- 445 |               </button>
- 446 |             </label>
- 447 |           </div>
- 448 | 
- 449 |           <div
- 450 |             className={`mt-4 rounded-lg border p-3 text-sm ${
- 451 |               locked
- 452 |                 ? "border-[#44FF41]/40 bg-[#44FF41]/10 text-[#44FF41]"
- 453 |                 : "border-violet-500/40 bg-violet-500/10 text-violet-300"
- 454 |             }`}
- 455 |           >
- 456 |             {locked
- 457 |               ? "Overlay is locked – clicks will go through."
- 458 |               : "Overlay is unlocked – drag the purple bar to reposition."}
- 459 |           </div>
- 460 |         </section>
- 461 | 
- 462 |         {/* Discord CTA — Premium overlays */}
- 463 |         <section className="mt-8 relative overflow-hidden rounded-3xl border border-violet-500/30 bg-gradient-to-br from-violet-600/10 via-fuchsia-600/10 to-emerald-500/10 p-5">
- 464 |           <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full blur-3xl bg-violet-500/30" />
- 465 |           <div className="pointer-events-none absolute -bottom-20 -left-24 h-72 w-72 rounded-full blur-3xl bg-emerald-400/20" />
- 466 |           <div className="relative">
- 467 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">
- 468 |               👑 Premium Overlays
- 469 |             </div>
- 470 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">
- 471 |               Unlock more overlays & tools
- 472 |             </h3>
- 473 |             <p className="mt-2 text-sm text-zinc-200">
- 474 |               Join our Discord to get the premium version: <b>killer streaks</b>,{" "}
- 475 |               <b>survivor streaks</b>, <b>win/loss counter</b>,{" "}
- 476 |               <b>tournament overlay</b>, and more!
- 477 |             </p>
- 478 | 
- 479 |             <a
- 480 |               href="http://discord.com/invite/aVdT8rRJKc"
- 481 |               target="_blank"
- 482 |               rel="noopener noreferrer"
- 483 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
- 484 |             >
- 485 |               Join the Discord
- 486 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
- 487 |                 <path
- 488 |                   d="M7 17L17 7M17 7H8M17 7v9"
- 489 |                   stroke="currentColor"
- 490 |                   strokeWidth="1.8"
- 491 |                   strokeLinecap="round"
- 492 |                   strokeLinejoin="round"
- 493 |                 />
- 494 |               </svg>
- 495 |             </a>
- 496 |           </div>
- 497 |         </section>
- 498 | 
- 499 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-cyan-400/30 bg-gradient-to-tr from-cyan-400/10 via-sky-500/10 to-indigo-500/10 p-5">
- 500 |           <div className="pointer-events-none absolute -top-16 right-0 h-64 w-64 rounded-full blur-3xl bg-cyan-400/30" />
- 501 |           <div className="relative">
- 502 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">
- 503 |               🎨 ReShade Filters
- 504 |             </div>
- 505 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">
- 506 |               GET STEAXS RESHADES
- 507 |             </h3>
- 508 |             <p className="mt-2 text-sm text-zinc-200">
- 509 |               Competitive ReShade presets tailored for Dead by Daylight. Sharper
- 510 |               visibility, clean colors, and a consistent look across maps.
- 511 |             </p>
- 512 |             <a
- 513 |               href="https://discord.com/invite/6RHPNNVtKw"
- 514 |               target="_blank"
- 515 |               rel="noopener noreferrer"
- 516 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
- 517 |             >
- 518 |               Get the Presets
- 519 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
- 520 |                 <path
- 521 |                   d="M7 17L17 7M17 7H8M17 7v9"
- 522 |                   stroke="currentColor"
- 523 |                   strokeWidth="1.8"
- 524 |                   strokeLinecap="round"
- 525 |                   strokeLinejoin="round"
- 526 |                 />
- 527 |               </svg>
- 528 |             </a>
- 529 |           </div>
- 530 |         </section>
- 531 | 
- 532 |         {/* Footer */}
- 533 |         <footer className="mt-6">
- 534 |           <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-300">
- 535 |             <div className="uppercase tracking-wider">
- 536 |               © BY <b>STEAXS</b> &amp; <b>DOC</b> — 2025
- 537 |             </div>
- 538 |           </div>
- 539 |         </footer>
- 540 |       </div>
- 541 |     </div>
- 542 |   );
- 543 | };
- 544 | 
- 545 | export default ControlPanel;
+ 396 |             <div className="grid grid-cols-8 sm:grid-cols-10 gap-2">
+ 397 |               {ACCENTS.map((a) => (
+ 398 |                 <Swatch
+ 399 |                   key={a.key}
+ 400 |                   title={ACCENT_LABELS_EN[a.key as AccentKey]}
+ 401 |                   background={a.gradient}
+ 402 |                   isActive={accentKey === (a.key as AccentKey)}
+ 403 |                   onClick={() => {
+ 404 |                     const k = a.key as AccentKey;
+ 405 |                     setAccentKey(k);
+ 406 |                     window.api.overlay.updateSettings({ accentKey: k });
+ 407 |                   }}
+ 408 |                 />
+ 409 |               ))}
+ 410 |             </div>
+ 411 | 
+ 412 |             <p className="mt-2 text-xs text-zinc-400">The swap bar automatically follows the score color.</p>
+ 413 |           </div>
+ 414 |         </section>
+ 415 | 
+ 416 |         {/* ====== Overlay Settings ====== */}
+ 417 |         <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 418 |           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Overlay Settings</h2>
+ 419 | 
+ 420 |           <div className="mb-6">
+ 421 |             <div className="mb-2 flex items-center justify-between text-sm">
+ 422 |               <span>Scale</span>
+ 423 |               <span className="font-semibold text-[#5AC8FF]">{scale}%</span>
+ 424 |             </div>
+ 425 |             <input type="range" min={50} max={200} value={scale} onChange={onScale} className="w-full [accent-color:#5AC8FF]" />
+ 426 |           </div>
+ 427 | 
+ 428 |           {/* Auto-score toggle */}
+ 429 |           <div className="mb-3 grid grid-cols-1">
+ 430 |             <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
+ 431 |               <span className="text-sm">
+ 432 |                 Auto-score winner <span className="opacity-60">({autoScoreThresholdSec}s min)</span>
+ 433 |               </span>
+ 434 | 
+ 435 |               <button
+ 436 |                 type="button"
+ 437 |                 role="switch"
+ 438 |                 aria-checked={autoScore}
+ 439 |                 onClick={() => {
+ 440 |                   const next = !autoScore;
+ 441 |                   setAutoScore(next);
+ 442 |                   window.api.overlay.updateSettings({ autoScoreEnabled: next, autoScoreThresholdSec });
+ 443 |                 }}
+ 444 |                 className={["relative h-6 w-11 rounded-full transition-colors", autoScore ? "bg-emerald-500" : "bg-neutral-300", "ring-1 ring-black/5"].join(" ")}
+ 445 |               >
+ 446 |                 <span aria-hidden className={["absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", autoScore ? "translate-x-5" : ""].join(" ")} />
+ 447 |               </button>
+ 448 |             </label>
+ 449 |           </div>
+ 450 | 
+ 451 |           <div className="grid grid-cols-1">
+ 452 |             <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
+ 453 |               <span className="text-sm">
+ 454 |                 Lock Overlay Position <span className="opacity-50">🔓</span>
+ 455 |               </span>
+ 456 | 
+ 457 |               <button
+ 458 |                 type="button"
+ 459 |                 role="switch"
+ 460 |                 aria-checked={locked}
+ 461 |                 onClick={() => {
+ 462 |                   const next = !locked;
+ 463 |                   setLocked(next);
+ 464 |                   window.api.overlay.updateSettings({ locked: next });
+ 465 |                 }}
+ 466 |                 className={["relative h-6 w-11 rounded-full transition-colors", locked ? "bg-emerald-500" : "bg-neutral-300", "ring-1 ring-black/5"].join(" ")}
+ 467 |               >
+ 468 |                 <span aria-hidden className={["absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", locked ? "translate-x-5" : ""].join(" ")} />
+ 469 |               </button>
+ 470 |             </label>
+ 471 |           </div>
+ 472 | 
+ 473 |           <div className={`mt-4 rounded-lg border p-3 text-sm ${locked ? "border-[#44FF41]/40 bg-[#44FF41]/10 text-[#44FF41]" : "border-violet-500/40 bg-violet-500/10 text-violet-300"}`}>
+ 474 |             {locked ? "Overlay is locked – clicks will go through." : "Overlay is unlocked – drag the purple bar to reposition."}
+ 475 |           </div>
+ 476 | 
+ 477 |           <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-zinc-300 leading-relaxed">
+ 478 |             <b>How auto-score works</b>:
+ 479 |             <ul className="list-disc ml-5 mt-2 space-y-1">
+ 480 |               <li>
+ 481 |                 Make sure the active timer is on the <b>current survivor</b> (use <b>Swap</b> before starting).
+ 482 |               </li>
+ 483 |               <li>
+ 484 |                 Pause each survivor’s run (F1). When <b>both</b> sides are paused, the player with the <b>longest time</b> gets +1.
+ 485 |               </li>
+ 486 |               <li>
+ 487 |                 Times under <b>{autoScoreThresholdSec}s</b> are ignored (prevents accidental starts).
+ 488 |               </li>
+ 489 |               <li>This never stops your timers — it only updates the score.</li>
+ 490 |             </ul>
+ 491 |           </div>
+ 492 |         </section>
+ 493 | 
+ 494 |         {/* CTA sections (inchangées) */}
+ 495 |         <section className="mt-8 relative overflow-hidden rounded-3xl border border-violet-500/30 bg-gradient-to-br from-violet-600/10 via-fuchsia-600/10 to-emerald-500/10 p-5">
+ 496 |           <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full blur-3xl bg-violet-500/30" />
+ 497 |           <div className="pointer-events-none absolute -bottom-20 -left-24 h-72 w-72 rounded-full blur-3xl bg-emerald-400/20" />
+ 498 |           <div className="relative">
+ 499 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">👑 PREMIUM OVERLAYS</div>
+ 500 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">Unlock more overlays & tools</h3>
+ 501 |             <p className="mt-2 text-sm text-zinc-200">
+ 502 |               Join our Discord to get the premium version: <b>killer streaks</b>, <b>survivor streaks</b>, <b>win/loss counter</b>, <b>tournament overlay</b>, and more!
+ 503 |             </p>
+ 504 |             <a
+ 505 |               href="http://discord.com/invite/aVdT8rRJKc"
+ 506 |               target="_blank"
+ 507 |               rel="noopener noreferrer"
+ 508 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
+ 509 |             >
+ 510 |               Join the Discord
+ 511 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
+ 512 |                 <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+ 513 |               </svg>
+ 514 |             </a>
+ 515 |           </div>
+ 516 |         </section>
+ 517 | 
+ 518 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-cyan-400/30 bg-gradient-to-tr from-cyan-400/10 via-sky-500/10 to-indigo-500/10 p-5">
+ 519 |           <div className="pointer-events-none absolute -top-16 right-0 h-64 w-64 rounded-full blur-3xl bg-cyan-400/30" />
+ 520 |           <div className="relative">
+ 521 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">🎨 ReShade Filters</div>
+ 522 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">GET STEAXS RESHADES</h3>
+ 523 |             <p className="mt-2 text-sm text-zinc-200">
+ 524 |               Competitive ReShade presets tailored for Dead by Daylight. One filter per map. Sharper visibility, clean colors, and a consistent look across maps.
+ 525 |             </p>
+ 526 |             <a
+ 527 |               href="https://discord.com/invite/6RHPNNVtKw"
+ 528 |               target="_blank"
+ 529 |               rel="noopener noreferrer"
+ 530 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
+ 531 |             >
+ 532 |               Get the Presets
+ 533 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
+ 534 |                 <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+ 535 |               </svg>
+ 536 |             </a>
+ 537 |           </div>
+ 538 |         </section>
+ 539 | 
+ 540 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-amber-400/30 bg-gradient-to-tr from-amber-400/10 via-orange-500/10 to-rose-500/10 p-5">
+ 541 |           <div className="pointer-events-none absolute -top-16 -right-16 h-64 w-64 rounded-full blur-3xl bg-amber-400/30" />
+ 542 |           <div className="pointer-events-none absolute -bottom-16 -left-20 h-64 w-64 rounded-full blur-3xl bg-rose-400/20" />
+ 543 |           <div className="relative">
+ 544 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">☕ SUPPORT THE PROJECT</div>
+ 545 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">Buy me a coffee</h3>
+ 546 |             <p className="mt-2 text-sm text-zinc-200">
+ 547 |               If these overlays help you, consider buying me a coffee. Your donation keeps the project alive, funds maintenance, and fuels new features.
+ 548 |             </p>
+ 549 |             <a
+ 550 |               href="https://buymeacoffee.com/steaxss"
+ 551 |               target="_blank"
+ 552 |               rel="noopener noreferrer"
+ 553 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
+ 554 |             >
+ 555 |               Buy Me a Coffee
+ 556 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+ 557 |                 <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+ 558 |               </svg>
+ 559 |             </a>
+ 560 |           </div>
+ 561 |         </section>
+ 562 | 
+ 563 |         {/* Footer */}
+ 564 |         <footer className="mt-6">
+ 565 |           <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-300">
+ 566 |             <div className="uppercase tracking-wider">
+ 567 |               © TIMER BY <b>STEAXS</b> &amp; PREMIUM VERSION BY <b>DOC</b> — 2025
+ 568 |             </div>
+ 569 |           </div>
+ 570 |         </footer>
+ 571 |       </div>
+ 572 |     </div>
+ 573 |   );
+ 574 | };
+ 575 | 
+ 576 | export default ControlPanel;
 
 ```
 
@@ -3010,195 +3070,267 @@ dbdoverlaytools-free
   33 |   const [locked, setLocked] = React.useState(false);
   34 |   const [scale, setScale] = React.useState(100);
   35 | 
-  36 |   // IPC: names/scores only
-  37 |   React.useEffect(() => {
-  38 |     (async () => setPlayers(await window.api.timer.get()))();
-  39 |     window.api.timer.onSync((d: any) => setPlayers(d));
-  40 |   }, []);
-  41 | 
-  42 |   // Receive overlay settings (lock + scale)
-  43 |   React.useEffect(() => {
-  44 |     window.api.overlay.onSettings((s: any) => {
-  45 |       setLocked(!!s.locked);
-  46 |       setScale(s.scale || 100);
-  47 |       
-  48 |       // === Thèmes ===
-  49 |       const nt: NameTheme = s?.nameTheme === 'dark' ? 'dark' : 'default';
-  50 |       const ak: AccentKey = (s?.accentKey in ACCENTS_MAP ? s.accentKey : 'default') as AccentKey;
-  51 | 
-  52 |       // Appliquer les variables CSS au document (overlay window)
-  53 |       const root = document.documentElement;
-  54 |       root.style.setProperty('--name-bg', NAME_BG[nt]);
-  55 |       root.style.setProperty('--accent-gradient', ACCENTS_MAP[ak]);
-  56 |     });
-  57 |   }, []);
-  58 | 
-  59 |   // Hotkeys globales (venant du main via uiohook)
-  60 |   React.useEffect(() => {
-  61 |     const handler = (p: any) => {
-  62 |       const api = useTimerStore.getState();
-  63 |       if (p?.type === "toggle") api.toggle();
-  64 |       else if (p?.type === "swap") api.select(api.active === 1 ? 2 : 1);
-  65 |     };
-  66 |     window.api.hotkeys.on(handler);
-  67 |   }, []);
-  68 | 
-  69 |   // Tick adaptatif : 60 FPS quand ça tourne, 8 FPS à l'arrêt/pausé
-  70 |   const [, setTick] = React.useState(0);
-  71 |   React.useEffect(() => {
-  72 |     const s1 = status[1];
-  73 |     const s2 = status[2];
-  74 |     const running = s1 === "running" || s2 === "running";
-  75 | 
-  76 |     let cancel = false;
-  77 |     let raf = 0;
-  78 |     let intervalId: number | undefined;
-  79 | 
-  80 |     const bump = () => setTick((t) => (t + 1) | 0);
-  81 | 
-  82 |     if (running) {
-  83 |       const loop = () => {
-  84 |         if (cancel) return;
-  85 |         bump();
-  86 |         raf = requestAnimationFrame(loop);
-  87 |       };
-  88 |       raf = requestAnimationFrame(loop);
-  89 |     } else {
-  90 |       // ~8 FPS
-  91 |       intervalId = window.setInterval(bump, 125);
-  92 |     }
-  93 | 
-  94 |     return () => {
-  95 |       cancel = true;
-  96 |       if (raf) cancelAnimationFrame(raf);
-  97 |       if (intervalId) clearInterval(intervalId);
-  98 |     };
-  99 |   }, [status[1], status[2]]);
- 100 | 
- 101 |   // Mesure pour le main (taille intrinsèque)
- 102 |   React.useEffect(() => {
- 103 |     const measure = () => {
- 104 |       const el = document.getElementById("timerContainer");
- 105 |       if (!el) return;
- 106 |       const w = el.offsetWidth;
- 107 |       const h = el.offsetHeight;
- 108 |       window.api.overlay.measure(w, h);
- 109 |     };
- 110 |     // fonts prêtes → mesurer
- 111 |     // @ts-ignore
- 112 |     if (document.fonts?.ready) {
- 113 |       // @ts-ignore
- 114 |       document.fonts.ready.then(() => {
- 115 |         measure();
- 116 |         setTimeout(measure, 50);
- 117 |       });
- 118 |     }
- 119 |     measure();
- 120 |     window.addEventListener("resize", measure);
- 121 |     return () => window.removeEventListener("resize", measure);
- 122 |   }, [players.player1.name, players.player2.name]);
- 123 | 
- 124 |   const t1 = splitForTheme(formatMillisDynamic(elapsed(1)));
- 125 |   const t2 = splitForTheme(formatMillisDynamic(elapsed(2)));
- 126 | 
- 127 |   const p1Scroll = players.player1.name.length > 16;
- 128 |   const p2Scroll = players.player2.name.length > 16;
- 129 | 
- 130 |   const s = (scale || 100) / 100;
- 131 | 
- 132 |   // ---- NEW: état d’alerte sur le timer actif (approche/dépassement) ----
- 133 |   const DIFF20 = 20000; // 20s -> orange
- 134 |   const DIFF10 = 10000; // 10s -> rouge clair clignotant
+  36 |   // === Auto-score (config reçue via overlay-settings) ===
+  37 |   const [autoScoreEnabled, setAutoScoreEnabled] = React.useState(true);
+  38 |   const [autoScoreThresholdMs, setAutoScoreThresholdMs] = React.useState(25000);
+  39 | 
+  40 |   // IPC: names/scores only
+  41 |   React.useEffect(() => {
+  42 |     (async () => setPlayers(await window.api.timer.get()))();
+  43 |     window.api.timer.onSync((d: any) => setPlayers(d));
+  44 |   }, []);
+  45 | 
+  46 |   // Receive overlay settings (lock + scale + theme + auto-score)
+  47 |   React.useEffect(() => {
+  48 |     window.api.overlay.onSettings((s: any) => {
+  49 |       setLocked(!!s.locked);
+  50 |       setScale(s.scale || 100);
+  51 |       
+  52 |       // === Thèmes ===
+  53 |       const nt: NameTheme = s?.nameTheme === 'dark' ? 'dark' : 'default';
+  54 |       const ak: AccentKey = (s?.accentKey in ACCENTS_MAP ? s.accentKey : 'default') as AccentKey;
+  55 | 
+  56 |       // Appliquer les variables CSS au document (overlay window)
+  57 |       const root = document.documentElement;
+  58 |       root.style.setProperty('--name-bg', NAME_BG[nt]);
+  59 |       root.style.setProperty('--accent-gradient', ACCENTS_MAP[ak]);
+  60 | 
+  61 |       // === Auto-score ===
+  62 |       setAutoScoreEnabled(s?.autoScoreEnabled !== false); // par défaut: true
+  63 |       const th = Number(s?.autoScoreThresholdSec);
+  64 |       setAutoScoreThresholdMs(Number.isFinite(th) ? th * 1000 : 25000);
+  65 |     });
+  66 |   }, []);
+  67 | 
+  68 |   // Hotkeys globales (venant du main via uiohook)
+  69 |   React.useEffect(() => {
+  70 |     const handler = (p: any) => {
+  71 |       const api = useTimerStore.getState();
+  72 |       if (p?.type === "toggle") api.toggle();
+  73 |       else if (p?.type === "swap") api.select(api.active === 1 ? 2 : 1);
+  74 |     };
+  75 |     window.api.hotkeys.on(handler);
+  76 |   }, []);
+  77 | 
+  78 |   // Tick adaptatif : 60 FPS quand ça tourne, 8 FPS à l'arrêt/pausé
+  79 |   const [, setTick] = React.useState(0);
+  80 |   React.useEffect(() => {
+  81 |     const s1 = status[1];
+  82 |     const s2 = status[2];
+  83 |     const running = s1 === "running" || s2 === "running";
+  84 | 
+  85 |     let cancel = false;
+  86 |     let raf = 0;
+  87 |     let intervalId: number | undefined;
+  88 | 
+  89 |     const bump = () => setTick((t) => (t + 1) | 0);
+  90 | 
+  91 |     if (running) {
+  92 |       const loop = () => {
+  93 |         if (cancel) return;
+  94 |         bump();
+  95 |         raf = requestAnimationFrame(loop);
+  96 |       };
+  97 |       raf = requestAnimationFrame(loop);
+  98 |     } else {
+  99 |       // ~8 FPS
+ 100 |       intervalId = window.setInterval(bump, 125);
+ 101 |     }
+ 102 | 
+ 103 |     return () => {
+ 104 |       cancel = true;
+ 105 |       if (raf) cancelAnimationFrame(raf);
+ 106 |       if (intervalId) clearInterval(intervalId);
+ 107 |     };
+ 108 |   }, [status[1], status[2]]);
+ 109 | 
+ 110 |   // Mesure pour le main (taille intrinsèque)
+ 111 |   React.useEffect(() => {
+ 112 |     const measure = () => {
+ 113 |       const el = document.getElementById("timerContainer");
+ 114 |       if (!el) return;
+ 115 |       const w = el.offsetWidth;
+ 116 |       const h = el.offsetHeight;
+ 117 |       window.api.overlay.measure(w, h);
+ 118 |     };
+ 119 |     // fonts prêtes → mesurer
+ 120 |     // @ts-ignore
+ 121 |     if (document.fonts?.ready) {
+ 122 |       // @ts-ignore
+ 123 |       document.fonts.ready.then(() => {
+ 124 |         measure();
+ 125 |         setTimeout(measure, 50);
+ 126 |       });
+ 127 |     }
+ 128 |     measure();
+ 129 |     window.addEventListener("resize", measure);
+ 130 |     return () => window.removeEventListener("resize", measure);
+ 131 |   }, [players.player1.name, players.player2.name]);
+ 132 | 
+ 133 |   const t1 = splitForTheme(formatMillisDynamic(elapsed(1)));
+ 134 |   const t2 = splitForTheme(formatMillisDynamic(elapsed(2)));
  135 | 
- 136 |  const warnClass = (() => {
- 137 |     const isRunning = status[active] === "running";
- 138 |     if (!isRunning) return "";
- 139 |     const other = active === 1 ? 2 : 1;
- 140 |     
- 141 |     const otherMs = elapsed(other);
- 142 |     if (otherMs <= 0) return "";
- 143 | 
- 144 |     const deltaToLoose = otherMs - elapsed(active); // temps restant avant de rattraper l'autre
- 145 |     if (deltaToLoose <= 0) return "loose";
- 146 |     if (deltaToLoose <= DIFF10) return "warn10";
- 147 |     if (deltaToLoose <= DIFF20) return "warn20";
- 148 |     return "";
- 149 |   })();
- 150 |   // ----------------------------------------------------------------------
- 151 | 
- 152 |   return (
- 153 |     // wrapper extérieur = dimension exacte *après* zoom → pas de scroll
- 154 |     <div
- 155 |       className="pointer-events-none select-none"
- 156 |       style={{
- 157 |         width: Math.round(520 * s),
- 158 |         height: Math.round((120 + (locked ? 0 : 30)) * s),
- 159 |         overflow: "hidden",
- 160 |       }}
- 161 |     >
- 162 |       {/* Drag handle (visible quand unlock) */}
- 163 |       <div className={`drag-handle ${locked ? "" : "visible"}`}>Drag to move</div>
- 164 | 
- 165 |       {/* Coins carrés: pas de rounded ni border */}
- 166 |       {/* Zoom par transform sur le contenu interne */}
- 167 |       <div
- 168 |         style={{
- 169 |           transform: `scale(${s})`,
- 170 |           transformOrigin: "top left",
- 171 |           width: 520,
- 172 |           height: 120,
- 173 |         }}
- 174 |       >
- 175 |         <div className="timer-overlay" id="timerContainer">
- 176 |           {/* Noms + score */}
- 177 |             <div className="name left">
- 178 |               <ScrollingName
- 179 |                 text={players.player1.name || "PLAYER 1"}
- 180 |                 className="player-name scrolling-name--hover"
- 181 |               />
- 182 |             </div>
- 183 | 
- 184 |             <div className="score-value">
- 185 |               {players.player1.score} – {players.player2.score}
- 186 |             </div>
- 187 | 
- 188 |             <div className="name right">
- 189 |               <ScrollingName
- 190 |                 text={players.player2.name || "PLAYER 2"}
- 191 |                 className="player-name scrolling-name--hover"
- 192 |               />
- 193 |             </div>
+ 136 |   const p1Scroll = players.player1.name.length > 16;
+ 137 |   const p2Scroll = players.player2.name.length > 16;
+ 138 | 
+ 139 |   const s = (scale || 100) / 100;
+ 140 | 
+ 141 |   // ---- état d’alerte sur le timer actif (approche/dépassement) ----
+ 142 |   const DIFF20 = 20000; // 20s -> orange
+ 143 |   const DIFF10 = 10000; // 10s -> rouge clair clignotant
+ 144 | 
+ 145 |   const warnClass = (() => {
+ 146 |     const isRunning = status[active] === "running";
+ 147 |     if (!isRunning) return "";
+ 148 |     const other = active === 1 ? 2 : 1;
+ 149 |     
+ 150 |     const otherMs = elapsed(other);
+ 151 |     if (otherMs <= 0) return "";
+ 152 | 
+ 153 |     const deltaToLoose = otherMs - elapsed(active); // temps restant avant de rattraper l'autre
+ 154 |     if (deltaToLoose <= 0) return "loose";
+ 155 |     if (deltaToLoose <= DIFF10) return "warn10";
+ 156 |     if (deltaToLoose <= DIFF20) return "warn20";
+ 157 |     return "";
+ 158 |   })();
+ 159 |   // ----------------------------------------------------------------------
+ 160 | 
+ 161 |   // ===================== AUTO-SCORE =====================
+ 162 |   // On déclenche à la transition running -> paused pour chaque côté,
+ 163 |   // on mémorise les deux durées, puis on attribue +1 au plus long si
+ 164 |   // (a) les deux côtés sont renseignés et (b) max >= seuil.
+ 165 |   const prevStatusRef = React.useRef<{ 1: string; 2: string }>({
+ 166 |     1: "stopped",
+ 167 |     2: "stopped",
+ 168 |   });
+ 169 |   const pairRef = React.useRef<{ 1: number | null; 2: number | null }>({
+ 170 |     1: null,
+ 171 |     2: null,
+ 172 |   });
+ 173 | 
+ 174 |   React.useEffect(() => {
+ 175 |     const prev = prevStatusRef.current;
+ 176 | 
+ 177 |     // 1) détecter fin de run: running -> paused
+ 178 |     ([
+ 179 |       1, 2
+ 180 |     ] as const).forEach((n) => {
+ 181 |       if (prev[n] === "running" && status[n] === "paused") {
+ 182 |         // snapshot au moment de la pause
+ 183 |         pairRef.current[n] = elapsed(n);
+ 184 |       }
+ 185 |       // reset si l'utilisateur stoppe avant d'avoir pairé
+ 186 |       if (status[n] === "stopped") {
+ 187 |         pairRef.current[n] = null;
+ 188 |       }
+ 189 |     });
+ 190 | 
+ 191 |     // 2) si on a les deux valeurs, décider et (éventuellement) scorer
+ 192 |     const a = pairRef.current[1];
+ 193 |     const b = pairRef.current[2];
  194 | 
- 195 |           {/* Timers */}
- 196 |           <div
- 197 |             className={`timer left ${active === 1 ? "active" : ""} ${active === 1 ? warnClass : ""}`}
- 198 |             aria-label={status[1]}
- 199 |           >
- 200 |             <span className="timer-text dbd-digits">
- 201 |               {t1.map((c, i) => (
- 202 |                 <span key={i} className={`timer-char ${c.sep ? "separator" : ""}`}>
- 203 |                   {c.ch}
- 204 |                 </span>
- 205 |               ))}
- 206 |             </span>
- 207 |           </div>
- 208 |           <div
- 209 |             className={`timer right ${active === 2 ? "active" : ""} ${active === 2 ? warnClass : ""}`}
- 210 |             aria-label={status[2]}
- 211 |           >
- 212 |             <span className="timer-text dbd-digits">
- 213 |               {t2.map((c, i) => (
- 214 |                 <span key={i} className={`timer-char ${c.sep ? "separator" : ""}`}>
- 215 |                   {c.ch}
- 216 |                 </span>
- 217 |               ))}
- 218 |             </span>
- 219 |           </div>
- 220 |         </div>
- 221 |       </div>
- 222 |     </div>
- 223 |   );
- 224 | }
+ 195 |     if (a != null && b != null) {
+ 196 |       const maxMs = Math.max(a, b);
+ 197 |       if (autoScoreEnabled && maxMs >= autoScoreThresholdMs) {
+ 198 |         const winner: 1 | 2 = a >= b ? 1 : 2;
+ 199 |         setPlayers((prevPlayers) => {
+ 200 |           const next: TD = {
+ 201 |             player1: {
+ 202 |               ...prevPlayers.player1,
+ 203 |               score: prevPlayers.player1.score + (winner === 1 ? 1 : 0),
+ 204 |             },
+ 205 |             player2: {
+ 206 |               ...prevPlayers.player2,
+ 207 |               score: prevPlayers.player2.score + (winner === 2 ? 1 : 0),
+ 208 |             },
+ 209 |           };
+ 210 |           // persister (et synchroniser le Control Panel)
+ 211 |           window.api.timer.set(next);
+ 212 |           return next;
+ 213 |         });
+ 214 |       }
+ 215 |       // 3) réinitialiser pour la paire suivante
+ 216 |       pairRef.current[1] = null;
+ 217 |       pairRef.current[2] = null;
+ 218 |     }
+ 219 | 
+ 220 |     prevStatusRef.current = { ...status };
+ 221 |   }, [status[1], status[2], autoScoreEnabled, autoScoreThresholdMs, elapsed]);
+ 222 |   // ======================================================
+ 223 | 
+ 224 |   return (
+ 225 |     // wrapper extérieur = dimension exacte *après* zoom → pas de scroll
+ 226 |     <div
+ 227 |       className="pointer-events-none select-none"
+ 228 |       style={{
+ 229 |         width: Math.round(520 * s),
+ 230 |         height: Math.round((120 + (locked ? 0 : 30)) * s),
+ 231 |         overflow: "hidden",
+ 232 |       }}
+ 233 |     >
+ 234 |       {/* Drag handle (visible quand unlock) */}
+ 235 |       <div className={`drag-handle ${locked ? "" : "visible"}`}>Drag to move</div>
+ 236 | 
+ 237 |       {/* Coins carrés: pas de rounded ni border */}
+ 238 |       {/* Zoom par transform sur le contenu interne */}
+ 239 |       <div
+ 240 |         style={{
+ 241 |           transform: `scale(${s})`,
+ 242 |           transformOrigin: "top left",
+ 243 |           width: 520,
+ 244 |           height: 120,
+ 245 |         }}
+ 246 |       >
+ 247 |         <div className="timer-overlay" id="timerContainer">
+ 248 |           {/* Noms + score */}
+ 249 |             <div className="name left">
+ 250 |               <ScrollingName
+ 251 |                 text={players.player1.name || "PLAYER 1"}
+ 252 |                 className="player-name scrolling-name--hover"
+ 253 |               />
+ 254 |             </div>
+ 255 | 
+ 256 |             <div className="score-value">
+ 257 |               {players.player1.score} – {players.player2.score}
+ 258 |             </div>
+ 259 | 
+ 260 |             <div className="name right">
+ 261 |               <ScrollingName
+ 262 |                 text={players.player2.name || "PLAYER 2"}
+ 263 |                 className="player-name scrolling-name--hover"
+ 264 |               />
+ 265 |             </div>
+ 266 | 
+ 267 |           {/* Timers */}
+ 268 |           <div
+ 269 |             className={`timer left ${active === 1 ? "active" : ""} ${active === 1 ? warnClass : ""}`}
+ 270 |             aria-label={status[1]}
+ 271 |           >
+ 272 |             <span className="timer-text dbd-digits">
+ 273 |               {t1.map((c, i) => (
+ 274 |                 <span key={i} className={`timer-char ${c.sep ? "separator" : ""}`}>
+ 275 |                   {c.ch}
+ 276 |                 </span>
+ 277 |               ))}
+ 278 |             </span>
+ 279 |           </div>
+ 280 |           <div
+ 281 |             className={`timer right ${active === 2 ? "active" : ""} ${active === 2 ? warnClass : ""}`}
+ 282 |             aria-label={status[2]}
+ 283 |           >
+ 284 |             <span className="timer-text dbd-digits">
+ 285 |               {t2.map((c, i) => (
+ 286 |                 <span key={i} className={`timer-char ${c.sep ? "separator" : ""}`}>
+ 287 |                   {c.ch}
+ 288 |                 </span>
+ 289 |               ))}
+ 290 |             </span>
+ 291 |           </div>
+ 292 |         </div>
+ 293 |       </div>
+ 294 |     </div>
+ 295 |   );
+ 296 | }
 
 ```
 
@@ -3659,14 +3791,22 @@ dbdoverlaytools-free
   18 |       hotkeys: {
   19 |         get(): Promise<{start:number|null, swap:number|null, startLabel?:string, swapLabel?:string, mode?:'pass-through'|'fallback'}>
   20 |         set(hk: {start?:number|null, swap?:number|null}): Promise<any>
-  21 |         capture(type:'start'|'swap'): Promise<any>
-  22 |         onCaptured(cb: (p:{type:'start'|'swap', keycode?:number|null, label?:string}) => void): void
-  23 |         on(cb: (p: any) => void): void
-  24 |         onMode(cb: (mode:'pass-through'|'fallback') => void): void
-  25 |       }
-  26 |     }
-  27 |   }
-  28 | }
+  21 |         capture(
+  22 |           type:'start'|'swap' | { type:'start'|'swap', source?: 'any'|'desktop'|'gamepad' },
+  23 |           source?: 'any'|'desktop'|'gamepad'
+  24 |           ): Promise<any>
+  25 | 
+  26 |         onCaptured(cb: (p:{type:'start'|'swap', keycode?:number|null, label?:string}) => void): void
+  27 |         on(cb: (p: any) => void): void
+  28 |         onMode(cb: (mode:'pass-through'|'fallback') => void): void
+  29 |       },
+  30 |       gamepad: {
+  31 |         get(): Promise<{ toggle:string[]; swap:string[] }>
+  32 |         clear(action:'toggle'|'swap'): Promise<any>
+  33 |       }
+  34 |     }
+  35 |   }
+  36 | }
 
 ```
 

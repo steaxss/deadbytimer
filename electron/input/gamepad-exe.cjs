@@ -241,9 +241,19 @@ function setupGamepadExe() {
   });
 }
 
+  // 👇 Nouveau : expose un snapshot lisible depuis le renderer
+  function getGamepadMapping() {
+    return {
+      toggle: Array.isArray(mapping.toggle) ? [...mapping.toggle] : [],
+      swap: Array.isArray(mapping.swap) ? [...mapping.swap] : [],
+    };
+
+  }
+
 module.exports = {
   setupGamepadExe,
   onGamepadRaw,
   setGamepadMapping,
-  clearGamepadMapping, // 👈 exporté
+  clearGamepadMapping,
+  getGamepadMapping
 };
