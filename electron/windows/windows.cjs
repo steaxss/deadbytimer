@@ -68,6 +68,8 @@ function sendOverlaySettings(ov, storeRef, isDevFlag) {
       alwaysOnTop: true,
       nameTheme: 'default',
       accentKey: 'default',
+      autoScoreEnabled: true,    // ← NEW
+      autoScoreThresholdSec: 25, // ← NEW
     });
     ov.webContents.send("overlay-settings", s);
   }

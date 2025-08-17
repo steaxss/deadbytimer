@@ -1763,152 +1763,153 @@ dbdoverlaytools-free
  111 | 
  112 |   Menu.setApplicationMenu?.(null);
  113 |   mainWindow.setMenuBarVisibility(false);
- 114 | 
- 115 |   // Bloque Alt menu (évite le flash de barre menu)
- 116 |   mainWindow.webContents.on("before-input-event", (event, input) => {
- 117 |     if (
- 118 |       input.type === "keyDown" &&
- 119 |       (input.key === "Alt" || input.code === "AltLeft" || input.code === "AltRight")
- 120 |     ) {
- 121 |       event.preventDefault();
- 122 |     }
- 123 |   });
- 124 | 
- 125 |   if (!!isDevFlag || isDev) {
- 126 |     mainWindow.loadURL("http://localhost:5173");
- 127 |     mainWindow.webContents.openDevTools({ mode: "detach" });
- 128 |   } else {
- 129 |     mainWindow.loadFile(join(__dirname, "../../dist/index.html"));
- 130 |     // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
- 131 |     mainWindow.webContents.on("before-input-event", (e, input) => {
- 132 |       const combo =
- 133 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
- 134 |       if (combo || input.key === "F12") e.preventDefault();
- 135 |     });
- 136 |   }
- 137 | 
- 138 |   mainWindow.once("ready-to-show", () => mainWindow.show());
- 139 |   mainWindow.on("close", () => {
- 140 |     const b = mainWindow.getBounds();
- 141 |     (storeRef || store).set("windowState", b);
- 142 |   });
- 143 |   mainWindow.on("closed", () => {
- 144 |     mainWindow = null;
- 145 |     if (overlayWindow) overlayWindow.close();
- 146 |   });
- 147 | 
- 148 |   return mainWindow;
- 149 | }
- 150 | 
- 151 | function createOverlayWindow(currentOverlay, currentMain) {
- 152 |   if (currentOverlay && !currentOverlay.isDestroyed()) {
- 153 |     currentOverlay.show();
- 154 |     currentOverlay.focus();
- 155 |     overlayWindow = currentOverlay;
- 156 |     return overlayWindow;
- 157 |   }
- 158 | 
- 159 |   // --- INIT ROBUSTE ---
- 160 |   let s = (store || {}).get?.("overlaySettings") || {};
- 161 |   const pd = screen.getPrimaryDisplay();
- 162 |   const origin = pd.bounds;
- 163 | 
- 164 |   if (!Number.isFinite(s.x)) s.x = origin.x;
- 165 |   if (!Number.isFinite(s.y)) s.y = origin.y;
- 166 |   if (typeof s.scale !== "number") s.scale = 100;
- 167 |   if (typeof s.locked !== "boolean") s.locked = true;
- 168 |   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
- 169 |   store.set("overlaySettings", s);
- 170 |   // --- FIN INIT ROBUSTE
- 171 | 
- 172 |   const dragH = s.locked ? 0 : 30;
- 173 |   const scale = (s.scale || 100) / 100;
- 174 |   const dims = _getBaseDims();
- 175 | 
- 176 |   overlayWindow = new BrowserWindow({
- 177 |     width: Math.ceil(dims.width * scale),
- 178 |     height: Math.ceil((dims.height + dragH) * scale),
- 179 |     x: s.x,
- 180 |     y: s.y,
- 181 |     frame: false,
- 182 |     transparent: true,
- 183 |     resizable: false,
- 184 |     hasShadow: false,
- 185 |     skipTaskbar: false,
- 186 |     focusable: true,
- 187 |     title: "DBD Timer Overlay by Doc & Steaxs",
- 188 |     acceptFirstMouse: true,
- 189 |     backgroundColor: "#00000000",
- 190 |     useContentSize: true,
- 191 |     show: false,
- 192 |     webPreferences: {
- 193 |       nodeIntegration: false,
- 194 |       contextIsolation: true,
- 195 |       preload: join(__dirname, "../preload.cjs"),
- 196 |       backgroundThrottling: false,
- 197 |       devTools: !!isDev,
- 198 |     },
- 199 |   });
- 200 | 
- 201 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
- 202 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
- 203 | 
- 204 |   const url = isDev
- 205 |     ? "http://localhost:5173/overlay.html"
- 206 |     : join(__dirname, "../../dist/overlay.html");
- 207 |   if (isDev) overlayWindow.loadURL(url);
- 208 |   else overlayWindow.loadFile(url);
- 209 | 
- 210 |   enforceExternalLinks(overlayWindow);
- 211 | 
- 212 |   if (!isDev) {
- 213 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
- 214 |       const combo =
- 215 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
- 216 |       if (combo || input.key === "F12") e.preventDefault();
- 217 |     });
- 218 |   }
- 219 | 
- 220 |   overlayWindow.on("closed", () => {
- 221 |     overlayWindow = null;
- 222 |     _onOverlayReadyChange && _onOverlayReadyChange(false);
- 223 |   });
- 224 |   overlayWindow.on("move", () => {
- 225 |     const b = overlayWindow.getBounds();
- 226 |     _onOverlayMove && _onOverlayMove(b.x, b.y);
- 227 |   });
- 228 | 
- 229 |   overlayWindow.webContents.on("did-finish-load", () => {
- 230 |     const data =
- 231 |       store.get("timerData") || {
- 232 |         player1: { name: "Player 1", score: 0 },
- 233 |         player2: { name: "Player 2", score: 0 },
- 234 |       };
- 235 |     overlayWindow.webContents.send("timer-data-sync", data);
- 236 | 
- 237 |     sendOverlaySettings(overlayWindow, store, isDev);
- 238 |     recomputeOverlaySize(overlayWindow, store, _getBaseDims);
- 239 | 
- 240 |     _onOverlayReadyChange && _onOverlayReadyChange(true);
- 241 |     overlayWindow.show();
- 242 |   });
- 243 | 
- 244 |   return overlayWindow;
- 245 | }
- 246 | 
- 247 | module.exports = {
- 248 |   initWindows,
- 249 |   createMainWindow,
- 250 |   createOverlayWindow,
- 251 |   enforceExternalLinks,
- 252 |   applyAlwaysOnTop,
- 253 |   sendOverlaySettings,
- 254 |   recomputeOverlaySize,
- 255 | 
- 256 |   // (utiles si besoin)
- 257 |   getMainWindow: () => mainWindow,
- 258 |   getOverlayWindow: () => overlayWindow,
- 259 | };
+ 114 |   enforceExternalLinks(mainWindow);
+ 115 | 
+ 116 |   // Bloque Alt menu (évite le flash de barre menu)
+ 117 |   mainWindow.webContents.on("before-input-event", (event, input) => {
+ 118 |     if (
+ 119 |       input.type === "keyDown" &&
+ 120 |       (input.key === "Alt" || input.code === "AltLeft" || input.code === "AltRight")
+ 121 |     ) {
+ 122 |       event.preventDefault();
+ 123 |     }
+ 124 |   });
+ 125 | 
+ 126 |   if (!!isDevFlag || isDev) {
+ 127 |     mainWindow.loadURL("http://localhost:5173");
+ 128 |     mainWindow.webContents.openDevTools({ mode: "detach" });
+ 129 |   } else {
+ 130 |     mainWindow.loadFile(join(__dirname, "../../dist/index.html"));
+ 131 |     // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
+ 132 |     mainWindow.webContents.on("before-input-event", (e, input) => {
+ 133 |       const combo =
+ 134 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
+ 135 |       if (combo || input.key === "F12") e.preventDefault();
+ 136 |     });
+ 137 |   }
+ 138 | 
+ 139 |   mainWindow.once("ready-to-show", () => mainWindow.show());
+ 140 |   mainWindow.on("close", () => {
+ 141 |     const b = mainWindow.getBounds();
+ 142 |     (storeRef || store).set("windowState", b);
+ 143 |   });
+ 144 |   mainWindow.on("closed", () => {
+ 145 |     mainWindow = null;
+ 146 |     if (overlayWindow) overlayWindow.close();
+ 147 |   });
+ 148 | 
+ 149 |   return mainWindow;
+ 150 | }
+ 151 | 
+ 152 | function createOverlayWindow(currentOverlay, currentMain) {
+ 153 |   if (currentOverlay && !currentOverlay.isDestroyed()) {
+ 154 |     currentOverlay.show();
+ 155 |     currentOverlay.focus();
+ 156 |     overlayWindow = currentOverlay;
+ 157 |     return overlayWindow;
+ 158 |   }
+ 159 | 
+ 160 |   // --- INIT ROBUSTE ---
+ 161 |   let s = (store || {}).get?.("overlaySettings") || {};
+ 162 |   const pd = screen.getPrimaryDisplay();
+ 163 |   const origin = pd.bounds;
+ 164 | 
+ 165 |   if (!Number.isFinite(s.x)) s.x = origin.x;
+ 166 |   if (!Number.isFinite(s.y)) s.y = origin.y;
+ 167 |   if (typeof s.scale !== "number") s.scale = 100;
+ 168 |   if (typeof s.locked !== "boolean") s.locked = true;
+ 169 |   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
+ 170 |   store.set("overlaySettings", s);
+ 171 |   // --- FIN INIT ROBUSTE
+ 172 | 
+ 173 |   const dragH = s.locked ? 0 : 30;
+ 174 |   const scale = (s.scale || 100) / 100;
+ 175 |   const dims = _getBaseDims();
+ 176 | 
+ 177 |   overlayWindow = new BrowserWindow({
+ 178 |     width: Math.ceil(dims.width * scale),
+ 179 |     height: Math.ceil((dims.height + dragH) * scale),
+ 180 |     x: s.x,
+ 181 |     y: s.y,
+ 182 |     frame: false,
+ 183 |     transparent: true,
+ 184 |     resizable: false,
+ 185 |     hasShadow: false,
+ 186 |     skipTaskbar: false,
+ 187 |     focusable: true,
+ 188 |     title: "DBD Timer Overlay by Doc & Steaxs",
+ 189 |     acceptFirstMouse: true,
+ 190 |     backgroundColor: "#00000000",
+ 191 |     useContentSize: true,
+ 192 |     show: false,
+ 193 |     webPreferences: {
+ 194 |       nodeIntegration: false,
+ 195 |       contextIsolation: true,
+ 196 |       preload: join(__dirname, "../preload.cjs"),
+ 197 |       backgroundThrottling: false,
+ 198 |       devTools: !!isDev,
+ 199 |     },
+ 200 |   });
+ 201 | 
+ 202 |   overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
+ 203 |   applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
+ 204 | 
+ 205 |   const url = isDev
+ 206 |     ? "http://localhost:5173/overlay.html"
+ 207 |     : join(__dirname, "../../dist/overlay.html");
+ 208 |   if (isDev) overlayWindow.loadURL(url);
+ 209 |   else overlayWindow.loadFile(url);
+ 210 | 
+ 211 |   enforceExternalLinks(overlayWindow);
+ 212 | 
+ 213 |   if (!isDev) {
+ 214 |     overlayWindow.webContents.on("before-input-event", (e, input) => {
+ 215 |       const combo =
+ 216 |         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
+ 217 |       if (combo || input.key === "F12") e.preventDefault();
+ 218 |     });
+ 219 |   }
+ 220 | 
+ 221 |   overlayWindow.on("closed", () => {
+ 222 |     overlayWindow = null;
+ 223 |     _onOverlayReadyChange && _onOverlayReadyChange(false);
+ 224 |   });
+ 225 |   overlayWindow.on("move", () => {
+ 226 |     const b = overlayWindow.getBounds();
+ 227 |     _onOverlayMove && _onOverlayMove(b.x, b.y);
+ 228 |   });
+ 229 | 
+ 230 |   overlayWindow.webContents.on("did-finish-load", () => {
+ 231 |     const data =
+ 232 |       store.get("timerData") || {
+ 233 |         player1: { name: "Player 1", score: 0 },
+ 234 |         player2: { name: "Player 2", score: 0 },
+ 235 |       };
+ 236 |     overlayWindow.webContents.send("timer-data-sync", data);
+ 237 | 
+ 238 |     sendOverlaySettings(overlayWindow, store, isDev);
+ 239 |     recomputeOverlaySize(overlayWindow, store, _getBaseDims);
+ 240 | 
+ 241 |     _onOverlayReadyChange && _onOverlayReadyChange(true);
+ 242 |     overlayWindow.show();
+ 243 |   });
+ 244 | 
+ 245 |   return overlayWindow;
+ 246 | }
+ 247 | 
+ 248 | module.exports = {
+ 249 |   initWindows,
+ 250 |   createMainWindow,
+ 251 |   createOverlayWindow,
+ 252 |   enforceExternalLinks,
+ 253 |   applyAlwaysOnTop,
+ 254 |   sendOverlaySettings,
+ 255 |   recomputeOverlaySize,
+ 256 | 
+ 257 |   // (utiles si besoin)
+ 258 |   getMainWindow: () => mainWindow,
+ 259 |   getOverlayWindow: () => overlayWindow,
+ 260 | };
 
 ```
 
@@ -2235,41 +2236,42 @@ dbdoverlaytools-free
   63 |       "allowToChangeInstallationDirectory": true,
   64 |       "createDesktopShortcut": "always",
   65 |       "createStartMenuShortcut": true,
-  66 |       "shortcutName": "DBD Timer Overlay"
-  67 |     },
-  68 |     "files": [
-  69 |       "dist/**",
-  70 |       "electron/**",
-  71 |       "package.json",
-  72 |       "!**/*.map",
-  73 |       "!**/*.ts",
-  74 |       "!src/**"
-  75 |     ],
-  76 |     "asar": true,
-  77 |     "asarUnpack": [
-  78 |       "**/node_modules/uiohook-napi/**"
-  79 |     ],
-  80 |     "compression": "maximum",
-  81 |     "win": {
-  82 |       "icon": "build/icon.ico",
-  83 |       "target": [
-  84 |         {
-  85 |           "target": "nsis",
-  86 |           "arch": [
-  87 |             "x64"
-  88 |           ]
-  89 |         },
-  90 |         {
-  91 |           "target": "portable",
-  92 |           "arch": [
-  93 |             "x64"
-  94 |           ]
-  95 |         }
-  96 |       ],
-  97 |       "artifactName": "DBD-Timer-Free-${version}-Setup.exe"
-  98 |     }
-  99 |   }
- 100 | }
+  66 |       "deleteAppDataOnUninstall": true,
+  67 |       "shortcutName": "DBD 1V1 Timer Overlay"
+  68 |     },
+  69 |     "files": [
+  70 |       "dist/**",
+  71 |       "electron/**",
+  72 |       "package.json",
+  73 |       "!**/*.map",
+  74 |       "!**/*.ts",
+  75 |       "!src/**"
+  76 |     ],
+  77 |     "asar": true,
+  78 |     "asarUnpack": [
+  79 |       "**/node_modules/uiohook-napi/**"
+  80 |     ],
+  81 |     "compression": "maximum",
+  82 |     "win": {
+  83 |       "icon": "build/icon.ico",
+  84 |       "target": [
+  85 |         {
+  86 |           "target": "nsis",
+  87 |           "arch": [
+  88 |             "x64"
+  89 |           ]
+  90 |         },
+  91 |         {
+  92 |           "target": "portable",
+  93 |           "arch": [
+  94 |             "x64"
+  95 |           ]
+  96 |         }
+  97 |       ],
+  98 |       "artifactName": "DBD-Timer-Free-${version}-Setup.exe"
+  99 |     }
+ 100 |   }
+ 101 | }
 
 ```
 
@@ -2769,7 +2771,7 @@ dbdoverlaytools-free
  479 |             <a
  480 |               href="http://discord.com/invite/aVdT8rRJKc"
  481 |               target="_blank"
- 482 |               rel="noreferrer"
+ 482 |               rel="noopener noreferrer"
  483 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
  484 |             >
  485 |               Join the Discord
@@ -2802,7 +2804,7 @@ dbdoverlaytools-free
  512 |             <a
  513 |               href="https://discord.com/invite/6RHPNNVtKw"
  514 |               target="_blank"
- 515 |               rel="noreferrer"
+ 515 |               rel="noopener noreferrer"
  516 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
  517 |             >
  518 |               Get the Presets
