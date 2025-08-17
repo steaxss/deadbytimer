@@ -67,10 +67,6 @@
   position: relative;
 }
 
-.name.right .scrolling-name {
-  justify-content: flex-end;
-}
-
 /* texte réel à déplacer */
 .scrolling-name__inner{
   display: inline-block;

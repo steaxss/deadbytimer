@@ -17,9 +17,14 @@ contextBridge.exposeInMainWorld('api', {
   hotkeys: {
     get: () => ipcRenderer.invoke('hotkeys-get'),
     set: (hk) => ipcRenderer.invoke('hotkeys-set', hk),
-    capture: (type) => ipcRenderer.invoke('hotkeys-capture', type),
+    capture: (arg1, arg2) => ipcRenderer.invoke('hotkeys-capture', arg1, arg2),
+    cancel: () => ipcRenderer.invoke('hotkeys-capture-cancel'),
     onCaptured: (cb) => ipcRenderer.on('hotkeys-captured', (_, p) => cb(p)),
     on: (cb) => ipcRenderer.on('global-hotkey', (_, payload) => cb(payload)),
     onMode: (cb) => ipcRenderer.on('hotkeys-mode', (_, mode) => cb(mode))
+  },
+  gamepad: {
+    get: () => ipcRenderer.invoke('gamepad-mapping-get'),
+    clear: (action) => ipcRenderer.invoke('gamepad-mapping-clear', action),
   }
 });
