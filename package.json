@@ -1,10 +1,10 @@
 {
-  "name": "dbdoverlaytools-free",
+  "name": "dbdtimer-steaxs",
   "version": "2.0.0",
   "private": true,
-  "description": "DBD 1v1 Timer Overlay (Free)",
+  "description": "DBD 1v1 Timer Overlay by Steaxs (Free)",
   "main": "electron/main.mjs",
-  "author": "",
+  "author": "Steaxs",
   "license": "MIT",
   "type": "commonjs",
   "scripts": {
@@ -64,8 +64,7 @@
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": true,
-      "shortcutName": "DBD 1V1 Timer Overlay",
-      "include": "build/installer.nsh"
+      "shortcutName": "DBD 1V1 Timer Overlay"
     },
     "files": [
       "dist/**",
