@@ -151,7 +151,7 @@ function finalizeCapture(reason = "done") {
     }
     if (label || typeof code === "number") {
       enforceDesktopExclusivityAfter(label, code, type);
-      // si on n’a reçu qu’un label clavier (pas de code), on retire tout ancien code stale
+      // si on n’a reçu qu’un label clavier (pas de code), retirer tout ancien code stale
       if (label && isKeyboardLabel(label) && typeof code !== "number") {
         const hk = { ...getHotkeys() };
         if (hk[type] != null) { hk[type] = null; setHotkeys(hk); logHK && logHK("Cleared stale KEYCODE (keyboard label only)", type); }
@@ -168,7 +168,7 @@ function finalizeCapture(reason = "done") {
     mw.webContents.send("hotkeys-captured", payload);
   }
 
-  // Alerte VC++ (desktop uniquement, car gamepad n’est pas concerné)
+  // Alerte VC++ (desktop uniquement)
   if (source !== "gamepad" && !getUsingUiohook() && label && isAlphaNumLabel(label) && !hasVCRedist()) {
     dialog.showMessageBox({
       type: "info",
@@ -272,6 +272,14 @@ function setupCaptureIPC() {
       finalizeCapture("gamepad");
     });
 
+    return true;
+  });
+
+  // ✅ Annulation explicite (clic utilisateur)
+  ipcMain.handle("hotkeys-capture-cancel", () => {
+    if (!captureState) return true;
+    logHK && logHK("CAPTURE CANCELLED BY USER");
+    finalizeCapture("cancel-by-user");
     return true;
   });
 }

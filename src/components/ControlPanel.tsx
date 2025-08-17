@@ -118,6 +118,13 @@ const ControlPanel: React.FC = () => {
     window.api.overlay.updateSettings({ alwaysOnTop: true });
   }, []);
 
+  // Cancel capture overlay (mouse left click)
+  const handleCancelCapture = async () => {
+    try { await window.api.hotkeys.cancel(); } catch {}
+    setCapturing(null);
+    setCapturingGp(null);
+  };
+
   // Helpers
   const savePlayers = (next: typeof players) => {
     setPlayers(next);
@@ -568,6 +575,21 @@ const ControlPanel: React.FC = () => {
           </div>
         </footer>
       </div>
+      {/* 🧊 Overlay de cancel capture (clic gauche) */}
+      {(capturing || capturingGp) && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/20"
+          role="button"
+          aria-label="Cancel capture"
+          onClick={handleCancelCapture}
+        >
+          <div className="pointer-events-none absolute inset-0 flex items-start justify-center">
+            <div className="mt-6 rounded-md bg-zinc-900/70 px-2 py-1 text-xs text-zinc-200">
+              Click anywhere to cancel
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

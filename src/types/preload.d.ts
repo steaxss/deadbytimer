@@ -22,7 +22,7 @@ declare global {
           type:'start'|'swap' | { type:'start'|'swap', source?: 'any'|'desktop'|'gamepad' },
           source?: 'any'|'desktop'|'gamepad'
           ): Promise<any>
-
+        cancel(): Promise<any>;
         onCaptured(cb: (p: { type:"start"|"swap"; keycode?:number|null; label?:string; source?: "desktop" | "gamepad" }) => void): void
         on(cb: (p: any) => void): void
         onMode(cb: (mode:'pass-through'|'fallback') => void): void
