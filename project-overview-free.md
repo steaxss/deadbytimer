@@ -241,419 +241,313 @@ dbdoverlaytools-free
   25 |   dispatchHotkey,
   26 |   onGamepadRaw,
   27 |   setGamepadMapping,
-  28 |   clearGamepadMapping; // conservé pour compat, non utilisé pour “double bind” (gamepad coexiste)
+  28 |   clearGamepadMapping; // conservé pour compat
   29 | 
   30 | let captureState = null; // { type: 'start'|'swap', source: 'any'|'desktop'|'gamepad', label, code, primaryTimer, secondaryTimer }
-  31 | let captureWaitUntil = 0; // block timers dispatch during capture
+  31 | let captureWaitUntil = 0;
   32 | let offGamepadRaw = null;
   33 | 
-  34 | // -------------------- Init --------------------
-  35 | function initCapture(ctx) {
-  36 |   ({
-  37 |     ipcMain,
-  38 |     store,
-  39 |     globalShortcut,
-  40 |     dialog,
-  41 |     shell,
-  42 |     VC_REDIST_X64_URL,
-  43 |     hasVCRedist,
-  44 |     logHK,
-  45 |     getMainWindow,
-  46 |     getOverlayWindow,
-  47 |     getUsingUiohook,
-  48 |     setUsingUiohook,
-  49 |     getHotkeys,
-  50 |     setHotkeys,
-  51 |     getHotkeysLabel,
-  52 |     setHotkeysLabel,
-  53 |     getMouseBinds,
-  54 |     setMouseBinds,
-  55 |     makeLabelFromBeforeInput,
-  56 |     isAlphaNumLabel,
-  57 |     sendHotkeysMode,
-  58 |     dispatchHotkey,
-  59 |     onGamepadRaw,
-  60 |     setGamepadMapping,
-  61 |     clearGamepadMapping,
-  62 |   } = ctx);
-  63 | }
-  64 | 
-  65 | // -------------------- Helpers label --------------------
-  66 | function isMouseLabel(label) {
-  67 |   return typeof label === "string" && /^(MOUSE\d+|WHEEL_(UP|DOWN))$/i.test(label);
-  68 | }
-  69 | function isKeyboardLabel(label) {
-  70 |   if (typeof label !== "string") return false;
-  71 |   if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(label)) return true;
-  72 |   if (/^[A-Z0-9]$/.test(label)) return true;
-  73 |   return /^(ESC|TAB|ENTER|BACKSPACE|SHIFT|CTRL|ALT|SPACE|UP|DOWN|LEFT|RIGHT)$/i.test(label);
-  74 | }
-  75 | function isGamepadLabel(label) {
-  76 |   // tout ce qui n'est ni clavier ni souris est considéré manette (ex: "BTN A", "DPAD UP"…)
-  77 |   return typeof label === "string" && !isKeyboardLabel(label) && !isMouseLabel(label);
-  78 | }
-  79 | 
-  80 | function isCapturing() {
-  81 |   return !!captureState;
-  82 | }
-  83 | function getCaptureBlockUntil() {
-  84 |   return captureWaitUntil;
-  85 | }
-  86 | 
-  87 | // -------------------- Hooks appelés par uIOhook pendant capture --------------------
-  88 | function onKeyboardCode(code) {
-  89 |   if (!captureState) return;
-  90 |   if (captureState.source === "gamepad") return; // si on veut capturer manette, ignorer clavier
-  91 |   captureState.code = code;
-  92 |   if (captureState.label) finalizeCapture("have both");
-  93 |   else {
-  94 |     if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
-  95 |     captureState.secondaryTimer = setTimeout(() => finalizeCapture("after-code-wait"), 600);
-  96 |   }
-  97 | }
-  98 | 
-  99 | function onMouseLabel(label) {
- 100 |   if (!captureState) return;
- 101 |   if (captureState.source === "gamepad") return; // si capture manette, ignorer souris
- 102 |   const { type } = captureState;
- 103 |   captureState.label = label;
- 104 | 
- 105 |   const labels = { ...getHotkeysLabel(), [type]: label };
- 106 |   setHotkeysLabel(labels);
- 107 | 
- 108 |   const binds = { ...getMouseBinds(), [type]: label };
- 109 |   setMouseBinds(binds);
- 110 | 
- 111 |   const mw = getMainWindow();
- 112 |   mw?.webContents.send("hotkeys-captured", { type, label });
- 113 | 
- 114 |   finalizeCapture("mouse");
- 115 | }
- 116 | 
- 117 | // -------------------- helpers capture --------------------
- 118 | function clearCaptureTimers() {
- 119 |   if (!captureState) return;
- 120 |   if (captureState.primaryTimer) {
- 121 |     clearTimeout(captureState.primaryTimer);
- 122 |     captureState.primaryTimer = null;
- 123 |   }
- 124 |   if (captureState.secondaryTimer) {
- 125 |     clearTimeout(captureState.secondaryTimer);
- 126 |     captureState.secondaryTimer = null;
- 127 |   }
- 128 | }
- 129 | 
- 130 | // règle d’exclusivité voulue :
- 131 | // - “desktop” = clavier OU souris (jamais les deux pour une même action)
- 132 | // - manette coexiste toujours avec “desktop”.
- 133 | function enforceDesktopExclusivityAfter(label, code, type) {
- 134 |   const isKb = isKeyboardLabel(label) || typeof code === "number";
- 135 |   const isMs = isMouseLabel(label);
- 136 | 
- 137 |   if (isKb) {
- 138 |     // on garde clavier (et éventuel code), on supprime la souris pour cette action
- 139 |     const mb = { ...getMouseBinds() };
- 140 |     if (mb[type]) {
- 141 |       mb[type] = null;
- 142 |       setMouseBinds(mb);
- 143 |       logHK && logHK("Desktop exclusivity: cleared MOUSE for", type);
- 144 |     }
- 145 |   } else if (isMs) {
- 146 |     // on garde souris, on efface le code clavier pour cette action
- 147 |     const hk = { ...getHotkeys() };
- 148 |     if (hk[type] != null) {
- 149 |       hk[type] = null;
- 150 |       setHotkeys(hk);
- 151 |       logHK && logHK("Desktop exclusivity: cleared KEYCODE for", type);
- 152 |     }
- 153 |   }
- 154 |   // manette: ne rien effacer (elle coexiste)
- 155 | }
- 156 | 
- 157 | function finalizeCapture(reason = "done") {
- 158 |   if (!captureState) return;
- 159 | 
- 160 |   // unbind manette raw
- 161 |   if (offGamepadRaw) {
- 162 |     try { offGamepadRaw(); } catch {}
- 163 |     offGamepadRaw = null;
- 164 |   }
- 165 | 
- 166 |   const { type, label, code } = captureState;
- 167 |   clearCaptureTimers();
- 168 | 
- 169 |   logHK && logHK("CAPTURE FINALIZE", { reason, type, label, code });
+  34 | function initCapture(ctx) {
+  35 |   ({
+  36 |     ipcMain,
+  37 |     store,
+  38 |     globalShortcut,
+  39 |     dialog,
+  40 |     shell,
+  41 |     VC_REDIST_X64_URL,
+  42 |     hasVCRedist,
+  43 |     logHK,
+  44 |     getMainWindow,
+  45 |     getOverlayWindow,
+  46 |     getUsingUiohook,
+  47 |     setUsingUiohook,
+  48 |     getHotkeys,
+  49 |     setHotkeys,
+  50 |     getHotkeysLabel,
+  51 |     setHotkeysLabel,
+  52 |     getMouseBinds,
+  53 |     setMouseBinds,
+  54 |     makeLabelFromBeforeInput,
+  55 |     isAlphaNumLabel,
+  56 |     sendHotkeysMode,
+  57 |     dispatchHotkey,
+  58 |     onGamepadRaw,
+  59 |     setGamepadMapping,
+  60 |     clearGamepadMapping,
+  61 |   } = ctx);
+  62 | }
+  63 | 
+  64 | // Helpers label
+  65 | function isMouseLabel(label) {
+  66 |   return typeof label === "string" && /^(MOUSE\d+|WHEEL_(UP|DOWN))$/i.test(label);
+  67 | }
+  68 | function isKeyboardLabel(label) {
+  69 |   if (typeof label !== "string") return false;
+  70 |   if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(label)) return true;
+  71 |   if (/^[A-Z0-9]$/.test(label)) return true;
+  72 |   return /^(ESC|TAB|ENTER|BACKSPACE|SHIFT|CTRL|ALT|SPACE|UP|DOWN|LEFT|RIGHT)$/i.test(label);
+  73 | }
+  74 | function isGamepadLabel(label) {
+  75 |   return typeof label === "string" && !isKeyboardLabel(label) && !isMouseLabel(label);
+  76 | }
+  77 | 
+  78 | function isCapturing() { return !!captureState; }
+  79 | function getCaptureBlockUntil() { return captureWaitUntil; }
+  80 | 
+  81 | // Hooks appelés par uIOhook pendant capture
+  82 | function onKeyboardCode(code) {
+  83 |   if (!captureState) return;
+  84 |   if (captureState.source === "gamepad") return; // capture manette: ignorer clavier
+  85 |   captureState.code = code;
+  86 |   if (captureState.label) finalizeCapture("have both");
+  87 |   else {
+  88 |     if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
+  89 |     captureState.secondaryTimer = setTimeout(() => finalizeCapture("after-code-wait"), 600);
+  90 |   }
+  91 | }
+  92 | 
+  93 | function onMouseLabel(label) {
+  94 |   if (!captureState) return;
+  95 |   if (captureState.source === "gamepad") return; // capture manette: ignorer souris
+  96 | 
+  97 |   const { type } = captureState;
+  98 |   captureState.label = label;
+  99 | 
+ 100 |   // Desktop = maj labels + binds souris
+ 101 |   const labels = { ...getHotkeysLabel(), [type]: label };
+ 102 |   setHotkeysLabel(labels);
+ 103 |   const binds = { ...getMouseBinds(), [type]: label };
+ 104 |   setMouseBinds(binds);
+ 105 | 
+ 106 |   const mw = getMainWindow();
+ 107 |   mw?.webContents.send("hotkeys-captured", { type, label, source: "desktop" });
+ 108 | 
+ 109 |   finalizeCapture("mouse");
+ 110 | }
+ 111 | 
+ 112 | // helpers capture
+ 113 | function clearCaptureTimers() {
+ 114 |   if (!captureState) return;
+ 115 |   if (captureState.primaryTimer) { clearTimeout(captureState.primaryTimer); captureState.primaryTimer = null; }
+ 116 |   if (captureState.secondaryTimer) { clearTimeout(captureState.secondaryTimer); captureState.secondaryTimer = null; }
+ 117 | }
+ 118 | 
+ 119 | // Exclusivité “desktop” : clavier OU souris (manette coexiste)
+ 120 | function enforceDesktopExclusivityAfter(label, code, type) {
+ 121 |   const isKb = isKeyboardLabel(label) || typeof code === "number";
+ 122 |   const isMs = isMouseLabel(label);
+ 123 | 
+ 124 |   if (isKb) {
+ 125 |     const mb = { ...getMouseBinds() };
+ 126 |     if (mb[type]) { mb[type] = null; setMouseBinds(mb); logHK && logHK("Desktop exclusivity: cleared MOUSE for", type); }
+ 127 |   } else if (isMs) {
+ 128 |     const hk = { ...getHotkeys() };
+ 129 |     if (hk[type] != null) { hk[type] = null; setHotkeys(hk); logHK && logHK("Desktop exclusivity: cleared KEYCODE for", type); }
+ 130 |   }
+ 131 | }
+ 132 | 
+ 133 | function finalizeCapture(reason = "done") {
+ 134 |   if (!captureState) return;
+ 135 | 
+ 136 |   if (offGamepadRaw) { try { offGamepadRaw(); } catch {} offGamepadRaw = null; }
+ 137 | 
+ 138 |   const { type, source, label, code } = captureState;
+ 139 |   clearCaptureTimers();
+ 140 |   logHK && logHK("CAPTURE FINALIZE", { reason, type, source, label, code });
+ 141 | 
+ 142 |   // Persistance : seulement pour “desktop” on écrit dans hotkeys/hotkeysLabel
+ 143 |   if (source !== "gamepad") {
+ 144 |     if (label) {
+ 145 |       const labels = { ...getHotkeysLabel(), [type]: label };
+ 146 |       setHotkeysLabel(labels);
+ 147 |     }
+ 148 |     if (typeof code === "number") {
+ 149 |       const codes = { ...getHotkeys(), [type]: code };
+ 150 |       setHotkeys(codes);
+ 151 |     }
+ 152 |     if (label || typeof code === "number") {
+ 153 |       enforceDesktopExclusivityAfter(label, code, type);
+ 154 |       // si on n’a reçu qu’un label clavier (pas de code), on retire tout ancien code stale
+ 155 |       if (label && isKeyboardLabel(label) && typeof code !== "number") {
+ 156 |         const hk = { ...getHotkeys() };
+ 157 |         if (hk[type] != null) { hk[type] = null; setHotkeys(hk); logHK && logHK("Cleared stale KEYCODE (keyboard label only)", type); }
+ 158 |       }
+ 159 |     }
+ 160 |   }
+ 161 | 
+ 162 |   // Notifier panel (avec source)
+ 163 |   const mw = getMainWindow();
+ 164 |   if (mw && !mw.isDestroyed() && (label || typeof code === "number")) {
+ 165 |     const payload = { type, source: source === "gamepad" ? "gamepad" : "desktop" };
+ 166 |     if (label) payload.label = label;
+ 167 |     if (typeof code === "number") payload.keycode = code;
+ 168 |     mw.webContents.send("hotkeys-captured", payload);
+ 169 |   }
  170 | 
- 171 |   // Persistance si on a reçu des infos
- 172 |   if (label) {
- 173 |     const labels = { ...getHotkeysLabel(), [type]: label };
- 174 |     setHotkeysLabel(labels);
- 175 |   }
- 176 |   if (typeof code === "number") {
- 177 |     const codes = { ...getHotkeys(), [type]: code };
- 178 |     setHotkeys(codes);
- 179 |   }
- 180 | 
- 181 |   // ⚖️ Exclusivité “desktop” (clavier OU souris), manette à part
- 182 |   if (label || typeof code === "number") {
- 183 |     enforceDesktopExclusivityAfter(label, code, type);
- 184 | 
- 185 |     // cas précis: on a capturé un label clavier mais PAS de code → effacer tout ancien code pour éviter l’ancien “F” qui continue de marcher
- 186 |     if (label && isKeyboardLabel(label) && typeof code !== "number") {
- 187 |       const hk = { ...getHotkeys() };
- 188 |       if (hk[type] != null) {
- 189 |         hk[type] = null;
- 190 |         setHotkeys(hk);
- 191 |         logHK && logHK("Cleared stale KEYCODE because only keyboard label was captured", type);
- 192 |       }
- 193 |     }
- 194 |   }
+ 171 |   // Alerte VC++ (desktop uniquement, car gamepad n’est pas concerné)
+ 172 |   if (source !== "gamepad" && !getUsingUiohook() && label && isAlphaNumLabel(label) && !hasVCRedist()) {
+ 173 |     dialog.showMessageBox({
+ 174 |       type: "info",
+ 175 |       title: "Pass-Through unavailable",
+ 176 |       message: "A–Z / 0–9 hotkeys can’t be used in Limited Mode (without uIOhook) without stealing them from other apps.",
+ 177 |       detail: "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”, restart the app, then recapture your hotkeys.",
+ 178 |       buttons: ["Install runtime (x64)", "OK"],
+ 179 |       defaultId: 0, cancelId: 1, noLink: true,
+ 180 |     }).then(({ response }) => { if (response === 0) shell.openExternal(VC_REDIST_X64_URL); });
+ 181 |   }
+ 182 | 
+ 183 |   // Pass-through si 2 codes capturés (desktop)
+ 184 |   const codes = getHotkeys();
+ 185 |   const haveBoth = Number.isFinite(codes.start) && Number.isFinite(codes.swap);
+ 186 |   if (haveBoth && getUsingUiohook() === false) {
+ 187 |     setUsingUiohook(true);
+ 188 |     try { globalShortcut.unregisterAll(); } catch {}
+ 189 |     sendHotkeysMode("pass-through");
+ 190 |   }
+ 191 | 
+ 192 |   // Reset
+ 193 |   captureState = null;
+ 194 |   captureWaitUntil = 0;
  195 | 
- 196 |   // Notifier le panel si on a label ou code
- 197 |   const mw = getMainWindow();
- 198 |   if (mw && !mw.isDestroyed() && (label || typeof code === "number")) {
- 199 |     const payload = { type };
- 200 |     if (label) payload.label = label;
- 201 |     if (typeof code === "number") payload.keycode = code;
- 202 |     mw.webContents.send("hotkeys-captured", payload);
- 203 |   }
- 204 | 
- 205 |   // Alerte VC++ si besoin
- 206 |   if (!getUsingUiohook() && label && isAlphaNumLabel(label) && !hasVCRedist()) {
- 207 |     dialog
- 208 |       .showMessageBox({
- 209 |         type: "info",
- 210 |         title: "Pass-Through unavailable",
- 211 |         message:
- 212 |           "A–Z / 0–9 hotkeys can’t be used in Limited Mode (without uIOhook) without stealing them from other apps.",
- 213 |         detail:
- 214 |           "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”, restart the app, then recapture your hotkeys.",
- 215 |         buttons: ["Install runtime (x64)", "OK"],
- 216 |         defaultId: 0,
- 217 |         cancelId: 1,
- 218 |         noLink: true,
- 219 |       })
- 220 |       .then(({ response }) => {
- 221 |         if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
- 222 |       });
- 223 |   }
- 224 | 
- 225 |   // Pass-through si on a les 2 codes
- 226 |   const codes = getHotkeys();
- 227 |   const haveBoth = Number.isFinite(codes.start) && Number.isFinite(codes.swap);
- 228 |   if (haveBoth && getUsingUiohook() === false) {
- 229 |     setUsingUiohook(true);
- 230 |     try { globalShortcut.unregisterAll(); } catch {}
- 231 |     sendHotkeysMode("pass-through");
- 232 |   }
- 233 | 
- 234 |   // Reset capture
- 235 |   captureState = null;
- 236 |   captureWaitUntil = 0;
- 237 | 
- 238 |   // Réarmer fallback si nécessaire
- 239 |   if (!getUsingUiohook()) {
- 240 |     refreshHotkeyEngine({
- 241 |       globalShortcut,
- 242 |       hotkeysLabel: getHotkeysLabel(),
- 243 |       isAlphaNumLabel,
- 244 |       logHK,
- 245 |       getCaptureBlockUntil,
- 246 |       dispatchHotkey,
- 247 |     });
- 248 |   }
- 249 | }
- 250 | 
- 251 | // -------------------- IPC capture --------------------
- 252 | function parseCaptureArgs(arg1, arg2) {
- 253 |   // compat: hotkeys.capture('start') OU hotkeys.capture('start','gamepad') OU hotkeys.capture({type:'start', source:'gamepad'})
- 254 |   if (typeof arg1 === "object" && arg1) {
- 255 |     return { type: arg1.type, source: arg1.source || "any" };
- 256 |   }
- 257 |   return { type: arg1, source: arg2 || "any" };
- 258 | }
- 259 | 
- 260 | function setupCaptureIPC() {
- 261 |   ipcMain.handle("hotkeys-capture", (_evt, arg1, arg2) => {
- 262 |     const { type, source } = parseCaptureArgs(arg1, arg2);
- 263 |     if (!(type === "start" || type === "swap")) {
- 264 |       finalizeCapture("cancel");
- 265 |       return true;
- 266 |     }
+ 196 |   // Réarmer fallback si nécessaire
+ 197 |   if (!getUsingUiohook()) {
+ 198 |     refreshHotkeyEngine({
+ 199 |       globalShortcut,
+ 200 |       hotkeysLabel: getHotkeysLabel(),
+ 201 |       isAlphaNumLabel,
+ 202 |       logHK,
+ 203 |       getCaptureBlockUntil,
+ 204 |       dispatchHotkey,
+ 205 |     });
+ 206 |   }
+ 207 | }
+ 208 | 
+ 209 | function parseCaptureArgs(arg1, arg2) {
+ 210 |   if (typeof arg1 === "object" && arg1) return { type: arg1.type, source: arg1.source || "any" };
+ 211 |   return { type: arg1, source: arg2 || "any" };
+ 212 | }
+ 213 | 
+ 214 | function setupCaptureIPC() {
+ 215 |   ipcMain.handle("hotkeys-capture", (_evt, arg1, arg2) => {
+ 216 |     const { type, source } = parseCaptureArgs(arg1, arg2);
+ 217 |     if (!(type === "start" || type === "swap")) { finalizeCapture("cancel"); return true; }
+ 218 | 
+ 219 |     logHK && logHK("CAPTURE BEGIN", { type, source, mode: getUsingUiohook() ? "pass-through" : "fallback" });
+ 220 | 
+ 221 |     captureWaitUntil = Date.now() + 15000;
+ 222 |     if (captureState) { clearCaptureTimers(); captureState = null; }
+ 223 | 
+ 224 |     captureState = {
+ 225 |       type,
+ 226 |       source: source || "any",
+ 227 |       label: null,
+ 228 |       code: null,
+ 229 |       primaryTimer: setTimeout(() => { logHK && logHK("CAPTURE PRIMARY TIMEOUT — cancel"); finalizeCapture("primary-timeout"); }, 15000),
+ 230 |       secondaryTimer: null,
+ 231 |     };
+ 232 | 
+ 233 |     try { const mw = getMainWindow(); mw?.focus(); } catch {}
+ 234 | 
+ 235 |     if (!getUsingUiohook()) { try { globalShortcut.unregisterAll(); } catch {} }
+ 236 | 
+ 237 |     const mw = getMainWindow();
+ 238 |     const once = (event, input) => {
+ 239 |       if (!captureState) return;
+ 240 |       if (captureState.source === "gamepad") return; // capture gamepad: ignorer clavier
+ 241 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
+ 242 | 
+ 243 |       const label = makeLabelFromBeforeInput(input);
+ 244 | 
+ 245 |       captureState.label = label;
+ 246 |       const labels = { ...getHotkeysLabel(), [type]: label };
+ 247 |       setHotkeysLabel(labels);
+ 248 | 
+ 249 |       mw?.webContents.send("hotkeys-captured", { type, label, source: "desktop" });
+ 250 |       logHK && logHK("label captured (instant)", { type, label });
+ 251 | 
+ 252 |       if (typeof captureState.code === "number") finalizeCapture("have both");
+ 253 |       else {
+ 254 |         if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
+ 255 |         captureState.secondaryTimer = setTimeout(() => finalizeCapture("after-label-wait"), 500);
+ 256 |       }
+ 257 | 
+ 258 |       mw?.webContents.removeListener("before-input-event", once);
+ 259 |     };
+ 260 |     mw?.webContents.on("before-input-event", once);
+ 261 | 
+ 262 |     // RAW manette → uniquement mapping + event source: 'gamepad'
+ 263 |     offGamepadRaw = onGamepadRaw((evLabel) => {
+ 264 |       if (!captureState) return;
+ 265 |       if (captureState.source === "desktop") return; // capture desktop: ignorer manette
+ 266 |       const { type } = captureState;
  267 | 
- 268 |     logHK && logHK("CAPTURE BEGIN", {
- 269 |       type,
- 270 |       source, // 'any' | 'desktop' | 'gamepad'
- 271 |       mode: getUsingUiohook() ? "pass-through" : "fallback",
- 272 |     });
- 273 | 
- 274 |     // Bloquer le dispatch vers les timers pendant la capture
- 275 |     captureWaitUntil = Date.now() + 15000;
- 276 | 
- 277 |     // Reset/annule capture précédente si elle existe
- 278 |     if (captureState) {
- 279 |       clearCaptureTimers();
- 280 |       captureState = null;
- 281 |     }
- 282 | 
- 283 |     // État de capture
- 284 |     captureState = {
- 285 |       type,
- 286 |       source: source || "any",
- 287 |       label: null,
- 288 |       code: null,
- 289 |       primaryTimer: setTimeout(() => {
- 290 |         logHK && logHK("CAPTURE PRIMARY TIMEOUT — cancel");
- 291 |         finalizeCapture("primary-timeout");
- 292 |       }, 15000),
- 293 |       secondaryTimer: null,
- 294 |     };
+ 268 |       captureState.label = evLabel; // pour la fin de capture; on NE stockera pas dans hotkeysLabel
+ 269 |       mw?.webContents.send("hotkeys-captured", { type, label: evLabel, source: "gamepad" });
+ 270 | 
+ 271 |       setGamepadMapping(type, evLabel, { append: false }); // remplace
+ 272 |       finalizeCapture("gamepad");
+ 273 |     });
+ 274 | 
+ 275 |     return true;
+ 276 |   });
+ 277 | }
+ 278 | 
+ 279 | /* -------------------- Fallback engine (globalShortcut) -------------------- */
+ 280 | function refreshHotkeyEngine({
+ 281 |   globalShortcut,
+ 282 |   hotkeysLabel,
+ 283 |   isAlphaNumLabel,
+ 284 |   logHK,
+ 285 |   getCaptureBlockUntil,
+ 286 |   dispatchHotkey,
+ 287 | }) {
+ 288 |   try { globalShortcut.unregisterAll(); } catch {}
+ 289 |   const RATE = 180;
+ 290 |   let lastT = 0, lastS = 0;
+ 291 | 
+ 292 |   const sKey = hotkeysLabel.start || "F1";
+ 293 |   const wKey = hotkeysLabel.swap || "F2";
+ 294 |   const canUse = (label) => /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
  295 | 
- 296 |     // focus le panneau
+ 296 |   if (canUse(sKey)) {
  297 |     try {
- 298 |       const mw = getMainWindow();
- 299 |       mw?.focus();
- 300 |       logHK && logHK("focused mainWindow?", mw?.isFocused());
- 301 |     } catch (e) {
- 302 |       logHK && logHK("focus error", e?.message || e);
- 303 |     }
- 304 | 
- 305 |     // en fallback, libérer les shortcuts pour laisser passer la frappe
- 306 |     if (!getUsingUiohook()) {
- 307 |       try {
- 308 |         globalShortcut.unregisterAll();
- 309 |         logHK && logHK("fallback: unregistered to let key through");
- 310 |       } catch {}
- 311 |     }
- 312 | 
- 313 |     // écouter une fois la prochaine touche (pour le label layout-aware)
- 314 |     const mw = getMainWindow();
- 315 |     const once = (event, input) => {
- 316 |       if (!captureState) return;
- 317 |       if (captureState.source === "gamepad") return; // si on veut capturer manette, ignorer clavier
- 318 |       if (input.type !== "keyDown" || input.isAutoRepeat) return;
+ 298 |       globalShortcut.register(sKey, () => {
+ 299 |         if (Date.now() < getCaptureBlockUntil()) return;
+ 300 |         const now = Date.now();
+ 301 |         if (now - lastT < RATE) return;
+ 302 |         lastT = now;
+ 303 |         dispatchHotkey("toggle");
+ 304 |       });
+ 305 |     } catch {}
+ 306 |   }
+ 307 |   if (canUse(wKey)) {
+ 308 |     try {
+ 309 |       globalShortcut.register(wKey, () => {
+ 310 |         if (Date.now() < getCaptureBlockUntil()) return;
+ 311 |         const now = Date.now();
+ 312 |         if (now - lastS < RATE) return;
+ 313 |         lastS = now;
+ 314 |         dispatchHotkey("swap");
+ 315 |       });
+ 316 |     } catch {}
+ 317 |   }
+ 318 | }
  319 | 
- 320 |       const label = makeLabelFromBeforeInput(input);
- 321 | 
- 322 |       captureState.label = label;
- 323 |       const labels = { ...getHotkeysLabel(), [type]: label };
- 324 |       setHotkeysLabel(labels);
- 325 | 
- 326 |       mw?.webContents.send("hotkeys-captured", { type, label });
- 327 |       logHK && logHK("label captured (instant)", { type, label });
- 328 | 
- 329 |       if (typeof captureState.code === "number") {
- 330 |         finalizeCapture("have both");
- 331 |       } else {
- 332 |         if (captureState.secondaryTimer) clearTimeout(captureState.secondaryTimer);
- 333 |         captureState.secondaryTimer = setTimeout(() => finalizeCapture("after-label-wait"), 500);
- 334 |       }
- 335 | 
- 336 |       mw?.webContents.removeListener("before-input-event", once);
- 337 |     };
- 338 |     mw?.webContents.on("before-input-event", once);
- 339 | 
- 340 |     // Écoute RAW manette
- 341 |     offGamepadRaw = onGamepadRaw((evLabel) => {
- 342 |       if (!captureState) return;
- 343 |       if (captureState.source === "desktop") return; // capture desktop: ignorer manette
- 344 |       const { type } = captureState;
- 345 | 
- 346 |       captureState.label = evLabel;
- 347 |       const labels = { ...getHotkeysLabel(), [type]: evLabel };
- 348 |       setHotkeysLabel(labels);
- 349 |       mw?.webContents.send("hotkeys-captured", { type, label: evLabel });
- 350 | 
- 351 |       // mapping manette (remplace pour l'action sélectionnée)
- 352 |       setGamepadMapping(type, evLabel, { append: false });
- 353 | 
- 354 |       finalizeCapture("gamepad");
- 355 |     });
- 356 | 
- 357 |     logHK && logHK("before-input-event listener ARMED");
- 358 |     return true;
- 359 |   });
- 360 | }
- 361 | 
- 362 | // -------------------- Fallback engine (globalShortcut) --------------------
- 363 | function refreshHotkeyEngine({
- 364 |   globalShortcut,
- 365 |   hotkeysLabel,
- 366 |   isAlphaNumLabel,
- 367 |   logHK,
- 368 |   getCaptureBlockUntil,
- 369 |   dispatchHotkey,
- 370 | }) {
- 371 |   try {
- 372 |     globalShortcut.unregisterAll();
- 373 |     logHK && logHK("globalShortcut: unregistered all");
- 374 |   } catch {}
- 375 | 
- 376 |   const RATE = 180;
- 377 |   let lastT = 0, lastS = 0;
- 378 | 
- 379 |   const sKey = hotkeysLabel.start || "F1";
- 380 |   const wKey = hotkeysLabel.swap || "F2";
- 381 | 
- 382 |   // En fallback, on n’essaie que F-keys
- 383 |   const canUse = (label) => /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
- 384 | 
- 385 |   logHK &&
- 386 |     logHK("globalShortcut: registering (fallback)", {
- 387 |       start: canUse(sKey) ? sKey : "(skipped: alnum passthrough-only)",
- 388 |       swap: canUse(wKey) ? wKey : "(skipped: alnum passthrough-only)",
- 389 |     });
- 390 | 
- 391 |   if (canUse(sKey)) {
- 392 |     try {
- 393 |       globalShortcut.register(sKey, () => {
- 394 |         if (Date.now() < getCaptureBlockUntil()) {
- 395 |           logHK && logHK("fallback toggle skipped (capturing)");
- 396 |           return;
- 397 |         }
- 398 |         const now = Date.now();
- 399 |         if (now - lastT < RATE) return;
- 400 |         lastT = now;
- 401 |         dispatchHotkey("toggle");
- 402 |       });
- 403 |     } catch (e) {
- 404 |       logHK && logHK("register start failed", e?.message || e);
- 405 |     }
- 406 |   }
- 407 | 
- 408 |   if (canUse(wKey)) {
- 409 |     try {
- 410 |       globalShortcut.register(wKey, () => {
- 411 |         if (Date.now() < getCaptureBlockUntil()) {
- 412 |           logHK && logHK("fallback swap skipped (capturing)");
- 413 |           return;
- 414 |         }
- 415 |         const now = Date.now();
- 416 |         if (now - lastS < RATE) return;
- 417 |         lastS = now;
- 418 |         dispatchHotkey("swap");
- 419 |       });
- 420 |     } catch (e) {
- 421 |       logHK && logHK("register swap failed", e?.message || e);
- 422 |     }
- 423 |   }
- 424 | }
- 425 | 
- 426 | // -------------------- API complémentaire --------------------
- 427 | function attachWindowsAPI({ sendOverlaySettings }) {
- 428 |   module.exports._sendOverlaySettings = sendOverlaySettings;
- 429 | }
- 430 | 
- 431 | module.exports = {
- 432 |   initCapture,
- 433 |   setupCaptureIPC,
- 434 |   refreshHotkeyEngine,
- 435 |   isCapturing,
- 436 |   getCaptureBlockUntil,
- 437 |   onKeyboardCode,
- 438 |   onMouseLabel,
- 439 |   attachWindowsAPI,
- 440 | };
+ 320 | /* -------------------- API complémentaire -------------------- */
+ 321 | function attachWindowsAPI({ sendOverlaySettings }) {
+ 322 |   module.exports._sendOverlaySettings = sendOverlaySettings;
+ 323 | }
+ 324 | 
+ 325 | module.exports = {
+ 326 |   initCapture,
+ 327 |   setupCaptureIPC,
+ 328 |   refreshHotkeyEngine,
+ 329 |   isCapturing,
+ 330 |   getCaptureBlockUntil,
+ 331 |   onKeyboardCode,
+ 332 |   onMouseLabel,
+ 333 |   attachWindowsAPI,
+ 334 | };
 
 ```
 
@@ -1345,7 +1239,7 @@ dbdoverlaytools-free
  171 |     ArrowLeft: "LEFT",
  172 |     ArrowRight: "RIGHT",
  173 |   };
- 174 |   if (map[k]) return k;
+ 174 |   if (map[k]) return map[k];
  175 |   const code = input.code || "";
  176 |   if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
  177 |   if (/^Digit\d$/.test(code)) return code.slice(5);
@@ -2365,7 +2259,7 @@ dbdoverlaytools-free
   44 | 
   45 |   // Auto-score
   46 |   const [autoScore, setAutoScore] = useState<boolean>(true);
-  47 |   const [autoScoreThresholdSec] = useState<number>(25); // fixed
+  47 |   const [autoScoreThresholdSec] = useState<number>(25);
   48 | 
   49 |   // Players
   50 |   const [players, setPlayers] = useState({
@@ -2373,7 +2267,7 @@ dbdoverlaytools-free
   52 |     player2: { name: "PLAYER 2", score: 0 },
   53 |   });
   54 | 
-  55 |   // Hotkeys (desktop)
+  55 |   // Desktop hotkeys (keyboard/mouse)
   56 |   const [hkLabels, setHkLabels] = useState<{ start: string; swap: string }>({
   57 |     start: "F1",
   58 |     swap: "F2",
@@ -2393,508 +2287,507 @@ dbdoverlaytools-free
   72 |       setHkLabels({ start: h.startLabel || "F1", swap: h.swapLabel || "F2" });
   73 |     });
   74 | 
-  75 |     if (window.api?.gamepad?.get) {
-  76 |       window.api.gamepad.get().then((m: any) => {
-  77 |         setGp(m && typeof m === "object" ? m : { toggle: [], swap: [] });
-  78 |       });
-  79 |     }
-  80 | 
-  81 |     window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
-  82 |     window.api.overlay.onSettings((s: any) => {
-  83 |       if (typeof s.locked === "boolean") setLocked(!!s.locked);
-  84 |       if (typeof s.scale === "number") setScale(s.scale);
-  85 |       if (s?.nameTheme) setNameTheme(s.nameTheme === "dark" ? "dark" : "default");
-  86 |       if (s?.accentKey && ACCENTS.some((a) => a.key === s.accentKey)) setAccentKey(s.accentKey);
-  87 |       if (typeof s?.autoScoreEnabled === "boolean") setAutoScore(s.autoScoreEnabled);
-  88 |     });
-  89 | 
-  90 |     window.api.timer.onSync((d: any) => {
-  91 |       if (d?.player1 && d?.player2) setPlayers(d);
-  92 |     });
-  93 | 
-  94 |     window.api.hotkeys.onCaptured((p: { type: "start" | "swap"; keycode?: number | null; label?: string }) => {
-  95 |       if (p.label) setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
-  96 |       setCapturing(null);
-  97 |       // rafraîchir affichage manette au cas où
-  98 |       if (window.api?.gamepad?.get) {
-  99 |         window.api.gamepad.get().then((m: any) => {
- 100 |           setGp(m && typeof m === "object" ? m : { toggle: [], swap: [] });
- 101 |         });
- 102 |       }
- 103 |       setCapturingGp(null);
- 104 |     });
- 105 | 
- 106 |     // Always on top
- 107 |     window.api.overlay.updateSettings({ alwaysOnTop: true });
- 108 |   }, []);
- 109 | 
- 110 |   // Helpers
- 111 |   const savePlayers = (next: typeof players) => {
- 112 |     setPlayers(next);
- 113 |     window.api.timer.set(next);
- 114 |   };
- 115 | 
- 116 |   const onOverlayToggle = async (checked: boolean) => {
- 117 |     setOverlayOn(checked);
- 118 |     if (checked) await window.api.overlay.show();
- 119 |     else await window.api.overlay.hide();
- 120 |   };
- 121 | 
- 122 |   const onScale = (e: React.ChangeEvent<HTMLInputElement>) => {
- 123 |     const v = Number(e.target.value);
- 124 |     setScale(v);
- 125 |     window.api.overlay.updateSettings({ scale: v });
- 126 |   };
- 127 | 
- 128 |   const onLock = (e: React.ChangeEvent<HTMLInputElement>) => {
- 129 |     const v = e.target.checked;
- 130 |     setLocked(v);
- 131 |     window.api.overlay.updateSettings({ locked: v });
- 132 |   };
- 133 | 
- 134 |   const handleResetAll = () => {
- 135 |     const next = {
- 136 |       ...players,
- 137 |       player1: { ...players.player1, score: 0 },
- 138 |       player2: { ...players.player2, score: 0 },
- 139 |     };
- 140 |     savePlayers(next);
- 141 |   };
- 142 | 
- 143 |   // Small reusable swatch
- 144 |   const Swatch: React.FC<{
- 145 |     isActive: boolean;
- 146 |     background: string;
- 147 |     title: string;
- 148 |     onClick: () => void;
- 149 |   }> = ({ isActive, background, title, onClick }) => (
- 150 |     <button
- 151 |       onClick={onClick}
- 152 |       title={title}
- 153 |       aria-label={title}
- 154 |       aria-pressed={isActive}
- 155 |       className={[
- 156 |         "h-7 w-14 sm:w-16 rounded-lg border transition outline-none focus:ring",
- 157 |         isActive ? "border-white/40 ring-2 ring-white/20" : "border-white/10 hover:border-white/20",
- 158 |       ].join(" ")}
- 159 |       style={{ background }}
- 160 |     />
- 161 |   );
- 162 | 
- 163 |   return (
- 164 |     <div className="mx-auto max-w-5xl p-6 text-zinc-100">
- 165 |       {/* Header */}
- 166 |       <header className="mb-4 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 flex items-center justify-between">
- 167 |         <div>
- 168 |           <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">1v1 Overlay</div>
- 169 |           <h1 className="text-xl font-semibold tracking-tight">DBD Overlay Tools</h1>
- 170 |         </div>
- 171 | 
- 172 |         <div className="flex items-center gap-3">
- 173 |           <span className={`text-sm font-medium ${overlayOn ? "text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,.8)]" : "text-zinc-400"}`}>
- 174 |             {overlayOn ? "Overlay Active" : "Overlay Hidden"}
- 175 |           </span>
- 176 |           <label className="relative inline-flex h-6 w-11 cursor-pointer items-center">
- 177 |             <input type="checkbox" className="peer sr-only" checked={overlayOn} onChange={(e) => onOverlayToggle(e.target.checked)} />
- 178 |             <span className="absolute inset-0 rounded-full bg-zinc-700 transition peer-checked:bg-emerald-500/70" />
- 179 |             <span className="absolute h-5 w-5 translate-x-1 rounded-full bg-white transition peer-checked:translate-x-6" />
- 180 |           </label>
+  75 |     // 🎮 charger mapping
+  76 |     if (window.api?.gamepad?.get) {
+  77 |       window.api.gamepad.get().then((m: any) => {
+  78 |         setGp(m && typeof m === "object" ? m : { toggle: [], swap: [] });
+  79 |       });
+  80 |     }
+  81 | 
+  82 |     window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
+  83 |     window.api.overlay.onSettings((s: any) => {
+  84 |       if (typeof s.locked === "boolean") setLocked(!!s.locked);
+  85 |       if (typeof s.scale === "number") setScale(s.scale);
+  86 |       if (s?.nameTheme) setNameTheme(s.nameTheme === "dark" ? "dark" : "default");
+  87 |       if (s?.accentKey && ACCENTS.some((a) => a.key === s.accentKey)) setAccentKey(s.accentKey);
+  88 |       if (typeof s?.autoScoreEnabled === "boolean") setAutoScore(s.autoScoreEnabled);
+  89 |     });
+  90 | 
+  91 |     // Sync timer
+  92 |     window.api.timer.onSync((d: any) => {
+  93 |       if (d?.player1 && d?.player2) setPlayers(d);
+  94 |     });
+  95 | 
+  96 |     // Capture feedback
+  97 |     window.api.hotkeys.onCaptured(
+  98 |       (p: { type: "start" | "swap"; keycode?: number | null; label?: string; source?: "desktop" | "gamepad" }) => {
+  99 |         // Desktop only: maj du libellé clavier/souris
+ 100 |         if ((p.source || "desktop") === "desktop" && p.label) {
+ 101 |           setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
+ 102 |           setCapturing(null);
+ 103 |         }
+ 104 | 
+ 105 |         // Gamepad only: ferme l'état de capture et recharge le mapping
+ 106 |         if (p.source === "gamepad") {
+ 107 |           setCapturingGp(null);
+ 108 |           if (window.api?.gamepad?.get) {
+ 109 |             window.api.gamepad.get().then((m: any) => {
+ 110 |               setGp(m && typeof m === "object" ? m : { toggle: [], swap: [] });
+ 111 |             });
+ 112 |           }
+ 113 |         }
+ 114 |       }
+ 115 |     );
+ 116 | 
+ 117 |     // Always on top
+ 118 |     window.api.overlay.updateSettings({ alwaysOnTop: true });
+ 119 |   }, []);
+ 120 | 
+ 121 |   // Helpers
+ 122 |   const savePlayers = (next: typeof players) => {
+ 123 |     setPlayers(next);
+ 124 |     window.api.timer.set(next);
+ 125 |   };
+ 126 | 
+ 127 |   const onOverlayToggle = async (checked: boolean) => {
+ 128 |     setOverlayOn(checked);
+ 129 |     if (checked) await window.api.overlay.show();
+ 130 |     else await window.api.overlay.hide();
+ 131 |   };
+ 132 | 
+ 133 |   const onScale = (e: React.ChangeEvent<HTMLInputElement>) => {
+ 134 |     const v = Number(e.target.value);
+ 135 |     setScale(v);
+ 136 |     window.api.overlay.updateSettings({ scale: v });
+ 137 |   };
+ 138 | 
+ 139 |   const onLock = (e: React.ChangeEvent<HTMLInputElement>) => {
+ 140 |     const v = e.target.checked;
+ 141 |     setLocked(v);
+ 142 |     window.api.overlay.updateSettings({ locked: v });
+ 143 |   };
+ 144 | 
+ 145 |   const handleResetAll = () => {
+ 146 |     const next = {
+ 147 |       ...players,
+ 148 |       player1: { ...players.player1, score: 0 },
+ 149 |       player2: { ...players.player2, score: 0 },
+ 150 |     };
+ 151 |     savePlayers(next);
+ 152 |   };
+ 153 | 
+ 154 |   // Small reusable swatch
+ 155 |   const Swatch: React.FC<{
+ 156 |     isActive: boolean;
+ 157 |     background: string;
+ 158 |     title: string;
+ 159 |     onClick: () => void;
+ 160 |   }> = ({ isActive, background, title, onClick }) => (
+ 161 |     <button
+ 162 |       onClick={onClick}
+ 163 |       title={title}
+ 164 |       aria-label={title}
+ 165 |       aria-pressed={isActive}
+ 166 |       className={[
+ 167 |         "h-7 w-14 sm:w-16 rounded-lg border transition outline-none focus:ring",
+ 168 |         isActive ? "border-white/40 ring-2 ring-white/20" : "border-white/10 hover:border-white/20",
+ 169 |       ].join(" ")}
+ 170 |       style={{ background }}
+ 171 |     />
+ 172 |   );
+ 173 | 
+ 174 |   return (
+ 175 |     <div className="mx-auto max-w-5xl p-6 text-zinc-100">
+ 176 |       {/* Header */}
+ 177 |       <header className="mb-4 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 flex items-center justify-between">
+ 178 |         <div>
+ 179 |           <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">1v1 Overlay</div>
+ 180 |           <h1 className="text-xl font-semibold tracking-tight">DBD Overlay Tools</h1>
  181 |         </div>
- 182 |       </header>
- 183 | 
- 184 |       <div className="scroll-thin pr-1">
- 185 |         {/* Hotkeys (desktop) */}
- 186 |         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
- 187 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
- 188 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
- 189 |             <button
- 190 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
- 191 |                 capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
- 192 |               }`}
- 193 |               onClick={() => {
- 194 |                 setCapturing("start");
- 195 |                 // capture “desktop” → clavier/souris uniquement
- 196 |                 if (window.api?.hotkeys?.capture) window.api.hotkeys.capture({ type: "start", source: "desktop" });
- 197 |               }}
- 198 |             >
- 199 |               {capturing === "start" ? "Press a key…" : hkLabels.start}
- 200 |             </button>
- 201 |           </div>
- 202 | 
- 203 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
- 204 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
- 205 |             <button
- 206 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
- 207 |                 capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
- 208 |               }`}
- 209 |               onClick={() => {
- 210 |                 setCapturing("swap");
- 211 |                 if (window.api?.hotkeys?.capture) window.api.hotkeys.capture({ type: "swap", source: "desktop" });
- 212 |               }}
- 213 |             >
- 214 |               {capturing === "swap" ? "Press a key…" : hkLabels.swap}
- 215 |             </button>
- 216 |           </div>
- 217 |         </section>
- 218 | 
- 219 |         {/* 🎮 Gamepad hotkeys — même UX */}
- 220 |         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
- 221 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
- 222 |             <div className="mb-2 flex items-center justify-between">
- 223 |               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Start/Stop/Reset (Gamepad)</div>
- 224 |               <button
- 225 |                 className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
- 226 |                 onClick={async () => {
- 227 |                   try {
- 228 |                     await window.api?.gamepad?.clear?.("toggle");
- 229 |                     const next = await window.api?.gamepad?.get?.();
- 230 |                     if (next) setGp(next);
- 231 |                   } catch {}
- 232 |                 }}
- 233 |               >
- 234 |                 Clear
- 235 |               </button>
- 236 |             </div>
- 237 |             <button
- 238 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
- 239 |                 capturingGp === "toggle" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
- 240 |               }`}
- 241 |               onClick={() => {
- 242 |                 setCapturingGp("toggle");
- 243 |                 if (window.api?.hotkeys?.capture) window.api.hotkeys.capture({ type: "start", source: "gamepad" });
- 244 |               }}
- 245 |             >
- 246 |               {capturingGp === "toggle" ? "Press a gamepad button…" : gp.toggle?.join(" + ") || "—"}
- 247 |             </button>
- 248 |           </div>
- 249 | 
- 250 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
- 251 |             <div className="mb-2 flex items-center justify-between">
- 252 |               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Swap (Gamepad)</div>
- 253 |               <button
- 254 |                 className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
- 255 |                 onClick={async () => {
- 256 |                   try {
- 257 |                     await window.api?.gamepad?.clear?.("swap");
- 258 |                     const next = await window.api?.gamepad?.get?.();
- 259 |                     if (next) setGp(next);
- 260 |                   } catch {}
- 261 |                 }}
- 262 |               >
- 263 |                 Clear
- 264 |               </button>
- 265 |             </div>
- 266 |             <button
- 267 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
- 268 |                 capturingGp === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
- 269 |               }`}
- 270 |               onClick={() => {
- 271 |                 setCapturingGp("swap");
- 272 |                 if (window.api?.hotkeys?.capture) window.api.hotkeys.capture({ type: "swap", source: "gamepad" });
- 273 |               }}
- 274 |             >
- 275 |               {capturingGp === "swap" ? "Press a gamepad button…" : gp.swap?.join(" + ") || "—"}
- 276 |             </button>
- 277 |           </div>
- 278 |         </section>
- 279 | 
- 280 |         {/* Players */}
- 281 |         <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
- 282 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 283 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 1</div>
- 284 |             <input
- 285 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
- 286 |               value={players.player1.name}
- 287 |               onChange={(e) => savePlayers({ ...players, player1: { ...players.player1, name: e.target.value } })}
- 288 |             />
- 289 |             <div className="text-xs text-zinc-400">Score</div>
- 290 |             <div className="mt-2 flex items-center gap-2">
- 291 |               <button
- 292 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
- 293 |                 onClick={() =>
- 294 |                   savePlayers({
- 295 |                     ...players,
- 296 |                     player1: { ...players.player1, score: Math.max(0, players.player1.score - 1) },
- 297 |                   })
- 298 |                 }
- 299 |               >
- 300 |                 −1
- 301 |               </button>
- 302 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player1.score}</div>
- 303 |               <button
- 304 |                 className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
- 305 |                 onClick={() =>
- 306 |                   savePlayers({
- 307 |                     ...players,
- 308 |                     player1: { ...players.player1, score: players.player1.score + 1 },
- 309 |                   })
- 310 |                 }
- 311 |               >
- 312 |                 +1
- 313 |               </button>
- 314 |             </div>
- 315 |           </div>
- 316 | 
- 317 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 318 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 2</div>
- 319 |             <input
- 320 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
- 321 |               value={players.player2.name}
- 322 |               onChange={(e) => savePlayers({ ...players, player2: { ...players.player2, name: e.target.value } })}
- 323 |             />
- 324 |             <div className="text-xs text-zinc-400">Score</div>
- 325 |             <div className="mt-2 flex items-center gap-2">
- 326 |               <button
- 327 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
- 328 |                 onClick={() =>
- 329 |                   savePlayers({
- 330 |                     ...players,
- 331 |                     player2: { ...players.player2, score: Math.max(0, players.player2.score - 1) },
- 332 |                   })
- 333 |                 }
- 334 |               >
- 335 |                 −1
- 336 |               </button>
- 337 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player2.score}</div>
- 338 |               <button
- 339 |                 className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
- 340 |                 onClick={() =>
- 341 |                   savePlayers({
- 342 |                     ...players,
- 343 |                     player2: { ...players.player2, score: players.player2.score + 1 },
- 344 |                   })
- 345 |                 }
- 346 |               >
- 347 |                 +1
- 348 |               </button>
- 349 |             </div>
- 350 |           </div>
- 351 |         </section>
- 352 | 
- 353 |         {/* Global actions */}
- 354 |         <div className="mb-6 flex justify-center">
- 355 |           <button
- 356 |             className="rounded-lg border border-[#FF4141]/30 bg-[#FF4141]/15 text-[#FF4141] font-bold uppercase tracking-wide px-5 py-2"
- 357 |             onClick={handleResetAll}
- 358 |           >
- 359 |             Reset scores
- 360 |           </button>
- 361 |         </div>
- 362 | 
- 363 |         {/* ====== Timer Appearance ====== */}
- 364 |         <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 365 |           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Timer Appearance</h2>
- 366 | 
- 367 |           {/* Name background */}
- 368 |           <div className="mb-4">
- 369 |             <div className="mb-2 flex items-center justify-between">
- 370 |               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Name background</span>
- 371 |               <span className="text-xs text-zinc-500">Applies to player name boxes</span>
- 372 |             </div>
- 373 |             <div className="grid grid-cols-6 gap-2">
- 374 |               {(["default", "dark"] as NameTheme[]).map((nt) => (
- 375 |                 <Swatch
- 376 |                   key={nt}
- 377 |                   title={nt === "default" ? "Default" : "Dark"}
- 378 |                   background={NAME_BG[nt]}
- 379 |                   isActive={nameTheme === nt}
- 380 |                   onClick={() => {
- 381 |                     setNameTheme(nt);
- 382 |                     window.api.overlay.updateSettings({ nameTheme: nt });
- 383 |                   }}
- 384 |                 />
- 385 |               ))}
- 386 |             </div>
- 387 |           </div>
- 388 | 
- 389 |           {/* Accent color */}
- 390 |           <div>
- 391 |             <div className="mb-2 flex items-center justify-between">
- 392 |               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Accent color</span>
- 393 |               <span className="text-xs text-zinc-500">Affects score background & swap bar</span>
- 394 |             </div>
- 395 | 
- 396 |             <div className="grid grid-cols-8 sm:grid-cols-10 gap-2">
- 397 |               {ACCENTS.map((a) => (
- 398 |                 <Swatch
- 399 |                   key={a.key}
- 400 |                   title={ACCENT_LABELS_EN[a.key as AccentKey]}
- 401 |                   background={a.gradient}
- 402 |                   isActive={accentKey === (a.key as AccentKey)}
- 403 |                   onClick={() => {
- 404 |                     const k = a.key as AccentKey;
- 405 |                     setAccentKey(k);
- 406 |                     window.api.overlay.updateSettings({ accentKey: k });
- 407 |                   }}
- 408 |                 />
- 409 |               ))}
- 410 |             </div>
- 411 | 
- 412 |             <p className="mt-2 text-xs text-zinc-400">The swap bar automatically follows the score color.</p>
- 413 |           </div>
- 414 |         </section>
+ 182 | 
+ 183 |         <div className="flex items-center gap-3">
+ 184 |           <span className={`text-sm font-medium ${overlayOn ? "text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,.8)]" : "text-zinc-400"}`}>
+ 185 |             {overlayOn ? "Overlay Active" : "Overlay Hidden"}
+ 186 |           </span>
+ 187 |           <label className="relative inline-flex h-6 w-11 cursor-pointer items-center">
+ 188 |             <input type="checkbox" className="peer sr-only" checked={overlayOn} onChange={(e) => onOverlayToggle(e.target.checked)} />
+ 189 |             <span className="absolute inset-0 rounded-full bg-zinc-700 transition peer-checked:bg-emerald-500/70" />
+ 190 |             <span className="absolute h-5 w-5 translate-x-1 rounded-full bg-white transition peer-checked:translate-x-6" />
+ 191 |           </label>
+ 192 |         </div>
+ 193 |       </header>
+ 194 | 
+ 195 |       <div className="scroll-thin pr-1">
+ 196 |         {/* Hotkeys (desktop) */}
+ 197 |         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+ 198 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 199 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
+ 200 |             <button
+ 201 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 202 |                 capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+ 203 |               }`}
+ 204 |               onClick={() => {
+ 205 |                 setCapturing("start");
+ 206 |                 window.api.hotkeys.capture({ type: "start", source: "desktop" });
+ 207 |               }}
+ 208 |             >
+ 209 |               {capturing === "start" ? "Press a key…" : hkLabels.start}
+ 210 |             </button>
+ 211 |           </div>
+ 212 | 
+ 213 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 214 |             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
+ 215 |             <button
+ 216 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 217 |                 capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+ 218 |               }`}
+ 219 |               onClick={() => {
+ 220 |                 setCapturing("swap");
+ 221 |                 window.api.hotkeys.capture({ type: "swap", source: "desktop" });
+ 222 |               }}
+ 223 |             >
+ 224 |               {capturing === "swap" ? "Press a key…" : hkLabels.swap}
+ 225 |             </button>
+ 226 |           </div>
+ 227 |         </section>
+ 228 | 
+ 229 |         {/* 🎮 Gamepad hotkeys */}
+ 230 |         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+ 231 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 232 |             <div className="mb-2 flex items-center justify-between">
+ 233 |               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Start/Stop/Reset (Controller)</div>
+ 234 |               <button
+ 235 |                 className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+ 236 |                 onClick={async () => {
+ 237 |                   try {
+ 238 |                     await window.api?.gamepad?.clear?.("toggle");
+ 239 |                     const next = await window.api?.gamepad?.get?.();
+ 240 |                     if (next) setGp(next);
+ 241 |                   } catch {}
+ 242 |                 }}
+ 243 |               >
+ 244 |                 Clear
+ 245 |               </button>
+ 246 |             </div>
+ 247 |             <button
+ 248 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 249 |                 capturingGp === "toggle" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+ 250 |               }`}
+ 251 |               onClick={() => {
+ 252 |                 setCapturingGp("toggle");
+ 253 |                 window.api.hotkeys.capture({ type: "start", source: "gamepad" });
+ 254 |               }}
+ 255 |             >
+ 256 |               {capturingGp === "toggle" ? "Press a gamepad button…" : gp.toggle?.join(" + ") || "—"}
+ 257 |             </button>
+ 258 |           </div>
+ 259 | 
+ 260 |           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+ 261 |             <div className="mb-2 flex items-center justify-between">
+ 262 |               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Swap (Controller)</div>
+ 263 |               <button
+ 264 |                 className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+ 265 |                 onClick={async () => {
+ 266 |                   try {
+ 267 |                     await window.api?.gamepad?.clear?.("swap");
+ 268 |                     const next = await window.api?.gamepad?.get?.();
+ 269 |                     if (next) setGp(next);
+ 270 |                   } catch {}
+ 271 |                 }}
+ 272 |               >
+ 273 |                 Clear
+ 274 |               </button>
+ 275 |             </div>
+ 276 |             <button
+ 277 |               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+ 278 |                 capturingGp === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+ 279 |               }`}
+ 280 |               onClick={() => {
+ 281 |                 setCapturingGp("swap");
+ 282 |                 window.api.hotkeys.capture({ type: "swap", source: "gamepad" });
+ 283 |               }}
+ 284 |             >
+ 285 |               {capturingGp === "swap" ? "Press a gamepad button…" : gp.swap?.join(" + ") || "—"}
+ 286 |             </button>
+ 287 |           </div>
+ 288 |         </section>
+ 289 | 
+ 290 |         {/* Players */}
+ 291 |         <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+ 292 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 293 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 1</div>
+ 294 |             <input
+ 295 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
+ 296 |               value={players.player1.name}
+ 297 |               onChange={(e) =>
+ 298 |                 savePlayers({
+ 299 |                   ...players,
+ 300 |                   player1: { ...players.player1, name: e.target.value },
+ 301 |                 })
+ 302 |               }
+ 303 |             />
+ 304 |             <div className="text-xs text-zinc-400">Score</div>
+ 305 |             <div className="mt-2 flex items-center gap-2">
+ 306 |               <button
+ 307 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
+ 308 |                 onClick={() =>
+ 309 |                   savePlayers({
+ 310 |                     ...players,
+ 311 |                     player1: { ...players.player1, score: Math.max(0, players.player1.score - 1) },
+ 312 |                   })
+ 313 |                 }
+ 314 |               >
+ 315 |                 −1
+ 316 |               </button>
+ 317 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player1.score}</div>
+ 318 |               <button
+ 319 |                 className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
+ 320 |                 onClick={() =>
+ 321 |                   savePlayers({
+ 322 |                     ...players,
+ 323 |                     player1: { ...players.player1, score: players.player1.score + 1 },
+ 324 |                   })
+ 325 |                 }
+ 326 |               >
+ 327 |                 +1
+ 328 |               </button>
+ 329 |             </div>
+ 330 |           </div>
+ 331 | 
+ 332 |           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 333 |             <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 2</div>
+ 334 |             <input
+ 335 |               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
+ 336 |               value={players.player2.name}
+ 337 |               onChange={(e) =>
+ 338 |                 savePlayers({
+ 339 |                   ...players,
+ 340 |                   player2: { ...players.player2, name: e.target.value },
+ 341 |                 })
+ 342 |               }
+ 343 |             />
+ 344 |             <div className="text-xs text-zinc-400">Score</div>
+ 345 |             <div className="mt-2 flex items-center gap-2">
+ 346 |               <button
+ 347 |                 className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15"
+ 348 |                 onClick={() =>
+ 349 |                   savePlayers({
+ 350 |                     ...players,
+ 351 |                     player2: { ...players.player2, score: Math.max(0, players.player2.score - 1) },
+ 352 |                   })
+ 353 |                 }
+ 354 |               >
+ 355 |                 −1
+ 356 |               </button>
+ 357 |               <div className="min-w-10 text-center text-lg font-bold text-[#5AC8FF]">{players.player2.score}</div>
+ 358 |               <button
+ 359 |                 className="rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2"
+ 360 |                 onClick={() =>
+ 361 |                   savePlayers({
+ 362 |                     ...players,
+ 363 |                     player2: { ...players.player2, score: players.player2.score + 1 },
+ 364 |                   })
+ 365 |                 }
+ 366 |               >
+ 367 |                 +1
+ 368 |               </button>
+ 369 |             </div>
+ 370 |           </div>
+ 371 |         </section>
+ 372 | 
+ 373 |         {/* Global actions */}
+ 374 |         <div className="mb-6 flex justify-center">
+ 375 |           <button
+ 376 |             className="rounded-lg border border-[#FF4141]/30 bg-[#FF4141]/15 text-[#FF4141] font-bold uppercase tracking-wide px-5 py-2"
+ 377 |             onClick={handleResetAll}
+ 378 |           >
+ 379 |             Reset scores
+ 380 |           </button>
+ 381 |         </div>
+ 382 | 
+ 383 |         {/* ====== Timer Appearance ====== */}
+ 384 |         <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 385 |           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Timer Appearance</h2>
+ 386 | 
+ 387 |           {/* Name background */}
+ 388 |           <div className="mb-4">
+ 389 |             <div className="mb-2 flex items-center justify-between">
+ 390 |               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Name background</span>
+ 391 |               <span className="text-xs text-zinc-500">Applies to player name boxes</span>
+ 392 |             </div>
+ 393 |             <div className="grid grid-cols-6 gap-2">
+ 394 |               {(["default", "dark"] as NameTheme[]).map((nt) => (
+ 395 |                 <Swatch
+ 396 |                   key={nt}
+ 397 |                   title={nt === "default" ? "Default" : "Dark"}
+ 398 |                   background={NAME_BG[nt]}
+ 399 |                   isActive={nameTheme === nt}
+ 400 |                   onClick={() => {
+ 401 |                     setNameTheme(nt);
+ 402 |                     window.api.overlay.updateSettings({ nameTheme: nt });
+ 403 |                   }}
+ 404 |                 />
+ 405 |               ))}
+ 406 |             </div>
+ 407 |           </div>
+ 408 | 
+ 409 |           {/* Accent color */}
+ 410 |           <div>
+ 411 |             <div className="mb-2 flex items-center justify-between">
+ 412 |               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Accent color</span>
+ 413 |               <span className="text-xs text-zinc-500">Affects score background & swap bar</span>
+ 414 |             </div>
  415 | 
- 416 |         {/* ====== Overlay Settings ====== */}
- 417 |         <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
- 418 |           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Overlay Settings</h2>
- 419 | 
- 420 |           <div className="mb-6">
- 421 |             <div className="mb-2 flex items-center justify-between text-sm">
- 422 |               <span>Scale</span>
- 423 |               <span className="font-semibold text-[#5AC8FF]">{scale}%</span>
- 424 |             </div>
- 425 |             <input type="range" min={50} max={200} value={scale} onChange={onScale} className="w-full [accent-color:#5AC8FF]" />
- 426 |           </div>
- 427 | 
- 428 |           {/* Auto-score toggle */}
- 429 |           <div className="mb-3 grid grid-cols-1">
- 430 |             <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
- 431 |               <span className="text-sm">
- 432 |                 Auto-score winner <span className="opacity-60">({autoScoreThresholdSec}s min)</span>
- 433 |               </span>
- 434 | 
- 435 |               <button
- 436 |                 type="button"
- 437 |                 role="switch"
- 438 |                 aria-checked={autoScore}
- 439 |                 onClick={() => {
- 440 |                   const next = !autoScore;
- 441 |                   setAutoScore(next);
- 442 |                   window.api.overlay.updateSettings({ autoScoreEnabled: next, autoScoreThresholdSec });
- 443 |                 }}
- 444 |                 className={["relative h-6 w-11 rounded-full transition-colors", autoScore ? "bg-emerald-500" : "bg-neutral-300", "ring-1 ring-black/5"].join(" ")}
- 445 |               >
- 446 |                 <span aria-hidden className={["absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", autoScore ? "translate-x-5" : ""].join(" ")} />
- 447 |               </button>
- 448 |             </label>
- 449 |           </div>
- 450 | 
- 451 |           <div className="grid grid-cols-1">
- 452 |             <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
- 453 |               <span className="text-sm">
- 454 |                 Lock Overlay Position <span className="opacity-50">🔓</span>
- 455 |               </span>
- 456 | 
- 457 |               <button
- 458 |                 type="button"
- 459 |                 role="switch"
- 460 |                 aria-checked={locked}
- 461 |                 onClick={() => {
- 462 |                   const next = !locked;
- 463 |                   setLocked(next);
- 464 |                   window.api.overlay.updateSettings({ locked: next });
- 465 |                 }}
- 466 |                 className={["relative h-6 w-11 rounded-full transition-colors", locked ? "bg-emerald-500" : "bg-neutral-300", "ring-1 ring-black/5"].join(" ")}
- 467 |               >
- 468 |                 <span aria-hidden className={["absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", locked ? "translate-x-5" : ""].join(" ")} />
- 469 |               </button>
- 470 |             </label>
- 471 |           </div>
- 472 | 
- 473 |           <div className={`mt-4 rounded-lg border p-3 text-sm ${locked ? "border-[#44FF41]/40 bg-[#44FF41]/10 text-[#44FF41]" : "border-violet-500/40 bg-violet-500/10 text-violet-300"}`}>
- 474 |             {locked ? "Overlay is locked – clicks will go through." : "Overlay is unlocked – drag the purple bar to reposition."}
- 475 |           </div>
+ 416 |             <div className="grid grid-cols-8 sm:grid-cols-10 gap-2">
+ 417 |               {ACCENTS.map((a) => (
+ 418 |                 <Swatch
+ 419 |                   key={a.key}
+ 420 |                   title={ACCENT_LABELS_EN[a.key as AccentKey]}
+ 421 |                   background={a.gradient}
+ 422 |                   isActive={accentKey === (a.key as AccentKey)}
+ 423 |                   onClick={() => {
+ 424 |                     const k = a.key as AccentKey;
+ 425 |                     setAccentKey(k);
+ 426 |                     window.api.overlay.updateSettings({ accentKey: k });
+ 427 |                   }}
+ 428 |                 />
+ 429 |               ))}
+ 430 |             </div>
+ 431 | 
+ 432 |             <p className="mt-2 text-xs text-zinc-400">The swap bar automatically follows the score color.</p>
+ 433 |           </div>
+ 434 |         </section>
+ 435 | 
+ 436 |         {/* ====== Overlay Settings ====== */}
+ 437 |         <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+ 438 |           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Overlay Settings</h2>
+ 439 | 
+ 440 |           <div className="mb-6">
+ 441 |             <div className="mb-2 flex items-center justify-between text-sm">
+ 442 |               <span>Scale</span>
+ 443 |               <span className="font-semibold text-[#5AC8FF]">{scale}%</span>
+ 444 |             </div>
+ 445 |             <input type="range" min={50} max={200} value={scale} onChange={onScale} className="w-full [accent-color:#5AC8FF]" />
+ 446 |           </div>
+ 447 | 
+ 448 |           {/* Auto-score toggle */}
+ 449 |           <div className="mb-3 grid grid-cols-1">
+ 450 |             <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
+ 451 |               <span className="text-sm">
+ 452 |                 Auto-score winner <span className="opacity-60">({autoScoreThresholdSec}s min)</span>
+ 453 |               </span>
+ 454 | 
+ 455 |               <button
+ 456 |                 type="button"
+ 457 |                 role="switch"
+ 458 |                 aria-checked={autoScore}
+ 459 |                 onClick={() => {
+ 460 |                   const next = !autoScore;
+ 461 |                   setAutoScore(next);
+ 462 |                   window.api.overlay.updateSettings({ autoScoreEnabled: next, autoScoreThresholdSec });
+ 463 |                 }}
+ 464 |                 className={["relative h-6 w-11 rounded-full transition-colors", autoScore ? "bg-emerald-500" : "bg-neutral-300", "ring-1 ring-black/5"].join(" ")}
+ 465 |               >
+ 466 |                 <span aria-hidden className={["absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", autoScore ? "translate-x-5" : ""].join(" ")} />
+ 467 |               </button>
+ 468 |             </label>
+ 469 |           </div>
+ 470 | 
+ 471 |           <div className="grid grid-cols-1">
+ 472 |             <label className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
+ 473 |               <span className="text-sm">
+ 474 |                 Lock Overlay Position <span className="opacity-50">🔓</span>
+ 475 |               </span>
  476 | 
- 477 |           <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-zinc-300 leading-relaxed">
- 478 |             <b>How auto-score works</b>:
- 479 |             <ul className="list-disc ml-5 mt-2 space-y-1">
- 480 |               <li>
- 481 |                 Make sure the active timer is on the <b>current survivor</b> (use <b>Swap</b> before starting).
- 482 |               </li>
- 483 |               <li>
- 484 |                 Pause each survivor’s run (F1). When <b>both</b> sides are paused, the player with the <b>longest time</b> gets +1.
- 485 |               </li>
- 486 |               <li>
- 487 |                 Times under <b>{autoScoreThresholdSec}s</b> are ignored (prevents accidental starts).
- 488 |               </li>
- 489 |               <li>This never stops your timers — it only updates the score.</li>
- 490 |             </ul>
+ 477 |               <button
+ 478 |                 type="button"
+ 479 |                 role="switch"
+ 480 |                 aria-checked={locked}
+ 481 |                 onClick={() => {
+ 482 |                   const next = !locked;
+ 483 |                   setLocked(next);
+ 484 |                   window.api.overlay.updateSettings({ locked: next });
+ 485 |                 }}
+ 486 |                 className={["relative h-6 w-11 rounded-full transition-colors", locked ? "bg-emerald-500" : "bg-neutral-300", "ring-1 ring-black/5"].join(" ")}
+ 487 |               >
+ 488 |                 <span aria-hidden className={["absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", locked ? "translate-x-5" : ""].join(" ")} />
+ 489 |               </button>
+ 490 |             </label>
  491 |           </div>
- 492 |         </section>
- 493 | 
- 494 |         {/* CTA sections (inchangées) */}
- 495 |         <section className="mt-8 relative overflow-hidden rounded-3xl border border-violet-500/30 bg-gradient-to-br from-violet-600/10 via-fuchsia-600/10 to-emerald-500/10 p-5">
- 496 |           <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full blur-3xl bg-violet-500/30" />
- 497 |           <div className="pointer-events-none absolute -bottom-20 -left-24 h-72 w-72 rounded-full blur-3xl bg-emerald-400/20" />
- 498 |           <div className="relative">
- 499 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">👑 PREMIUM OVERLAYS</div>
- 500 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">Unlock more overlays & tools</h3>
- 501 |             <p className="mt-2 text-sm text-zinc-200">
- 502 |               Join our Discord to get the premium version: <b>killer streaks</b>, <b>survivor streaks</b>, <b>win/loss counter</b>, <b>tournament overlay</b>, and more!
- 503 |             </p>
- 504 |             <a
- 505 |               href="http://discord.com/invite/aVdT8rRJKc"
- 506 |               target="_blank"
- 507 |               rel="noopener noreferrer"
- 508 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
- 509 |             >
- 510 |               Join the Discord
- 511 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
- 512 |                 <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
- 513 |               </svg>
- 514 |             </a>
- 515 |           </div>
- 516 |         </section>
- 517 | 
- 518 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-cyan-400/30 bg-gradient-to-tr from-cyan-400/10 via-sky-500/10 to-indigo-500/10 p-5">
- 519 |           <div className="pointer-events-none absolute -top-16 right-0 h-64 w-64 rounded-full blur-3xl bg-cyan-400/30" />
- 520 |           <div className="relative">
- 521 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">🎨 ReShade Filters</div>
- 522 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">GET STEAXS RESHADES</h3>
- 523 |             <p className="mt-2 text-sm text-zinc-200">
- 524 |               Competitive ReShade presets tailored for Dead by Daylight. One filter per map. Sharper visibility, clean colors, and a consistent look across maps.
- 525 |             </p>
- 526 |             <a
- 527 |               href="https://discord.com/invite/6RHPNNVtKw"
- 528 |               target="_blank"
- 529 |               rel="noopener noreferrer"
- 530 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
- 531 |             >
- 532 |               Get the Presets
- 533 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
- 534 |                 <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
- 535 |               </svg>
- 536 |             </a>
- 537 |           </div>
- 538 |         </section>
- 539 | 
- 540 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-amber-400/30 bg-gradient-to-tr from-amber-400/10 via-orange-500/10 to-rose-500/10 p-5">
- 541 |           <div className="pointer-events-none absolute -top-16 -right-16 h-64 w-64 rounded-full blur-3xl bg-amber-400/30" />
- 542 |           <div className="pointer-events-none absolute -bottom-16 -left-20 h-64 w-64 rounded-full blur-3xl bg-rose-400/20" />
- 543 |           <div className="relative">
- 544 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">☕ SUPPORT THE PROJECT</div>
- 545 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">Buy me a coffee</h3>
- 546 |             <p className="mt-2 text-sm text-zinc-200">
- 547 |               If these overlays help you, consider buying me a coffee. Your donation keeps the project alive, funds maintenance, and fuels new features.
- 548 |             </p>
- 549 |             <a
- 550 |               href="https://buymeacoffee.com/steaxss"
- 551 |               target="_blank"
- 552 |               rel="noopener noreferrer"
- 553 |               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
- 554 |             >
- 555 |               Buy Me a Coffee
- 556 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
- 557 |                 <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
- 558 |               </svg>
- 559 |             </a>
- 560 |           </div>
- 561 |         </section>
- 562 | 
- 563 |         {/* Footer */}
- 564 |         <footer className="mt-6">
- 565 |           <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-300">
- 566 |             <div className="uppercase tracking-wider">
- 567 |               © TIMER BY <b>STEAXS</b> &amp; PREMIUM VERSION BY <b>DOC</b> — 2025
- 568 |             </div>
- 569 |           </div>
- 570 |         </footer>
- 571 |       </div>
- 572 |     </div>
- 573 |   );
- 574 | };
- 575 | 
- 576 | export default ControlPanel;
+ 492 | 
+ 493 |           <div className={`mt-4 rounded-lg border p-3 text-sm ${locked ? "border-[#44FF41]/40 bg-[#44FF41]/10 text-[#44FF41]" : "border-violet-500/40 bg-violet-500/10 text-violet-300"}`}>
+ 494 |             {locked ? "Overlay is locked – clicks will go through." : "Overlay is unlocked – drag the purple bar to reposition."}
+ 495 |           </div>
+ 496 | 
+ 497 |           <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-zinc-300 leading-relaxed">
+ 498 |             <b>How auto-score works</b>:
+ 499 |             <ul className="list-disc ml-5 mt-2 space-y-1">
+ 500 |               <li>Make sure the active timer is on the <b>current survivor</b> (use <b>Swap</b> before starting).</li>
+ 501 |               <li>Pause each survivor’s run (F1). When <b>both</b> sides are paused, the player with the <b>longest time</b> gets +1.</li>
+ 502 |               <li>Times under <b>{autoScoreThresholdSec}s</b> are ignored (prevents accidental starts).</li>
+ 503 |               <li>This never stops your timers — it only updates the score.</li>
+ 504 |             </ul>
+ 505 |           </div>
+ 506 |         </section>
+ 507 | 
+ 508 |         {/* CTAs & Footer (inchangés) */}
+ 509 |         <section className="mt-8 relative overflow-hidden rounded-3xl border border-violet-500/30 bg-gradient-to-br from-violet-600/10 via-fuchsia-600/10 to-emerald-500/10 p-5">
+ 510 |           <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full blur-3xl bg-violet-500/30" />
+ 511 |           <div className="pointer-events-none absolute -bottom-20 -left-24 h-72 w-72 rounded-full blur-3xl bg-emerald-400/20" />
+ 512 |           <div className="relative">
+ 513 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">👑 PREMIUM OVERLAYS</div>
+ 514 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">Unlock more overlays & tools</h3>
+ 515 |             <p className="mt-2 text-sm text-zinc-200">
+ 516 |               Join our Discord to get the premium version: <b>killer streaks</b>, <b>survivor streaks</b>, <b>win/loss counter</b>, <b>tournament overlay</b>, and more!
+ 517 |             </p>
+ 518 |             <a href="http://discord.com/invite/aVdT8rRJKc" target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition">
+ 519 |               Join the Discord
+ 520 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
+ 521 |                 <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+ 522 |               </svg>
+ 523 |             </a>
+ 524 |           </div>
+ 525 |         </section>
+ 526 | 
+ 527 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-cyan-400/30 bg-gradient-to-tr from-cyan-400/10 via-sky-500/10 to-indigo-500/10 p-5">
+ 528 |           <div className="pointer-events-none absolute -top-16 right-0 h-64 w-64 rounded-full blur-3xl bg-cyan-400/30" />
+ 529 |           <div className="relative">
+ 530 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">🎨 ReShade Filters</div>
+ 531 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">GET STEAXS RESHADES</h3>
+ 532 |             <p className="mt-2 text-sm text-zinc-200">
+ 533 |               Competitive ReShade presets tailored for Dead by Daylight. One filter per map. Sharper visibility, clean colors, and a consistent look across maps.
+ 534 |             </p>
+ 535 |             <a href="https://discord.com/invite/6RHPNNVtKw" target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition">
+ 536 |               Get the Presets
+ 537 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none">
+ 538 |                 <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+ 539 |               </svg>
+ 540 |             </a>
+ 541 |           </div>
+ 542 |         </section>
+ 543 | 
+ 544 |         <section className="mt-6 relative overflow-hidden rounded-3xl border border-amber-400/30 bg-gradient-to-tr from-amber-400/10 via-orange-500/10 to-rose-500/10 p-5">
+ 545 |           <div className="pointer-events-none absolute -top-16 -right-16 h-64 w-64 rounded-full blur-3xl bg-amber-400/30" />
+ 546 |           <div className="pointer-events-none absolute -bottom-16 -left-20 h-64 w-64 rounded-full blur-3xl bg-rose-400/20" />
+ 547 |           <div className="relative">
+ 548 |             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">☕ SUPPORT THE PROJECT</div>
+ 549 |             <h3 className="mt-3 text-xl font-semibold tracking-tight text-white">Buy me a coffee</h3>
+ 550 |             <p className="mt-2 text-sm text-zinc-200">
+ 551 |               If these overlays help you, consider buying me a coffee. Your donation keeps the project alive, funds maintenance, and fuels new features.
+ 552 |             </p>
+ 553 |             <a href="https://buymeacoffee.com/steaxss" target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition">
+ 554 |               Buy Me a Coffee
+ 555 |               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+ 556 |                 <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+ 557 |               </svg>
+ 558 |             </a>
+ 559 |           </div>
+ 560 |         </section>
+ 561 | 
+ 562 |         {/* Footer */}
+ 563 |         <footer className="mt-6">
+ 564 |           <div className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 text-center text-zinc-300">
+ 565 |             <div className="uppercase tracking-wider">
+ 566 |               © TIMER BY <b>STEAXS</b> &amp; PREMIUM VERSION BY <b>DOC</b> — 2025
+ 567 |             </div>
+ 568 |           </div>
+ 569 |         </footer>
+ 570 |       </div>
+ 571 |     </div>
+ 572 |   );
+ 573 | };
+ 574 | 
+ 575 | export default ControlPanel;
 
 ```
 
@@ -3796,7 +3689,7 @@ dbdoverlaytools-free
   23 |           source?: 'any'|'desktop'|'gamepad'
   24 |           ): Promise<any>
   25 | 
-  26 |         onCaptured(cb: (p:{type:'start'|'swap', keycode?:number|null, label?:string}) => void): void
+  26 |         onCaptured(cb: (p: { type:"start"|"swap"; keycode?:number|null; label?:string; source?: "desktop" | "gamepad" }) => void): void
   27 |         on(cb: (p: any) => void): void
   28 |         onMode(cb: (mode:'pass-through'|'fallback') => void): void
   29 |       },
