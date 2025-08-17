@@ -111,6 +111,7 @@ function createMainWindow(storeRef, icoPath, isDevFlag) {
 
   Menu.setApplicationMenu?.(null);
   mainWindow.setMenuBarVisibility(false);
+  enforceExternalLinks(mainWindow);
 
   // Bloque Alt menu (évite le flash de barre menu)
   mainWindow.webContents.on("before-input-event", (event, input) => {

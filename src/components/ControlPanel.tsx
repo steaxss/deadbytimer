@@ -479,7 +479,7 @@ const ControlPanel: React.FC = () => {
             <a
               href="http://discord.com/invite/aVdT8rRJKc"
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
             >
               Join the Discord
@@ -512,7 +512,7 @@ const ControlPanel: React.FC = () => {
             <a
               href="https://discord.com/invite/6RHPNNVtKw"
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition"
             >
               Get the Presets
