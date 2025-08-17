@@ -2,6 +2,7 @@ import React from "react";
 import { useTimerStore } from "@/store/timerStore";
 import { formatMillisDynamic } from "@/utils/timer";
 import ScrollingName from "@/components/ScrollingName";
+import { NAME_BG, ACCENTS_MAP, NameTheme, AccentKey } from "@/themes/palette";
 
 type TD = {
   player1: { name: string; score: number };
@@ -43,6 +44,15 @@ export default function TimerOverlay() {
     window.api.overlay.onSettings((s: any) => {
       setLocked(!!s.locked);
       setScale(s.scale || 100);
+      
+      // === Thèmes ===
+      const nt: NameTheme = s?.nameTheme === 'dark' ? 'dark' : 'default';
+      const ak: AccentKey = (s?.accentKey in ACCENTS_MAP ? s.accentKey : 'default') as AccentKey;
+
+      // Appliquer les variables CSS au document (overlay window)
+      const root = document.documentElement;
+      root.style.setProperty('--name-bg', NAME_BG[nt]);
+      root.style.setProperty('--accent-gradient', ACCENTS_MAP[ak]);
     });
   }, []);
 

@@ -66,6 +66,8 @@ function sendOverlaySettings(ov, storeRef, isDevFlag) {
       scale: 100,
       locked: true,
       alwaysOnTop: true,
+      nameTheme: 'default',
+      accentKey: 'default',
     });
     ov.webContents.send("overlay-settings", s);
   }
@@ -109,6 +111,7 @@ function createMainWindow(storeRef, icoPath, isDevFlag) {
 
   Menu.setApplicationMenu?.(null);
   mainWindow.setMenuBarVisibility(false);
+  enforceExternalLinks(mainWindow);
 
   // Bloque Alt menu (évite le flash de barre menu)
   mainWindow.webContents.on("before-input-event", (event, input) => {

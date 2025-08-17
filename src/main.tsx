@@ -77,7 +77,7 @@ function App() {
           <span>Always on top</span>
         </label>
       </div>
-
+      
       <div className="mt-6 text-sm text-zinc-400">
         Hotkeys: <b>F1</b> start/pause/reset — <b>F2</b> swap active timer.
       </div>

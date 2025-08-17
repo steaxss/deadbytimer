@@ -63,7 +63,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "DBD Timer Overlay"
+      "deleteAppDataOnUninstall": true,
+      "shortcutName": "DBD 1V1 Timer Overlay"
     },
     "files": [
       "dist/**",

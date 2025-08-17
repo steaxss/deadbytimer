@@ -75,7 +75,7 @@ const K = {
   MOUSE_BINDS: "mouseBinds",
 };
 const defaults = {
-  [K.OVERLAY]: { x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true },
+  [K.OVERLAY]: { x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true, nameTheme: 'default', accentKey: 'default' },
   [K.TIMER]: {
     player1: { name: "Player 1", score: 0 },
     player2: { name: "Player 2", score: 0 },
