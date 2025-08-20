@@ -48,15 +48,15 @@ export default function TimerOverlay() {
     window.api.overlay.onSettings((s: any) => {
       setLocked(!!s.locked);
       setScale(s.scale || 100);
-
+      
       // === Thèmes ===
-      const nt: NameTheme = s?.nameTheme === "dark" ? "dark" : "default";
-      const ak: AccentKey = (s?.accentKey in ACCENTS_MAP ? s.accentKey : "default") as AccentKey;
+      const nt: NameTheme = s?.nameTheme === 'dark' ? 'dark' : 'default';
+      const ak: AccentKey = (s?.accentKey in ACCENTS_MAP ? s.accentKey : 'default') as AccentKey;
 
       // Appliquer les variables CSS au document (overlay window)
       const root = document.documentElement;
-      root.style.setProperty("--name-bg", NAME_BG[nt]);
-      root.style.setProperty("--accent-gradient", ACCENTS_MAP[ak]);
+      root.style.setProperty('--name-bg', NAME_BG[nt]);
+      root.style.setProperty('--accent-gradient', ACCENTS_MAP[ak]);
 
       // === Auto-score ===
       setAutoScoreEnabled(s?.autoScoreEnabled !== false); // par défaut: true
@@ -146,7 +146,7 @@ export default function TimerOverlay() {
     const isRunning = status[active] === "running";
     if (!isRunning) return "";
     const other = active === 1 ? 2 : 1;
-
+    
     const otherMs = elapsed(other);
     if (otherMs <= 0) return "";
 
@@ -162,6 +162,7 @@ export default function TimerOverlay() {
   // On déclenche à la transition running -> paused pour chaque côté,
   // on mémorise les deux durées, puis on attribue +1 au plus long si
   // (a) les deux côtés sont renseignés et (b) ***min >= seuil***.
+  // En cas d'égalité parfaite (a === b ≥ seuil) : **aucun point**, on purge la paire.
   const prevStatusRef = React.useRef<{ 1: string; 2: string }>({
     1: "stopped",
     2: "stopped",
@@ -175,7 +176,9 @@ export default function TimerOverlay() {
     const prev = prevStatusRef.current;
 
     // 1) détecter fin de run: running -> paused
-    ([1, 2] as const).forEach((n) => {
+    ([
+      1, 2
+    ] as const).forEach((n) => {
       if (prev[n] === "running" && status[n] === "paused") {
         // snapshot au moment de la pause
         pairRef.current[n] = elapsed(n);
@@ -191,30 +194,35 @@ export default function TimerOverlay() {
     const b = pairRef.current[2];
 
     if (a != null && b != null) {
-      // HOTFIX: exiger que *les deux* timers atteignent le seuil
+      // Règle: *les deux* doivent atteindre le seuil
       const minMs = Math.min(a, b);
 
       if (autoScoreEnabled && minMs >= autoScoreThresholdMs) {
-        const winner: 1 | 2 = a >= b ? 1 : 2;
-        setPlayers((prevPlayers) => {
-          const next: TD = {
-            player1: {
-              ...prevPlayers.player1,
-              score: prevPlayers.player1.score + (winner === 1 ? 1 : 0),
-            },
-            player2: {
-              ...prevPlayers.player2,
-              score: prevPlayers.player2.score + (winner === 2 ? 1 : 0),
-            },
-          };
-          // persister (et synchroniser le Control Panel)
-          window.api.timer.set(next);
-          return next;
-        });
-
-        // Paire traitée → on réinitialise les deux côtés
-        pairRef.current[1] = null;
-        pairRef.current[2] = null;
+        if (a === b) {
+          // Égalité parfaite: pas de point, on réinitialise la paire.
+          pairRef.current[1] = null;
+          pairRef.current[2] = null;
+        } else {
+          const winner: 1 | 2 = a > b ? 1 : 2; // strict '>' pour éviter de scorer en égalité
+          setPlayers((prevPlayers) => {
+            const next: TD = {
+              player1: {
+                ...prevPlayers.player1,
+                score: prevPlayers.player1.score + (winner === 1 ? 1 : 0),
+              },
+              player2: {
+                ...prevPlayers.player2,
+                score: prevPlayers.player2.score + (winner === 2 ? 1 : 0),
+              },
+            };
+            // persister (et synchroniser le Control Panel)
+            window.api.timer.set(next);
+            return next;
+          });
+          // Paire traitée → purge des deux côtés
+          pairRef.current[1] = null;
+          pairRef.current[2] = null;
+        }
       } else {
         // Pas de score (ex: faux départ) → ne purge *que* le(s) côté(s) < seuil
         // pour conserver la valeur valide de l'autre côté (persistance).
@@ -227,6 +235,19 @@ export default function TimerOverlay() {
     prevStatusRef.current = { ...status };
   }, [status[1], status[2], autoScoreEnabled, autoScoreThresholdMs, elapsed]);
   // ======================================================
+
+  // === Nouveau : purge des snapshots à chaque bascule ON↔OFF de l'auto-score ===
+  const prevAutoRef = React.useRef(autoScoreEnabled);
+  React.useEffect(() => {
+    const was = prevAutoRef.current;
+    if (was !== autoScoreEnabled) {
+      // ON -> OFF ou OFF -> ON : on vide la paire pour éviter tout scoring "fantôme"
+      pairRef.current[1] = null;
+      pairRef.current[2] = null;
+    }
+    prevAutoRef.current = autoScoreEnabled;
+  }, [autoScoreEnabled]);
+  // ==============================================================================
 
   return (
     // wrapper extérieur = dimension exacte *après* zoom → pas de scroll
@@ -253,23 +274,23 @@ export default function TimerOverlay() {
       >
         <div className="timer-overlay" id="timerContainer">
           {/* Noms + score */}
-          <div className="name left">
-            <ScrollingName
-              text={players.player1.name || "PLAYER 1"}
-              className="player-name scrolling-name--hover"
-            />
-          </div>
+            <div className="name left">
+              <ScrollingName
+                text={players.player1.name || "PLAYER 1"}
+                className="player-name scrolling-name--hover"
+              />
+            </div>
 
-          <div className="score-value">
-            {players.player1.score} – {players.player2.score}
-          </div>
+            <div className="score-value">
+              {players.player1.score} – {players.player2.score}
+            </div>
 
-          <div className="name right">
-            <ScrollingName
-              text={players.player2.name || "PLAYER 2"}
-              className="player-name scrolling-name--hover"
-            />
-          </div>
+            <div className="name right">
+              <ScrollingName
+                text={players.player2.name || "PLAYER 2"}
+                className="player-name scrolling-name--hover"
+              />
+            </div>
 
           {/* Timers */}
           <div
