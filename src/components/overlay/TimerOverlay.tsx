@@ -48,15 +48,15 @@ export default function TimerOverlay() {
     window.api.overlay.onSettings((s: any) => {
       setLocked(!!s.locked);
       setScale(s.scale || 100);
-      
+
       // === Thèmes ===
-      const nt: NameTheme = s?.nameTheme === 'dark' ? 'dark' : 'default';
-      const ak: AccentKey = (s?.accentKey in ACCENTS_MAP ? s.accentKey : 'default') as AccentKey;
+      const nt: NameTheme = s?.nameTheme === "dark" ? "dark" : "default";
+      const ak: AccentKey = (s?.accentKey in ACCENTS_MAP ? s.accentKey : "default") as AccentKey;
 
       // Appliquer les variables CSS au document (overlay window)
       const root = document.documentElement;
-      root.style.setProperty('--name-bg', NAME_BG[nt]);
-      root.style.setProperty('--accent-gradient', ACCENTS_MAP[ak]);
+      root.style.setProperty("--name-bg", NAME_BG[nt]);
+      root.style.setProperty("--accent-gradient", ACCENTS_MAP[ak]);
 
       // === Auto-score ===
       setAutoScoreEnabled(s?.autoScoreEnabled !== false); // par défaut: true
@@ -146,7 +146,7 @@ export default function TimerOverlay() {
     const isRunning = status[active] === "running";
     if (!isRunning) return "";
     const other = active === 1 ? 2 : 1;
-    
+
     const otherMs = elapsed(other);
     if (otherMs <= 0) return "";
 
@@ -161,7 +161,7 @@ export default function TimerOverlay() {
   // ===================== AUTO-SCORE =====================
   // On déclenche à la transition running -> paused pour chaque côté,
   // on mémorise les deux durées, puis on attribue +1 au plus long si
-  // (a) les deux côtés sont renseignés et (b) max >= seuil.
+  // (a) les deux côtés sont renseignés et (b) ***min >= seuil***.
   const prevStatusRef = React.useRef<{ 1: string; 2: string }>({
     1: "stopped",
     2: "stopped",
@@ -175,9 +175,7 @@ export default function TimerOverlay() {
     const prev = prevStatusRef.current;
 
     // 1) détecter fin de run: running -> paused
-    ([
-      1, 2
-    ] as const).forEach((n) => {
+    ([1, 2] as const).forEach((n) => {
       if (prev[n] === "running" && status[n] === "paused") {
         // snapshot au moment de la pause
         pairRef.current[n] = elapsed(n);
@@ -193,8 +191,10 @@ export default function TimerOverlay() {
     const b = pairRef.current[2];
 
     if (a != null && b != null) {
-      const maxMs = Math.max(a, b);
-      if (autoScoreEnabled && maxMs >= autoScoreThresholdMs) {
+      // HOTFIX: exiger que *les deux* timers atteignent le seuil
+      const minMs = Math.min(a, b);
+
+      if (autoScoreEnabled && minMs >= autoScoreThresholdMs) {
         const winner: 1 | 2 = a >= b ? 1 : 2;
         setPlayers((prevPlayers) => {
           const next: TD = {
@@ -211,10 +211,17 @@ export default function TimerOverlay() {
           window.api.timer.set(next);
           return next;
         });
+
+        // Paire traitée → on réinitialise les deux côtés
+        pairRef.current[1] = null;
+        pairRef.current[2] = null;
+      } else {
+        // Pas de score (ex: faux départ) → ne purge *que* le(s) côté(s) < seuil
+        // pour conserver la valeur valide de l'autre côté (persistance).
+        if (a < autoScoreThresholdMs) pairRef.current[1] = null;
+        if (b < autoScoreThresholdMs) pairRef.current[2] = null;
+        // Si les deux sont >= seuil mais autoScoreEnabled=false, on garde les deux.
       }
-      // 3) réinitialiser pour la paire suivante
-      pairRef.current[1] = null;
-      pairRef.current[2] = null;
     }
 
     prevStatusRef.current = { ...status };
@@ -246,23 +253,23 @@ export default function TimerOverlay() {
       >
         <div className="timer-overlay" id="timerContainer">
           {/* Noms + score */}
-            <div className="name left">
-              <ScrollingName
-                text={players.player1.name || "PLAYER 1"}
-                className="player-name scrolling-name--hover"
-              />
-            </div>
+          <div className="name left">
+            <ScrollingName
+              text={players.player1.name || "PLAYER 1"}
+              className="player-name scrolling-name--hover"
+            />
+          </div>
 
-            <div className="score-value">
-              {players.player1.score} – {players.player2.score}
-            </div>
+          <div className="score-value">
+            {players.player1.score} – {players.player2.score}
+          </div>
 
-            <div className="name right">
-              <ScrollingName
-                text={players.player2.name || "PLAYER 2"}
-                className="player-name scrolling-name--hover"
-              />
-            </div>
+          <div className="name right">
+            <ScrollingName
+              text={players.player2.name || "PLAYER 2"}
+              className="player-name scrolling-name--hover"
+            />
+          </div>
 
           {/* Timers */}
           <div
