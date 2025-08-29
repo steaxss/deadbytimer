@@ -83,7 +83,9 @@ const ControlPanel: React.FC = () => {
     window.api.overlay.onSettings((s: any) => {
       if (typeof s.locked === "boolean") setLocked(!!s.locked);
       if (typeof s.scale === "number") setScale(s.scale);
-      if (s?.nameTheme) setNameTheme(s.nameTheme === "dark" ? "dark" : "default");
+      if (s?.nameTheme) setNameTheme(
+        s.nameTheme === 'dark' ? 'dark' : (s.nameTheme === 'white' ? 'white' : 'default')
+      );
       if (s?.accentKey && ACCENTS.some((a) => a.key === s.accentKey)) setAccentKey(s.accentKey);
       if (typeof s?.autoScoreEnabled === "boolean") setAutoScore(s.autoScoreEnabled);
     });
@@ -398,10 +400,10 @@ const ControlPanel: React.FC = () => {
               <span className="text-xs text-zinc-500">Applies to player name boxes</span>
             </div>
             <div className="grid grid-cols-6 gap-2">
-              {(["default", "dark"] as NameTheme[]).map((nt) => (
+              {(["default", "dark", "white"] as NameTheme[]).map((nt) => (
                 <Swatch
                   key={nt}
-                  title={nt === "default" ? "Default" : "Dark"}
+                  title={nt === "default" ? "Default" : nt === "dark" ? "Dark" : "White"}
                   background={NAME_BG[nt]}
                   isActive={nameTheme === nt}
                   onClick={() => {
