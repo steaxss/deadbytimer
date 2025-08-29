@@ -161,7 +161,8 @@ export default function TimerOverlay() {
   // ===================== AUTO-SCORE =====================
   // On déclenche à la transition running -> paused pour chaque côté,
   // on mémorise les deux durées, puis on attribue +1 au plus long si
-  // (a) les deux côtés sont renseignés et (b) max >= seuil.
+  // (a) les deux côtés sont renseignés et (b) ***min >= seuil***.
+  // En cas d'égalité parfaite (a === b ≥ seuil) : **aucun point**, on purge la paire.
   const prevStatusRef = React.useRef<{ 1: string; 2: string }>({
     1: "stopped",
     2: "stopped",
@@ -193,33 +194,60 @@ export default function TimerOverlay() {
     const b = pairRef.current[2];
 
     if (a != null && b != null) {
-      const maxMs = Math.max(a, b);
-      if (autoScoreEnabled && maxMs >= autoScoreThresholdMs) {
-        const winner: 1 | 2 = a >= b ? 1 : 2;
-        setPlayers((prevPlayers) => {
-          const next: TD = {
-            player1: {
-              ...prevPlayers.player1,
-              score: prevPlayers.player1.score + (winner === 1 ? 1 : 0),
-            },
-            player2: {
-              ...prevPlayers.player2,
-              score: prevPlayers.player2.score + (winner === 2 ? 1 : 0),
-            },
-          };
-          // persister (et synchroniser le Control Panel)
-          window.api.timer.set(next);
-          return next;
-        });
+      // Règle: *les deux* doivent atteindre le seuil
+      const minMs = Math.min(a, b);
+
+      if (autoScoreEnabled && minMs >= autoScoreThresholdMs) {
+        if (a === b) {
+          // Égalité parfaite: pas de point, on réinitialise la paire.
+          pairRef.current[1] = null;
+          pairRef.current[2] = null;
+        } else {
+          const winner: 1 | 2 = a > b ? 1 : 2; // strict '>' pour éviter de scorer en égalité
+          setPlayers((prevPlayers) => {
+            const next: TD = {
+              player1: {
+                ...prevPlayers.player1,
+                score: prevPlayers.player1.score + (winner === 1 ? 1 : 0),
+              },
+              player2: {
+                ...prevPlayers.player2,
+                score: prevPlayers.player2.score + (winner === 2 ? 1 : 0),
+              },
+            };
+            // persister (et synchroniser le Control Panel)
+            window.api.timer.set(next);
+            return next;
+          });
+          // Paire traitée → purge des deux côtés
+          pairRef.current[1] = null;
+          pairRef.current[2] = null;
+        }
+      } else {
+        // Pas de score (ex: faux départ) → ne purge *que* le(s) côté(s) < seuil
+        // pour conserver la valeur valide de l'autre côté (persistance).
+        if (a < autoScoreThresholdMs) pairRef.current[1] = null;
+        if (b < autoScoreThresholdMs) pairRef.current[2] = null;
+        // Si les deux sont >= seuil mais autoScoreEnabled=false, on garde les deux.
       }
-      // 3) réinitialiser pour la paire suivante
-      pairRef.current[1] = null;
-      pairRef.current[2] = null;
     }
 
     prevStatusRef.current = { ...status };
   }, [status[1], status[2], autoScoreEnabled, autoScoreThresholdMs, elapsed]);
   // ======================================================
+
+  // === Nouveau : purge des snapshots à chaque bascule ON↔OFF de l'auto-score ===
+  const prevAutoRef = React.useRef(autoScoreEnabled);
+  React.useEffect(() => {
+    const was = prevAutoRef.current;
+    if (was !== autoScoreEnabled) {
+      // ON -> OFF ou OFF -> ON : on vide la paire pour éviter tout scoring "fantôme"
+      pairRef.current[1] = null;
+      pairRef.current[2] = null;
+    }
+    prevAutoRef.current = autoScoreEnabled;
+  }, [autoScoreEnabled]);
+  // ==============================================================================
 
   return (
     // wrapper extérieur = dimension exacte *après* zoom → pas de scroll
