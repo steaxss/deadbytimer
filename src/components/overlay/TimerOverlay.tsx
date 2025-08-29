@@ -50,13 +50,22 @@ export default function TimerOverlay() {
       setScale(s.scale || 100);
       
       // === Thèmes ===
-      const nt: NameTheme = s?.nameTheme === 'dark' ? 'dark' : 'default';
+      const nt: NameTheme = s?.nameTheme === 'dark'
+      ? 'dark'
+      : (s?.nameTheme === 'white' ? 'white' : 'default');
       const ak: AccentKey = (s?.accentKey in ACCENTS_MAP ? s.accentKey : 'default') as AccentKey;
 
       // Appliquer les variables CSS au document (overlay window)
       const root = document.documentElement;
       root.style.setProperty('--name-bg', NAME_BG[nt]);
+      root.style.setProperty('--name-color', nt === 'white' ? '#000000' : '#FFFFFF');
       root.style.setProperty('--accent-gradient', ACCENTS_MAP[ak]);
+      root.style.setProperty('--name-glow', nt === 'white'
+        ? '0 0 2px rgba(0,0,0,0.70), 0 0 7px rgba(0,0,0,0.40)'
+        : '0 0 6px rgba(255,255,255,0.50)');
+      root.style.setProperty('--name-stroke', nt === 'white'
+        ? '0.6px rgba(0,0,0,0.65)'
+        : '0px transparent');
 
       // === Auto-score ===
       setAutoScoreEnabled(s?.autoScoreEnabled !== false); // par défaut: true

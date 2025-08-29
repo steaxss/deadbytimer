@@ -7,6 +7,9 @@
     --name-bg: linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%);
     /* accent commun : fond du score + swap bar */
     --accent-gradient: linear-gradient(90deg, #274B90 0.06%, #09327E 40.01%, #04296F 79.97%);
+    /* halo par défaut pour texte clair */
+    --name-glow: 0 0 6px rgba(255,255,255,0.50);
+    --name-stroke: 0px transparent;
   }
 
 .timer-overlay {
@@ -40,9 +43,14 @@
   font-size: 22px; font-weight: 500; color: #FFF;
   position: relative; overflow: hidden;
 }
+
+.name { -webkit-text-stroke: var(--name-stroke); }
+
+.name { color: var(--name-color, #FFF); }
+
 .name.left {
   grid-row: 1; grid-column: 1; font-size: 24px; text-transform: uppercase;
-  text-shadow: 0 0 6px rgba(255,255,255,0.50);
+  text-shadow: var(--name-glow);
 }
 .score-value {
   grid-row: 1; grid-column: 2; font-size: 24px; text-transform: uppercase;
@@ -51,7 +59,7 @@
 }
 .name.right {
   grid-row: 1; grid-column: 3; font-size: 24px; text-transform: uppercase;
-  text-shadow: 0 0 6px rgba(255,255,255,0.50);
+  text-shadow: var(--name-glow);
 }
 
 .scrolling-name{

@@ -1,4 +1,4 @@
-export type NameTheme = 'default' | 'dark';
+export type NameTheme = 'default' | 'dark' | 'white';
 
 export type AccentKey =
   | 'default'    // bleu d'origine
@@ -22,6 +22,7 @@ export type AccentKey =
 export const NAME_BG: Record<NameTheme, string> = {
   default: 'linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%)',
   dark:    'linear-gradient(0deg, #000000 0%, #000000 50%, #111111 100%)',
+  white:   'linear-gradient(0deg, #FFFFFF 0%, #FFFFFF 100%)',
 };
 
 export const ACCENTS: { key: AccentKey; label: string; gradient: string }[] = [
