@@ -82,9 +82,12 @@ function recomputeOverlaySize(ov, storeRef, getBaseDims) {
   const dragH = s.locked ? 0 : 30;
   const scale = (s.scale || 100) / 100;
   const dims = (getBaseDims || _getBaseDims)();
-  const w = Math.ceil(dims.width * scale);
-  const h = Math.ceil((dims.height + dragH) * scale);
-  ov.setContentSize(w, h);
+  const w = Math.round(dims.width * scale);
+  const h = Math.round((dims.height + dragH) * scale);
+  const [cw, ch] = typeof ov.getContentSize === 'function' ? ov.getContentSize() : ov.getSize();
+  if (cw !== w || ch !== h) {
+    ov.setContentSize(w, h);
+  }
   sendOverlaySettings(ov, storeRef, isDev);
 }
 

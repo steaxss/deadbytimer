@@ -340,11 +340,12 @@ function setupIPC() {
   ipcMain.handle("overlay-measure", (_evt, dims) => {
     if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
       return false;
-    baseDims = {
-      width: Math.max(1, Math.floor(dims.width)),
-      height: Math.max(1, Math.floor(dims.height)),
-    };
-    windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
+    const nw = Math.max(1, Math.floor(dims.width));
+    const nh = Math.max(1, Math.floor(dims.height));
+    if (baseDims.width !== nw || baseDims.height !== nh) {
+      baseDims = { width: nw, height: nh };
+      windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
+    }
     return true;
   });
 
