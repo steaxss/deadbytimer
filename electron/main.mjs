@@ -409,6 +409,8 @@ function setupIPC() {
 }
 
 /* -------------------- lifecycle -------------------- */
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch("enable-zero-copy");
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
 

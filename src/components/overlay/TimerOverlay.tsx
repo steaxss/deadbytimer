@@ -94,6 +94,7 @@ export default function TimerOverlay() {
     let cancel = false;
     let raf = 0;
     let intervalId: number | undefined;
+    let heartbeatId: number | undefined; // secours anti-freeze
 
     const bump = () => setTick((t) => (t + 1) | 0);
 
@@ -104,17 +105,31 @@ export default function TimerOverlay() {
         raf = requestAnimationFrame(loop);
       };
       raf = requestAnimationFrame(loop);
+      // Heartbeat: si rAF est brièvement suspendu, on garde au moins 4 fps
+      heartbeatId = window.setInterval(bump, 250);
     } else {
-      // ~8 FPS
-      intervalId = window.setInterval(bump, 125);
+      // ~4 FPS ici aussi
+      intervalId = window.setInterval(bump, 250);
     }
 
     return () => {
       cancel = true;
       if (raf) cancelAnimationFrame(raf);
       if (intervalId) clearInterval(intervalId);
+      if (heartbeatId) clearInterval(heartbeatId);
     };
   }, [status[1], status[2]]);
+  
+  React.useEffect(() => {
+    const bump = () => setTick((t) => (t + 1) | 0);
+    const onVisOrFocus = () => bump();
+    window.addEventListener('visibilitychange', onVisOrFocus);
+    window.addEventListener('focus', onVisOrFocus);
+      return () => {
+        window.removeEventListener('visibilitychange', onVisOrFocus);
+        window.removeEventListener('focus', onVisOrFocus);
+      };
+    }, []);
 
   // Mesure pour le main (taille intrinsèque)
   React.useEffect(() => {
