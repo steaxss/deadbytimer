@@ -18,6 +18,10 @@ A lightweight desktop overlay for *Dead by Daylight* 1v1 matches. Transparent, c
 
 ---
 
+## 🖼️ App Preview
+
+![DBD 1v1 Timer Overlay Preview](https://i.imgur.com/5rLwdeD.png)
+
 ## Support & Updates
 
 [![Join our Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](http://discord.com/invite/aVdT8rRJKc)
