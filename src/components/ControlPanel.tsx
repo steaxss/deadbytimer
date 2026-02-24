@@ -31,13 +31,23 @@ const ACCENT_LABELS_EN: Record<AccentKey, string> = {
   anthracite: "Charcoal",
   argent: "Silver",
   corail: "Coral/Peach",
+  turquoise: "Turquoise",
+  indigo: "Indigo",
+  fuchsia: "Fuchsia",
+  emeraude: "Emerald",
+  peche: "Peach",
 };
 
 const ControlPanel: React.FC = () => {
+  // Window controls
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [appVersion, setAppVersion] = useState("3.0");
+
   // Overlay
   const [overlayOn, setOverlayOn] = useState(false);
   const [locked, setLocked] = useState(true);
   const [scale, setScale] = useState(100);
+  const scaleDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const [nameTheme, setNameTheme] = useState<NameTheme>("default");
   const [accentKey, setAccentKey] = useState<AccentKey>("default");
@@ -64,6 +74,11 @@ const ControlPanel: React.FC = () => {
   const [capturingGp, setCapturingGp] = useState<null | "toggle" | "swap">(null);
 
   useEffect(() => {
+    // Window controls init
+    window.api.win.isMaximized().then((v: boolean) => setIsMaximized(v));
+    const cleanupMaximize = window.api.win.onMaximizeChange((v: boolean) => setIsMaximized(v));
+    window.api.win.getVersion().then((v: string) => { if (v) setAppVersion(v); });
+
     window.api.timer.get().then((d) => {
       if (d?.player1 && d?.player2) setPlayers(d);
     });
@@ -79,8 +94,8 @@ const ControlPanel: React.FC = () => {
       });
     }
 
-    window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
-    window.api.overlay.onSettings((s: any) => {
+    const cleanupOverlayReady = window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
+    const cleanupOverlaySettings = window.api.overlay.onSettings((s: any) => {
       if (typeof s.locked === "boolean") setLocked(!!s.locked);
       if (typeof s.scale === "number") setScale(s.scale);
       if (s?.nameTheme) setNameTheme(
@@ -91,12 +106,12 @@ const ControlPanel: React.FC = () => {
     });
 
     // Sync timer
-    window.api.timer.onSync((d: any) => {
+    const cleanupTimerSync = window.api.timer.onSync((d: any) => {
       if (d?.player1 && d?.player2) setPlayers(d);
     });
 
     // Capture feedback
-    window.api.hotkeys.onCaptured(
+    const cleanupHotkeysCaptured = window.api.hotkeys.onCaptured(
       (p: { type: "start" | "swap"; keycode?: number | null; label?: string; source?: "desktop" | "gamepad" }) => {
         // Desktop only: maj du libellé clavier/souris
         if ((p.source || "desktop") === "desktop" && p.label) {
@@ -118,6 +133,15 @@ const ControlPanel: React.FC = () => {
 
     // Always on top
     window.api.overlay.updateSettings({ alwaysOnTop: true });
+
+    // Cleanup all listeners on unmount
+    return () => {
+      cleanupMaximize();
+      cleanupOverlayReady();
+      cleanupOverlaySettings();
+      cleanupTimerSync();
+      cleanupHotkeysCaptured();
+    };
   }, []);
 
   // Cancel capture overlay (mouse left click)
@@ -141,8 +165,13 @@ const ControlPanel: React.FC = () => {
 
   const onScale = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = Number(e.target.value);
-    setScale(v);
-    window.api.overlay.updateSettings({ scale: v });
+    setScale(v); // UI update immédiat
+
+    // Debounce IPC call pour éviter spam pendant drag
+    if (scaleDebounceRef.current) clearTimeout(scaleDebounceRef.current);
+    scaleDebounceRef.current = setTimeout(() => {
+      window.api.overlay.updateSettings({ scale: v });
+    }, 100);
   };
 
   const onLock = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -181,12 +210,74 @@ const ControlPanel: React.FC = () => {
   );
 
   return (
-    <div className="mx-auto max-w-5xl p-6 text-zinc-100">
-      {/* Header */}
-      <header className="mb-4 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 flex items-center justify-between">
+    <div className="flex flex-col h-screen text-zinc-100 overflow-hidden">
+      {/* ====== Discord-style Titlebar ====== */}
+      <div className="titlebar-drag flex items-center justify-between h-[34px] min-h-[34px] bg-[#111114] border-b border-white/[0.06] select-none shrink-0 pl-3 pr-0">
+        {/* Left: Logo + App title */}
+        <div className="flex items-center gap-2.5 text-[11.5px] font-medium tracking-wide text-zinc-400 truncate">
+          <img src="/logo.ico" alt="DBD Timer" className="w-4 h-4 shrink-0" />
+          <span className="text-zinc-300 font-semibold">Dead by Timer 1v1</span>
+          <span className="text-zinc-600">—</span>
+          <span className="text-zinc-500">v{appVersion}</span>
+          <span className="text-zinc-600">—</span>
+          <span className="text-zinc-500">By Steaxs & Doc</span>
+        </div>
+
+        {/* Right: Window controls */}
+        <div className="flex items-center h-full">
+          {/* Minimize */}
+          <button
+            onClick={() => window.api.win.minimize()}
+            className="win-btn h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 transition-colors"
+            aria-label="Minimize"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="1" y="5.5" width="10" height="1" rx="0.5" fill="currentColor" />
+            </svg>
+          </button>
+
+          {/* Maximize / Restore */}
+          <button
+            onClick={() => window.api.win.maximize()}
+            className="win-btn h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 transition-colors"
+            aria-label={isMaximized ? "Restore" : "Maximize"}
+          >
+            {isMaximized ? (
+              /* Restore icon (two overlapping rects) */
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <rect x="2.5" y="3.5" width="6" height="6" rx="0.6" stroke="currentColor" strokeWidth="1" fill="none" />
+                <path d="M3.5 3.5V2.2a.6.6 0 0 1 .6-.6h5.2a.6.6 0 0 1 .6.6v5.2a.6.6 0 0 1-.6.6H8.5" stroke="currentColor" strokeWidth="1" fill="none" />
+              </svg>
+            ) : (
+              /* Maximize icon (single rect) */
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <rect x="1.5" y="1.5" width="9" height="9" rx="0.6" stroke="currentColor" strokeWidth="1.1" fill="none" />
+              </svg>
+            )}
+          </button>
+
+          {/* Close */}
+          <button
+            onClick={() => window.api.win.close()}
+            className="win-btn-close h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-[#e81123] hover:text-white transition-colors"
+            aria-label="Close"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* ====== Scrollable Content ====== */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-5xl px-6 pb-6 pt-4">
+
+      {/* Header: Overlay toggle */}
+      <header className="mb-4 rounded-2xl border border-white/10 bg-white/5 shadow-[0_8px_32px_rgba(0,0,0,.30)] px-5 py-3 flex items-center justify-between">
         <div>
-          <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">1v1 Overlay</div>
-          <h1 className="text-xl font-semibold tracking-tight">DBD Overlay Tools</h1>
+          <div className="text-[11px] uppercase tracking-[0.15em] font-bold text-[#FF6BCB]/90">1v1 Overlay</div>
+          <h1 className="text-lg font-semibold tracking-tight leading-tight">DBD Overlay Tools</h1>
         </div>
 
         <div className="flex items-center gap-3">
@@ -201,11 +292,24 @@ const ControlPanel: React.FC = () => {
         </div>
       </header>
 
-      <div className="scroll-thin pr-1">
+      <div>
         {/* Hotkeys (desktop) */}
         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
+              <button
+                className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                onClick={async () => {
+                  try {
+                    const result = await window.api.hotkeys.clear("start");
+                    setHkLabels({ ...hkLabels, start: result.startLabel || "F1" });
+                  } catch {}
+                }}
+              >
+                Clear
+              </button>
+            </div>
             <button
               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
                 capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
@@ -220,7 +324,20 @@ const ControlPanel: React.FC = () => {
           </div>
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
+              <button
+                className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                onClick={async () => {
+                  try {
+                    const result = await window.api.hotkeys.clear("swap");
+                    setHkLabels({ ...hkLabels, swap: result.swapLabel || "F2" });
+                  } catch {}
+                }}
+              >
+                Clear
+              </button>
+            </div>
             <button
               className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
                 capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
@@ -577,6 +694,9 @@ const ControlPanel: React.FC = () => {
           </div>
         </footer>
       </div>
+        </div>
+      </div>
+
       {/* 🧊 Overlay de cancel capture (clic gauche) */}
       {(capturing || capturingGp) && (
         <div

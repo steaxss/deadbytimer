@@ -404,8 +404,51 @@ function setupIPC() {
     return true;
   });
 
+  ipcMain.handle("hotkeys-clear", (_evt, action) => {
+    const key = action === "start" ? "start" : "swap";
+    hotkeys[key] = null;
+    hotkeysLabel[key] = action === "start" ? "F1" : "F2";
+    store.set(K.HK_CODES, hotkeys);
+    store.set(K.HK_LABELS, hotkeysLabel);
+
+    // Refresh fallback mode
+    usingUiohook = false;
+    capture.refreshHotkeyEngine({
+      globalShortcut,
+      hotkeysLabel,
+      isAlphaNumLabel,
+      logHK,
+      getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+      dispatchHotkey,
+    });
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send("hotkeys-mode", "fallback");
+
+    return { start: hotkeys.start, swap: hotkeys.swap, startLabel: hotkeysLabel.start, swapLabel: hotkeysLabel.swap };
+  });
+
   // 🚀 Capture: tout le workflow (IPC) déplacé dans le module capture
   capture.setupCaptureIPC();
+
+  // Window controls (custom titlebar)
+  ipcMain.handle("win-minimize", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+    return true;
+  });
+  ipcMain.handle("win-maximize", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+    return mainWindow.isMaximized();
+  });
+  ipcMain.handle("win-close", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+    return true;
+  });
+  ipcMain.handle("win-is-maximized", () => {
+    return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false;
+  });
+  ipcMain.handle("app-version", () => app.getVersion());
 }
 
 /* -------------------- lifecycle -------------------- */
@@ -413,6 +456,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch("enable-zero-copy");
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
+// NOTE: disable-frame-rate-limit REMOVED - causes excessive CPU (300+ fps rendering)
 
 app.whenReady().then(() => {
   mainWindow = windows.createMainWindow(store, iconPath, isDev);

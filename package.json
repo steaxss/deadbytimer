@@ -1,6 +1,6 @@
 {
   "name": "dbdtimer-steaxs",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "private": true,
   "description": "DBD 1v1 Timer Overlay by Steaxs (Free)",
   "main": "electron/main.mjs",

@@ -19,6 +19,7 @@
   width: 520px;
   height: 120px;
   position: relative;
+  contain: content;
 }
 
 .drag-handle {
@@ -63,7 +64,6 @@
 }
 
 .scrolling-name{
-  /* clé pour que l'enfant occupe la largeur du slot .name */
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
@@ -75,26 +75,11 @@
   position: relative;
 }
 
-/* texte réel à déplacer */
 .scrolling-name__inner{
   display: inline-block;
   white-space: nowrap;
-  will-change: transform;
-  transform: translateX(0);            /* position de base */
+  transform: translateX(0);
 }
-
-/* active le ping-pong seulement si nécessaire */
-.scrolling-name__inner.is-scrolling{
-  animation: name-pingpong var(--duration, 8s) ease-in-out infinite alternate;
-}
-
-/* ping-pong : 0 -> -shift -> 0 -> -shift ... */
-@keyframes name-pingpong{
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(calc(var(--shift, 0px) * -1)); }
-}
-
-/* .name.ticker-ltr { justify-content: flex-start; padding: 0 15px; } */
 
 .timer {
   display: flex; align-items: center; justify-content: center;
@@ -108,8 +93,6 @@
 
 .timer-text {
   display: inline-flex; align-items: center;
-  background: linear-gradient(180deg, #FFF 0%, #FFF 100%);
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 .timer-char {
   display: inline-block; width: 22px; text-align: center;
@@ -127,17 +110,15 @@
 
 .dbd-digits { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: 0.02em; }
 
-/* ========= États d’alerte pour le timer actif ========= */
-/* 20s avant loose → orange (fixe) */
-.timer.warn20 .timer-text,
+/* ========= Warning states for active timer ========= */
+/* 20s before loose -> orange (fixed) */
 .timer.warn20 .timer-char {
   background: linear-gradient(180deg, #FFD27A 0%, #FFA726 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   text-shadow: 0 0 18px rgba(255,167,38,0.35);
 }
 
-/* 10s avant loose → rouge clair + clignotement doux */
-.timer.warn10 .timer-text,
+/* 10s before loose -> red + blink */
 .timer.warn10 .timer-char {
   background: linear-gradient(180deg, #FF8A80 0%, #FF5252 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
@@ -148,10 +129,19 @@
   50% { opacity: .45; }
 }
 
-/* Loose condition dépassée → rouge (fixe) */
-.timer.loose .timer-text,
-.timer.loose .timer-char {
-  background: linear-gradient(180deg, #FF6B6B 0%, #FF4141 100%);
+/* Winning condition -> green with shimmer effect */
+.timer.winning .timer-char {
+  background: linear-gradient(180deg, #4ade80 0%, #22c55e 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-  text-shadow: 0 0 20px rgba(255,65,65,0.35);
+  text-shadow: 0 0 20px rgba(34,197,94,0.50);
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% {
+    filter: brightness(1) drop-shadow(0 0 8px rgba(34,197,94,0.4));
+  }
+  50% {
+    filter: brightness(1.3) drop-shadow(0 0 16px rgba(34,197,94,0.7));
+  }
 }

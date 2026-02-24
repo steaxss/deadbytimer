@@ -17,7 +17,12 @@ export type AccentKey =
   | 'marron'
   | 'anthracite'
   | 'argent'
-  | 'corail';
+  | 'corail'
+  | 'turquoise'
+  | 'indigo'
+  | 'fuchsia'
+  | 'emeraude'
+  | 'peche';
 
 export const NAME_BG: Record<NameTheme, string> = {
   default: 'linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%)',
@@ -43,6 +48,11 @@ export const ACCENTS: { key: AccentKey; label: string; gradient: string }[] = [
   { key: 'anthracite', label: '⬛ Anthracite',     gradient: 'linear-gradient(90deg, #2c3e50 0%, #3f5367 50%, #5c7087 100%)' },
   { key: 'argent',     label: '⚪ Argent',         gradient: 'linear-gradient(90deg, #bdc3c7 0%, #b1b6b9 50%, #b1b6b9 100%)' },
   { key: 'corail',     label: '🌅 Corail',         gradient: 'linear-gradient(90deg, #ff6f61 0%, #ff8a7f 50%, #ffb2a6 100%)' },
+  { key: 'turquoise',  label: '🐚 Turquoise',      gradient: 'linear-gradient(90deg, #14b8a6 0%, #2dd4bf 50%, #5eead4 100%)' },
+  { key: 'indigo',     label: '🔮 Indigo',         gradient: 'linear-gradient(90deg, #6366f1 0%, #818cf8 50%, #a5b4fc 100%)' },
+  { key: 'fuchsia',    label: '🎀 Fuchsia',        gradient: 'linear-gradient(90deg, #d946ef 0%, #e879f9 50%, #f0abfc 100%)' },
+  { key: 'emeraude',   label: '💎 Émeraude',       gradient: 'linear-gradient(90deg, #10b981 0%, #34d399 50%, #6ee7b7 100%)' },
+  { key: 'peche',      label: '🍑 Pêche',          gradient: 'linear-gradient(90deg, #fb923c 0%, #fdba74 50%, #fed7aa 100%)' },
 ];
 
 export const ACCENTS_MAP: Record<AccentKey, string> =

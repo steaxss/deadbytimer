@@ -50,3 +50,4 @@ resources/
 
 # Other
 project-overview-free.md
+.claude/settings.local.json
