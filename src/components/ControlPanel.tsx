@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ACCENTS, NAME_BG, AccentKey, NameTheme } from "@/themes/palette";
+import { sanitizePlayerName, MAX_PLAYER_NAME_LENGTH } from "@/utils/sanitize";
 
 type HKGet = {
   start: number | null;
@@ -80,7 +81,19 @@ const ControlPanel: React.FC = () => {
     window.api.win.getVersion().then((v: string) => { if (v) setAppVersion(v); });
 
     window.api.timer.get().then((d) => {
-      if (d?.player1 && d?.player2) setPlayers(d);
+      if (d?.player1 && d?.player2) {
+        // Sanitize loaded names from store
+        setPlayers({
+          player1: {
+            name: sanitizePlayerName(d.player1.name || "PLAYER 1"),
+            score: d.player1.score || 0
+          },
+          player2: {
+            name: sanitizePlayerName(d.player2.name || "PLAYER 2"),
+            score: d.player2.score || 0
+          },
+        });
+      }
     });
 
     window.api.hotkeys.get().then((h: HKGet) => {
@@ -107,7 +120,19 @@ const ControlPanel: React.FC = () => {
 
     // Sync timer
     const cleanupTimerSync = window.api.timer.onSync((d: any) => {
-      if (d?.player1 && d?.player2) setPlayers(d);
+      if (d?.player1 && d?.player2) {
+        // Sanitize synced names
+        setPlayers({
+          player1: {
+            name: sanitizePlayerName(d.player1.name || "PLAYER 1"),
+            score: d.player1.score || 0
+          },
+          player2: {
+            name: sanitizePlayerName(d.player2.name || "PLAYER 2"),
+            score: d.player2.score || 0
+          },
+        });
+      }
     });
 
     // Capture feedback
@@ -420,12 +445,15 @@ const ControlPanel: React.FC = () => {
             <input
               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
               value={players.player1.name}
-              onChange={(e) =>
+              maxLength={MAX_PLAYER_NAME_LENGTH}
+              onChange={(e) => {
+                const sanitized = sanitizePlayerName(e.target.value);
                 savePlayers({
                   ...players,
-                  player1: { ...players.player1, name: e.target.value },
-                })
-              }
+                  player1: { ...players.player1, name: sanitized },
+                });
+              }}
+              placeholder="Player 1 name"
             />
             <div className="text-xs text-zinc-400">Score</div>
             <div className="mt-2 flex items-center gap-2">
@@ -460,12 +488,15 @@ const ControlPanel: React.FC = () => {
             <input
               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
               value={players.player2.name}
-              onChange={(e) =>
+              maxLength={MAX_PLAYER_NAME_LENGTH}
+              onChange={(e) => {
+                const sanitized = sanitizePlayerName(e.target.value);
                 savePlayers({
                   ...players,
-                  player2: { ...players.player2, name: e.target.value },
-                })
-              }
+                  player2: { ...players.player2, name: sanitized },
+                });
+              }}
+              placeholder="Player 2 name"
             />
             <div className="text-xs text-zinc-400">Score</div>
             <div className="mt-2 flex items-center gap-2">

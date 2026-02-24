@@ -3,6 +3,7 @@ import { useTimerStore } from "@/store/timerStore";
 import { formatMillisDynamic } from "@/utils/timer";
 import ScrollingName from "@/components/ScrollingName";
 import { NAME_BG, ACCENTS_MAP, NameTheme, AccentKey } from "@/themes/palette";
+import { sanitizePlayerName } from "@/utils/sanitize";
 
 type TD = {
   player1: { name: string; score: number };
@@ -80,10 +81,33 @@ export default function TimerOverlay() {
     writeTimerSpans(t2SpansRef.current, 0);
   }, []);
 
-  // IPC: names/scores only
+  // IPC: names/scores only (with sanitization)
   React.useEffect(() => {
-    (async () => setPlayers(await window.api.timer.get()))();
-    const cleanup = window.api.timer.onSync((d: any) => setPlayers(d));
+    (async () => {
+      const d = await window.api.timer.get();
+      setPlayers({
+        player1: {
+          name: sanitizePlayerName(d?.player1?.name || "Player 1"),
+          score: d?.player1?.score || 0
+        },
+        player2: {
+          name: sanitizePlayerName(d?.player2?.name || "Player 2"),
+          score: d?.player2?.score || 0
+        }
+      });
+    })();
+    const cleanup = window.api.timer.onSync((d: any) => {
+      setPlayers({
+        player1: {
+          name: sanitizePlayerName(d?.player1?.name || "Player 1"),
+          score: d?.player1?.score || 0
+        },
+        player2: {
+          name: sanitizePlayerName(d?.player2?.name || "Player 2"),
+          score: d?.player2?.score || 0
+        }
+      });
+    });
     return cleanup;
   }, []);
 
