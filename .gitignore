@@ -44,6 +44,7 @@ release
 # Electron
 app/
 out/
+electron/build-flags.cjs
 
 # Resources
 resources/

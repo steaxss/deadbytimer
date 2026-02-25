@@ -52,6 +52,30 @@ contextBridge.exposeInMainWorld('api', {
     get: () => ipcRenderer.invoke('gamepad-mapping-get'),
     clear: (action) => ipcRenderer.invoke('gamepad-mapping-clear', action),
   },
+  updater: {
+    startDownload: () => ipcRenderer.invoke('updater-start-download'),
+    installNow: () => ipcRenderer.invoke('updater-install-now'),
+    onAvailable: (cb) => {
+      const handler = (_, data) => cb(data);
+      ipcRenderer.on('update-available', handler);
+      return () => ipcRenderer.removeListener('update-available', handler);
+    },
+    onProgress: (cb) => {
+      const handler = (_, data) => cb(data);
+      ipcRenderer.on('update-download-progress', handler);
+      return () => ipcRenderer.removeListener('update-download-progress', handler);
+    },
+    onDownloaded: (cb) => {
+      const handler = (_, data) => cb(data);
+      ipcRenderer.on('update-downloaded', handler);
+      return () => ipcRenderer.removeListener('update-downloaded', handler);
+    },
+    onError: (cb) => {
+      const handler = (_, data) => cb(data);
+      ipcRenderer.on('update-error', handler);
+      return () => ipcRenderer.removeListener('update-error', handler);
+    },
+  },
   win: {
     minimize: () => ipcRenderer.invoke('win-minimize'),
     maximize: () => ipcRenderer.invoke('win-maximize'),

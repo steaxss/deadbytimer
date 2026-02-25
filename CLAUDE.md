@@ -213,9 +213,44 @@ ignore-gpu-blocklist                 — forces GPU acceleration
 ## Build & Distribution
 
 ### Scripts
-- `npm run dev` — Vite dev server + Electron (concurrently)
-- `npm run build` — Vite build → obfuscate → electron-builder (NSIS + portable)
+- `npm run dev` — Vite dev server + Electron (no update check)
+- `npm run dev:update` — Dev + update modal simulated after 3s (no build, no GitHub)
+- `npm run build` — Vite build → obfuscate → electron-builder (no publish)
+- `npm run build:prod` — Build + publish to GitHub Releases as Latest (requires `GH_TOKEN` env var)
+- `npm run build:test` — Build `.exe` with `buildMode=test`; shows simulated update modal on launch, never publishes to GitHub
 - `npm run build:portable` — Portable EXE only
+
+### Auto-Update (electron-updater)
+
+#### 3 test modes
+| Command | What it does | GitHub |
+|---|---|---|
+| `npm run dev:update` | Dev mode, shows fake update modal after 3s | Nothing |
+| `npm run build:test` | Builds a real `.exe` that shows fake update modal on launch | Nothing |
+| `npm run build:prod` | Builds + publishes to GitHub Releases as Latest | Publishes |
+
+#### How it works
+- On startup (prod only), `autoUpdater.checkForUpdates()` fires after 3s
+- Reads `latest.yml` from the GitHub release to compare versions
+- If newer version found → IPC `update-available` → `UpdateModal` blocks the UI
+- User clicks "Download Update" → progress bar → "Install Now & Restart" → `quitAndInstall()`
+- `%APPDATA%` is **not deleted** by the NSIS uninstaller (`deleteAppDataOnUninstall: false`)
+- BUT on first launch after an update, `main.mjs` detects the version change and resets the config itself (clears electron-store + Chromium cache dirs)
+
+#### Build mode flag
+- `electron/build-flags.cjs` — written by `scripts/set-build-mode.mjs` before each build (gitignored)
+- `build:test` → writes `{ buildMode: 'test' }` → simulates update event instead of real check
+- `build:prod` → writes `{ buildMode: 'prod' }` → real `checkForUpdates()`
+
+#### Release workflow (prod)
+```bash
+# 1. Bump version in package.json
+# 2. Set GitHub token in terminal
+set GH_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+# 3. Build & publish
+npm run build:prod
+# → electron-builder creates the release on GitHub, uploads .exe + latest.yml
+```
 
 ### Obfuscation
 - `javascript-obfuscator` on `dist/` folder

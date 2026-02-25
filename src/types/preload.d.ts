@@ -40,6 +40,23 @@ declare global {
         onMaximizeChange(cb: (v: boolean) => void): () => void
         getVersion(): Promise<string>
       }
+      updater: {
+        startDownload(): Promise<void>
+        installNow(): Promise<void>
+        onAvailable(cb: (data: {
+          version: string
+          releaseDate: string
+          releaseNotes: string
+        }) => void): () => void
+        onProgress(cb: (data: {
+          percent: number
+          transferred: number
+          total: number
+          bytesPerSecond: number
+        }) => void): () => void
+        onDownloaded(cb: (data: { version: string }) => void): () => void
+        onError(cb: (data: { message: string }) => void): () => void
+      }
     }
   }
 }

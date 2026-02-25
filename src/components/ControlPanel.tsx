@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ACCENTS, NAME_BG, AccentKey, NameTheme } from "@/themes/palette";
 import { sanitizePlayerName, MAX_PLAYER_NAME_LENGTH } from "@/utils/sanitize";
+import UpdateModal from "./UpdateModal";
 
 type HKGet = {
   start: number | null;
@@ -242,7 +243,10 @@ const ControlPanel: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-screen text-zinc-100 overflow-hidden">
+    <>
+      <UpdateModal />
+
+      <div className="flex flex-col h-screen text-zinc-100 overflow-hidden">
       {/* ====== Discord-style Titlebar ====== */}
       <div className="titlebar-drag flex items-center justify-between h-[34px] min-h-[34px] bg-[#111114] border-b border-white/[0.06] select-none shrink-0 pl-3 pr-0">
         {/* Left: Logo + App title */}
@@ -783,6 +787,7 @@ const ControlPanel: React.FC = () => {
         </div>
       )}
     </div>
+    </>
   );
 };
 
