@@ -148,6 +148,10 @@ const ControlPanel: React.FC = () => {
         if ((p.source || "desktop") === "desktop" && p.label) {
           setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
           setCapturing(null);
+          // Re-sync les deux labels depuis le store (safety net contre les race conditions)
+          window.api.hotkeys.get().then((h: HKGet) => {
+            setHkLabels({ start: h.startLabel || "F1", swap: h.swapLabel || "F2" });
+          });
         }
 
         // Gamepad only: ferme l'état de capture et recharge le mapping
@@ -251,7 +255,7 @@ const ControlPanel: React.FC = () => {
       <div className="titlebar-drag flex items-center justify-between h-[34px] min-h-[34px] bg-[#111114] border-b border-white/[0.06] select-none shrink-0 pl-3 pr-0">
         {/* Left: Logo + App title */}
         <div className="flex items-center gap-2.5 text-[11.5px] font-medium tracking-wide text-zinc-400 truncate">
-          <img src="/logo.ico" alt="DBD Timer" className="w-4 h-4 shrink-0" />
+          <img src={import.meta.env.BASE_URL + 'logo.ico'} alt="DBD Timer" className="w-4 h-4 shrink-0" />
           <span className="text-zinc-300 font-semibold">Dead by Timer 1v1</span>
           <span className="text-zinc-600">—</span>
           <span className="text-zinc-500">v{appVersion}</span>

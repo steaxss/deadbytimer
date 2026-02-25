@@ -92,15 +92,12 @@
           "arch": [
             "x64"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
         }
       ],
       "artifactName": "DBD-Timer-Free-${version}-Setup.exe"
+    },
+    "portable": {
+      "artifactName": "DBD-Timer-Free-${version}-Portable.exe"
     },
     "publish": {
       "provider": "github",
