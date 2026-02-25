@@ -423,6 +423,7 @@ const ControlPanel: React.FC = () => {
             </svg>
           </button>
           {gpOpen && (
+            <>
             <div className="px-4 pb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                 <div className="mb-2 flex items-center justify-between">
@@ -482,6 +483,14 @@ const ControlPanel: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            <div className="px-4 pb-4">
+              <div className="rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-2.5 text-xs text-zinc-500 leading-relaxed">
+                <span className="font-medium text-zinc-400">Controller not detected?</span>
+                {" "}This app uses XInput. If your controller isn't recognized, install <span className="font-medium text-zinc-300">DS4Windows</span> — the most recommended option for performance, compatible with PS4, PS5, Switch Pro and more.
+              </div>
+            </div>
+            </>
           )}
         </section>
 
