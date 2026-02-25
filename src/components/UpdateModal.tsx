@@ -4,6 +4,7 @@ export default function UpdateModal() {
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
     releaseNotes: string;
+    isPortable: boolean;
   } | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -15,6 +16,7 @@ export default function UpdateModal() {
       setUpdateInfo({
         version: data.version,
         releaseNotes: data.releaseNotes || 'No release notes available.',
+        isPortable: !!data.isPortable,
       });
     });
 
@@ -80,58 +82,75 @@ export default function UpdateModal() {
           dangerouslySetInnerHTML={{ __html: updateInfo.releaseNotes }}
         />
 
-        {/* Progress bar */}
-        {isDownloading && (
-          <div className="mb-4">
-            <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-zinc-400">Downloading...</span>
-              <span className="font-semibold text-violet-400">{progress}%</span>
+        {/* Portable: no download/install, just a link */}
+        {updateInfo.isPortable ? (
+          <div>
+            <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
+              You're using the <strong>portable version</strong>. Auto-install is not supported — please download the new version manually.
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-300"
-                style={{ width: `${progress}%` }}
-              />
+            <button
+              onClick={() => window.api.updater.openReleases()}
+              className="w-full rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-3 font-semibold text-white hover:from-violet-600 hover:to-fuchsia-600 transition"
+            >
+              Download on GitHub
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Progress bar */}
+            {isDownloading && (
+              <div className="mb-4">
+                <div className="mb-2 flex items-center justify-between text-sm">
+                  <span className="text-zinc-400">Downloading...</span>
+                  <span className="font-semibold text-violet-400">{progress}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-300"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Error message */}
+            {error && (
+              <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+                <strong>Error:</strong> {error}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              {!isReady && !isDownloading && !error && (
+                <button
+                  onClick={handleDownload}
+                  className="flex-1 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-3 font-semibold text-white hover:from-violet-600 hover:to-fuchsia-600 transition"
+                >
+                  Download Update
+                </button>
+              )}
+
+              {!isReady && !isDownloading && error && (
+                <button
+                  onClick={handleDownload}
+                  className="flex-1 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-3 font-semibold text-white hover:from-violet-600 hover:to-fuchsia-600 transition"
+                >
+                  Retry Download
+                </button>
+              )}
+
+              {isReady && (
+                <button
+                  onClick={handleInstall}
+                  className="flex-1 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 px-4 py-3 font-semibold text-white hover:from-emerald-600 hover:to-green-600 transition"
+                >
+                  Install Now & Restart
+                </button>
+              )}
             </div>
-          </div>
+          </>
         )}
-
-        {/* Error message */}
-        {error && (
-          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
-            <strong>Error:</strong> {error}
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-3">
-          {!isReady && !isDownloading && !error && (
-            <button
-              onClick={handleDownload}
-              className="flex-1 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-3 font-semibold text-white hover:from-violet-600 hover:to-fuchsia-600 transition"
-            >
-              Download Update
-            </button>
-          )}
-
-          {!isReady && !isDownloading && error && (
-            <button
-              onClick={handleDownload}
-              className="flex-1 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-3 font-semibold text-white hover:from-violet-600 hover:to-fuchsia-600 transition"
-            >
-              Retry Download
-            </button>
-          )}
-
-          {isReady && (
-            <button
-              onClick={handleInstall}
-              className="flex-1 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 px-4 py-3 font-semibold text-white hover:from-emerald-600 hover:to-green-600 transition"
-            >
-              Install Now & Restart
-            </button>
-          )}
-        </div>
 
         <p className="mt-4 text-center text-xs text-zinc-500">
           You must update to continue using DBD Timer.

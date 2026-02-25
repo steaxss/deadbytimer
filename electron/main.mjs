@@ -31,6 +31,9 @@ const {
 } = require("./input/gamepad-exe.cjs");
 
 /* -------------------- auto-updater config -------------------- */
+const isPortable = !!process.env.PORTABLE_EXECUTABLE_DIR;
+const RELEASES_URL = 'https://github.com/steaxss/deadbytimer/releases/latest';
+
 autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = "info";
 autoUpdater.autoDownload = false;
@@ -38,12 +41,13 @@ autoUpdater.allowPrerelease = false;
 autoUpdater.allowDowngrade = false;
 
 autoUpdater.on("update-available", (info) => {
-  log.info("Update available:", info.version);
+  log.info("Update available:", info.version, isPortable ? "(portable)" : "(installed)");
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("update-available", {
       version: info.version,
       releaseDate: info.releaseDate,
       releaseNotes: info.releaseNotes,
+      isPortable,
     });
   }
 });
@@ -569,6 +573,9 @@ function setupIPC() {
     }
     autoUpdater.quitAndInstall(false, true);
   });
+  ipcMain.handle("updater-open-releases", () => {
+    shell.openExternal(RELEASES_URL);
+  });
 }
 
 /* -------------------- lifecycle -------------------- */
@@ -600,6 +607,7 @@ app.whenReady().then(() => {
           version: "99.99.99",
           releaseDate: new Date().toISOString(),
           releaseNotes: "<strong>[TEST MODE]</strong> Simulated update — testing the update flow.",
+          isPortable,
         });
       }
     } else if (isDev && process.env.SIMULATE_UPDATE === "1") {
@@ -610,6 +618,7 @@ app.whenReady().then(() => {
           version: "99.99.99",
           releaseDate: new Date().toISOString(),
           releaseNotes: "<strong>[DEV SIMULATE]</strong> Simulated update for dev testing.",
+          isPortable,
         });
       }
     }

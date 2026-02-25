@@ -43,10 +43,12 @@ declare global {
       updater: {
         startDownload(): Promise<void>
         installNow(): Promise<void>
+        openReleases(): Promise<void>
         onAvailable(cb: (data: {
           version: string
           releaseDate: string
           releaseNotes: string
+          isPortable: boolean
         }) => void): () => void
         onProgress(cb: (data: {
           percent: number

@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on('update-error', handler);
       return () => ipcRenderer.removeListener('update-error', handler);
     },
+    openReleases: () => ipcRenderer.invoke('updater-open-releases'),
   },
   win: {
     minimize: () => ipcRenderer.invoke('win-minimize'),
