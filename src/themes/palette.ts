@@ -22,7 +22,8 @@ export type AccentKey =
   | 'indigo'
   | 'fuchsia'
   | 'emeraude'
-  | 'peche';
+  | 'peche'
+  | 'pride';
 
 export const NAME_BG: Record<NameTheme, string> = {
   default: 'linear-gradient(90deg, #4B4B4B 0%, #3A3A3A 50%, #3A3A3A 100%)',
@@ -53,6 +54,7 @@ export const ACCENTS: { key: AccentKey; label: string; gradient: string }[] = [
   { key: 'fuchsia',    label: '🎀 Fuchsia',        gradient: 'linear-gradient(90deg, #d946ef 0%, #e879f9 50%, #f0abfc 100%)' },
   { key: 'emeraude',   label: '💎 Émeraude',       gradient: 'linear-gradient(90deg, #10b981 0%, #34d399 50%, #6ee7b7 100%)' },
   { key: 'peche',      label: '🍑 Pêche',          gradient: 'linear-gradient(90deg, #fb923c 0%, #fdba74 50%, #fed7aa 100%)' },
+  { key: 'pride',      label: '🏳️‍🌈 Pride',          gradient: 'linear-gradient(90deg, #ff0080 0%, #ff6b35 25%, #ffd60a 50%, #00d9ff 75%, #a855f7 100%)' },
 ];
 
 export const ACCENTS_MAP: Record<AccentKey, string> =

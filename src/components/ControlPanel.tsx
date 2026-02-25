@@ -37,6 +37,7 @@ const ACCENT_LABELS_EN: Record<AccentKey, string> = {
   fuchsia: "Fuchsia",
   emeraude: "Emerald",
   peche: "Peach",
+  pride: "Pride Rainbow",
 };
 
 const ControlPanel: React.FC = () => {
@@ -73,6 +74,10 @@ const ControlPanel: React.FC = () => {
   // 🎮 Gamepad
   const [gp, setGp] = useState<GamepadMapping>({ toggle: [], swap: [] });
   const [capturingGp, setCapturingGp] = useState<null | "toggle" | "swap">(null);
+
+  // Collapsible hotkey sections
+  const [kbOpen, setKbOpen] = useState(true);
+  const [gpOpen, setGpOpen] = useState(true);
 
   useEffect(() => {
     // Window controls init
@@ -227,8 +232,10 @@ const ControlPanel: React.FC = () => {
       aria-label={title}
       aria-pressed={isActive}
       className={[
-        "h-7 w-14 sm:w-16 rounded-lg border transition outline-none focus:ring",
-        isActive ? "border-white/40 ring-2 ring-white/20" : "border-white/10 hover:border-white/20",
+        "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none",
+        isActive
+          ? "border-white ring-2 ring-white/50 ring-offset-2 ring-offset-zinc-900"
+          : "border-white/10 hover:border-white/30",
       ].join(" ")}
       style={{ background }}
     />
@@ -319,129 +326,161 @@ const ControlPanel: React.FC = () => {
 
       <div>
         {/* Hotkeys (desktop) */}
-        <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
-              <button
-                className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                onClick={async () => {
-                  try {
-                    const result = await window.api.hotkeys.clear("start");
-                    setHkLabels({ ...hkLabels, start: result.startLabel || "F1" });
-                  } catch {}
-                }}
-              >
-                Clear
-              </button>
-            </div>
-            <button
-              className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => {
-                setCapturing("start");
-                window.api.hotkeys.capture({ type: "start", source: "desktop" });
-              }}
+        <section className="mb-4 rounded-xl border border-white/10 bg-white/5 backdrop-blur overflow-hidden">
+          <button
+            className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/[0.04] transition"
+            onClick={() => setKbOpen(v => !v)}
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">⌨️ Keyboard / Mouse Hotkeys</span>
+            <svg
+              className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${kbOpen ? "rotate-180" : ""}`}
+              viewBox="0 0 16 16" fill="none"
             >
-              {capturing === "start" ? "Press a key…" : hkLabels.start}
-            </button>
-          </div>
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {kbOpen && (
+            <div className="px-4 pb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
+                  <button
+                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                    onClick={async () => {
+                      try {
+                        const result = await window.api.hotkeys.clear("start");
+                        setHkLabels({ ...hkLabels, start: result.startLabel || "F1" });
+                      } catch {}
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                    capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                  }`}
+                  onClick={() => {
+                    setCapturing("start");
+                    window.api.hotkeys.capture({ type: "start", source: "desktop" });
+                  }}
+                >
+                  {capturing === "start" ? "Press a key…" : hkLabels.start}
+                </button>
+              </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
-              <button
-                className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                onClick={async () => {
-                  try {
-                    const result = await window.api.hotkeys.clear("swap");
-                    setHkLabels({ ...hkLabels, swap: result.swapLabel || "F2" });
-                  } catch {}
-                }}
-              >
-                Clear
-              </button>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
+                  <button
+                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                    onClick={async () => {
+                      try {
+                        const result = await window.api.hotkeys.clear("swap");
+                        setHkLabels({ ...hkLabels, swap: result.swapLabel || "F2" });
+                      } catch {}
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                    capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                  }`}
+                  onClick={() => {
+                    setCapturing("swap");
+                    window.api.hotkeys.capture({ type: "swap", source: "desktop" });
+                  }}
+                >
+                  {capturing === "swap" ? "Press a key…" : hkLabels.swap}
+                </button>
+              </div>
             </div>
-            <button
-              className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => {
-                setCapturing("swap");
-                window.api.hotkeys.capture({ type: "swap", source: "desktop" });
-              }}
-            >
-              {capturing === "swap" ? "Press a key…" : hkLabels.swap}
-            </button>
-          </div>
+          )}
         </section>
 
         {/* 🎮 Gamepad hotkeys */}
-        <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Start/Stop/Reset (Controller)</div>
-              <button
-                className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                onClick={async () => {
-                  try {
-                    await window.api?.gamepad?.clear?.("toggle");
-                    const next = await window.api?.gamepad?.get?.();
-                    if (next) setGp(next);
-                  } catch {}
-                }}
-              >
-                Clear
-              </button>
-            </div>
-            <button
-              className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturingGp === "toggle" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => {
-                setCapturingGp("toggle");
-                window.api.hotkeys.capture({ type: "start", source: "gamepad" });
-              }}
+        <section className="mb-6 rounded-xl border border-white/10 bg-white/5 backdrop-blur overflow-hidden">
+          <button
+            className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/[0.04] transition"
+            onClick={() => setGpOpen(v => !v)}
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Controller Hotkeys</span>
+            <svg
+              className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${gpOpen ? "rotate-180" : ""}`}
+              viewBox="0 0 16 16" fill="none"
             >
-              {capturingGp === "toggle" ? "Press a gamepad button…" : gp.toggle?.join(" + ") || "—"}
-            </button>
-          </div>
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {gpOpen && (
+            <div className="px-4 pb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset</div>
+                  <button
+                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                    onClick={async () => {
+                      try {
+                        await window.api?.gamepad?.clear?.("toggle");
+                        const next = await window.api?.gamepad?.get?.();
+                        if (next) setGp(next);
+                      } catch {}
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                    capturingGp === "toggle" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                  }`}
+                  onClick={() => {
+                    setCapturingGp("toggle");
+                    window.api.hotkeys.capture({ type: "start", source: "gamepad" });
+                  }}
+                >
+                  {capturingGp === "toggle" ? "Press a gamepad button…" : gp.toggle?.join(" + ") || "—"}
+                </button>
+              </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Swap (Controller)</div>
-              <button
-                className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                onClick={async () => {
-                  try {
-                    await window.api?.gamepad?.clear?.("swap");
-                    const next = await window.api?.gamepad?.get?.();
-                    if (next) setGp(next);
-                  } catch {}
-                }}
-              >
-                Clear
-              </button>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap</div>
+                  <button
+                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                    onClick={async () => {
+                      try {
+                        await window.api?.gamepad?.clear?.("swap");
+                        const next = await window.api?.gamepad?.get?.();
+                        if (next) setGp(next);
+                      } catch {}
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                    capturingGp === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                  }`}
+                  onClick={() => {
+                    setCapturingGp("swap");
+                    window.api.hotkeys.capture({ type: "swap", source: "gamepad" });
+                  }}
+                >
+                  {capturingGp === "swap" ? "Press a gamepad button…" : gp.swap?.join(" + ") || "—"}
+                </button>
+              </div>
             </div>
-            <button
-              className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturingGp === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => {
-                setCapturingGp("swap");
-                window.api.hotkeys.capture({ type: "swap", source: "gamepad" });
-              }}
-            >
-              {capturingGp === "swap" ? "Press a gamepad button…" : gp.swap?.join(" + ") || "—"}
-            </button>
-          </div>
+          )}
         </section>
 
         {/* Players */}
         <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
-            <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 1</div>
+            <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 1 <span className="text-zinc-500 font-normal normal-case text-[11px] tracking-normal">(You)</span></div>
             <input
               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
               value={players.player1.name}
@@ -484,7 +523,7 @@ const ControlPanel: React.FC = () => {
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
-            <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 2</div>
+            <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 2 <span className="text-zinc-500 font-normal normal-case text-[11px] tracking-normal">(Your opponent)</span></div>
             <input
               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
               value={players.player2.name}

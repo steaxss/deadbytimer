@@ -59,19 +59,23 @@ function enforceExternalLinks(win) {
 }
 
 function sendOverlaySettings(ov, storeRef, isDevFlag) {
+  const s = (storeRef || store).get("overlaySettings", {
+    x: 0,
+    y: 0,
+    scale: 100,
+    locked: true,
+    alwaysOnTop: true,
+    nameTheme: 'default',
+    accentKey: 'default',
+    autoScoreEnabled: true,
+    autoScoreThresholdSec: 25,
+  });
   if (ov && !ov.isDestroyed()) {
-    const s = (storeRef || store).get("overlaySettings", {
-      x: 0,
-      y: 0,
-      scale: 100,
-      locked: true,
-      alwaysOnTop: true,
-      nameTheme: 'default',
-      accentKey: 'default',
-      autoScoreEnabled: true,    // ← NEW
-      autoScoreThresholdSec: 25, // ← NEW
-    });
     ov.webContents.send("overlay-settings", s);
+  }
+  // Also push to main window so the control panel always reflects persisted settings
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("overlay-settings", s);
   }
 }
 
