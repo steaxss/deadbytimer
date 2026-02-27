@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ACCENTS, NAME_BG, AccentKey, NameTheme } from "@/themes/palette";
 import { sanitizePlayerName, MAX_PLAYER_NAME_LENGTH } from "@/utils/sanitize";
 import UpdateModal from "./UpdateModal";
+import PremiumModal from "./PremiumModal";
 
 type HKGet = {
   start: number | null;
@@ -54,6 +55,7 @@ const ControlPanel: React.FC = () => {
 
   const [nameTheme, setNameTheme] = useState<NameTheme>("default");
   const [accentKey, setAccentKey] = useState<AccentKey>("default");
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
 
   // Auto-score
   const [autoScore, setAutoScore] = useState<boolean>(true);
@@ -249,6 +251,7 @@ const ControlPanel: React.FC = () => {
   return (
     <>
       <UpdateModal />
+      {showPremiumModal && <PremiumModal onClose={() => setShowPremiumModal(false)} />}
 
       <div className="flex flex-col h-screen text-zinc-100 overflow-hidden">
       {/* ====== Discord-style Titlebar ====== */}
@@ -642,7 +645,24 @@ const ControlPanel: React.FC = () => {
               ))}
             </div>
 
-            <p className="mt-2 text-xs text-zinc-400">The swap bar automatically follows the score color.</p>
+            {/* Premium upsell */}
+            <button
+              onClick={() => setShowPremiumModal(true)}
+              className="mt-2 w-full flex items-center justify-between pl-3.5 pr-3 py-2.5 rounded-lg border border-amber-400/20 bg-gradient-to-r from-amber-500/10 to-transparent hover:from-amber-500/16 hover:border-amber-400/35 transition-all group cursor-pointer"
+            >
+              <span className="flex items-center gap-2 text-xs text-zinc-400 group-hover:text-zinc-300 transition-colors">
+                <svg className="w-3 h-3 shrink-0 text-amber-400/60 group-hover:text-amber-400 transition-colors" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 1l1.5 9.5L23 12l-9.5 1.5L12 23l-1.5-9.5L1 12l9.5-1.5L12 1z"/>
+                </svg>
+                & more accent colors available with{' '}
+                <span className="text-amber-300/90 font-semibold group-hover:text-amber-300 transition-colors">Premium</span>
+              </span>
+              <span className="ml-3 shrink-0 text-xs font-semibold text-amber-500/60 group-hover:text-amber-400 transition-colors">
+                Unlock →
+              </span>
+            </button>
+
+            <p className="mt-2 text-xs text-zinc-500">The swap bar automatically follows the score color.</p>
           </div>
         </section>
 

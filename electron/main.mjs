@@ -538,6 +538,7 @@ function setupIPC() {
     return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false;
   });
   ipcMain.handle("app-version", () => app.getVersion());
+  ipcMain.handle("open-premium", () => shell.openExternal("https://dbdoverlaytools.com/"));
 
   // Auto-updater
   ipcMain.handle("updater-start-download", async () => {

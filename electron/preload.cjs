@@ -88,5 +88,6 @@ contextBridge.exposeInMainWorld('api', {
       return () => ipcRenderer.removeListener('win-maximize-change', handler);
     },
     getVersion: () => ipcRenderer.invoke('app-version'),
+    openPremium: () => ipcRenderer.invoke('open-premium'),
   }
 });

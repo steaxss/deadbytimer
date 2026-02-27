@@ -39,6 +39,7 @@ declare global {
         isMaximized(): Promise<boolean>
         onMaximizeChange(cb: (v: boolean) => void): () => void
         getVersion(): Promise<string>
+        openPremium(): Promise<void>
       }
       updater: {
         startDownload(): Promise<void>
