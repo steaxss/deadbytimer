@@ -59,19 +59,23 @@ function enforceExternalLinks(win) {
 }
 
 function sendOverlaySettings(ov, storeRef, isDevFlag) {
+  const s = (storeRef || store).get("overlaySettings", {
+    x: 0,
+    y: 0,
+    scale: 100,
+    locked: true,
+    alwaysOnTop: true,
+    nameTheme: 'default',
+    accentKey: 'default',
+    autoScoreEnabled: true,
+    autoScoreThresholdSec: 25,
+  });
   if (ov && !ov.isDestroyed()) {
-    const s = (storeRef || store).get("overlaySettings", {
-      x: 0,
-      y: 0,
-      scale: 100,
-      locked: true,
-      alwaysOnTop: true,
-      nameTheme: 'default',
-      accentKey: 'default',
-      autoScoreEnabled: true,    // ← NEW
-      autoScoreThresholdSec: 25, // ← NEW
-    });
     ov.webContents.send("overlay-settings", s);
+  }
+  // Also push to main window so the control panel always reflects persisted settings
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("overlay-settings", s);
   }
 }
 
@@ -104,8 +108,10 @@ function createMainWindow(storeRef, icoPath, isDevFlag) {
     minWidth: 980,
     minHeight: 720,
     show: false,
+    frame: false,
     icon: icoPath || iconPath,
     autoHideMenuBar: true,
+    backgroundColor: '#09090b',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -149,6 +155,16 @@ function createMainWindow(storeRef, icoPath, isDevFlag) {
   mainWindow.on("closed", () => {
     mainWindow = null;
     if (overlayWindow) overlayWindow.close();
+  });
+
+  // Notify renderer of maximize state changes (for custom titlebar icon)
+  mainWindow.on("maximize", () => {
+    if (!mainWindow.isDestroyed())
+      mainWindow.webContents.send("win-maximize-change", true);
+  });
+  mainWindow.on("unmaximize", () => {
+    if (!mainWindow.isDestroyed())
+      mainWindow.webContents.send("win-maximize-change", false);
   });
 
   return mainWindow;
@@ -201,6 +217,8 @@ function createOverlayWindow(currentOverlay, currentMain) {
       preload: join(__dirname, "../preload.cjs"),
       backgroundThrottling: false,
       devTools: !!isDev,
+      webgl: false,        // No 3D rendering needed → saves 10-20MB RAM
+      enableWebSQL: false, // No database needed
     },
   });
 
@@ -210,8 +228,15 @@ function createOverlayWindow(currentOverlay, currentMain) {
   const url = isDev
     ? "http://localhost:5173/overlay.html"
     : join(__dirname, "../../dist/overlay.html");
-  if (isDev) overlayWindow.loadURL(url);
-  else overlayWindow.loadFile(url);
+  if (isDev) {
+    overlayWindow.loadURL(url);
+    // Open DevTools automatically in dev mode
+    overlayWindow.webContents.once('did-finish-load', () => {
+      overlayWindow.webContents.openDevTools({ mode: "detach" });
+    });
+  } else {
+    overlayWindow.loadFile(url);
+  }
 
   enforceExternalLinks(overlayWindow);
 

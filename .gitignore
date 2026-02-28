@@ -44,9 +44,12 @@ release
 # Electron
 app/
 out/
+electron/build-flags.cjs
 
 # Resources
 resources/
 
 # Other
 project-overview-free.md
+.claude/settings.local.json
+AUTO_UPDATE_GUIDE.md

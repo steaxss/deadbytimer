@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { ACCENTS, NAME_BG, AccentKey, NameTheme } from "@/themes/palette";
+import { sanitizePlayerName, MAX_PLAYER_NAME_LENGTH } from "@/utils/sanitize";
+import UpdateModal from "./UpdateModal";
+import PremiumModal from "./PremiumModal";
 
 type HKGet = {
   start: number | null;
@@ -31,16 +34,28 @@ const ACCENT_LABELS_EN: Record<AccentKey, string> = {
   anthracite: "Charcoal",
   argent: "Silver",
   corail: "Coral/Peach",
+  turquoise: "Turquoise",
+  indigo: "Indigo",
+  fuchsia: "Fuchsia",
+  emeraude: "Emerald",
+  peche: "Peach",
+  pride: "Pride Rainbow",
 };
 
 const ControlPanel: React.FC = () => {
+  // Window controls
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [appVersion, setAppVersion] = useState("3.0");
+
   // Overlay
   const [overlayOn, setOverlayOn] = useState(false);
   const [locked, setLocked] = useState(true);
   const [scale, setScale] = useState(100);
+  const scaleDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const [nameTheme, setNameTheme] = useState<NameTheme>("default");
   const [accentKey, setAccentKey] = useState<AccentKey>("default");
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
 
   // Auto-score
   const [autoScore, setAutoScore] = useState<boolean>(true);
@@ -63,9 +78,30 @@ const ControlPanel: React.FC = () => {
   const [gp, setGp] = useState<GamepadMapping>({ toggle: [], swap: [] });
   const [capturingGp, setCapturingGp] = useState<null | "toggle" | "swap">(null);
 
+  // Collapsible hotkey sections
+  const [kbOpen, setKbOpen] = useState(true);
+  const [gpOpen, setGpOpen] = useState(true);
+
   useEffect(() => {
+    // Window controls init
+    window.api.win.isMaximized().then((v: boolean) => setIsMaximized(v));
+    const cleanupMaximize = window.api.win.onMaximizeChange((v: boolean) => setIsMaximized(v));
+    window.api.win.getVersion().then((v: string) => { if (v) setAppVersion(v); });
+
     window.api.timer.get().then((d) => {
-      if (d?.player1 && d?.player2) setPlayers(d);
+      if (d?.player1 && d?.player2) {
+        // Sanitize loaded names from store
+        setPlayers({
+          player1: {
+            name: sanitizePlayerName(d.player1.name || "PLAYER 1"),
+            score: d.player1.score || 0
+          },
+          player2: {
+            name: sanitizePlayerName(d.player2.name || "PLAYER 2"),
+            score: d.player2.score || 0
+          },
+        });
+      }
     });
 
     window.api.hotkeys.get().then((h: HKGet) => {
@@ -79,8 +115,8 @@ const ControlPanel: React.FC = () => {
       });
     }
 
-    window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
-    window.api.overlay.onSettings((s: any) => {
+    const cleanupOverlayReady = window.api.overlay.onReady((v: boolean) => setOverlayOn(v));
+    const cleanupOverlaySettings = window.api.overlay.onSettings((s: any) => {
       if (typeof s.locked === "boolean") setLocked(!!s.locked);
       if (typeof s.scale === "number") setScale(s.scale);
       if (s?.nameTheme) setNameTheme(
@@ -91,17 +127,33 @@ const ControlPanel: React.FC = () => {
     });
 
     // Sync timer
-    window.api.timer.onSync((d: any) => {
-      if (d?.player1 && d?.player2) setPlayers(d);
+    const cleanupTimerSync = window.api.timer.onSync((d: any) => {
+      if (d?.player1 && d?.player2) {
+        // Sanitize synced names
+        setPlayers({
+          player1: {
+            name: sanitizePlayerName(d.player1.name || "PLAYER 1"),
+            score: d.player1.score || 0
+          },
+          player2: {
+            name: sanitizePlayerName(d.player2.name || "PLAYER 2"),
+            score: d.player2.score || 0
+          },
+        });
+      }
     });
 
     // Capture feedback
-    window.api.hotkeys.onCaptured(
+    const cleanupHotkeysCaptured = window.api.hotkeys.onCaptured(
       (p: { type: "start" | "swap"; keycode?: number | null; label?: string; source?: "desktop" | "gamepad" }) => {
         // Desktop only: maj du libellé clavier/souris
         if ((p.source || "desktop") === "desktop" && p.label) {
           setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
           setCapturing(null);
+          // Re-sync les deux labels depuis le store (safety net contre les race conditions)
+          window.api.hotkeys.get().then((h: HKGet) => {
+            setHkLabels({ start: h.startLabel || "F1", swap: h.swapLabel || "F2" });
+          });
         }
 
         // Gamepad only: ferme l'état de capture et recharge le mapping
@@ -118,6 +170,15 @@ const ControlPanel: React.FC = () => {
 
     // Always on top
     window.api.overlay.updateSettings({ alwaysOnTop: true });
+
+    // Cleanup all listeners on unmount
+    return () => {
+      cleanupMaximize();
+      cleanupOverlayReady();
+      cleanupOverlaySettings();
+      cleanupTimerSync();
+      cleanupHotkeysCaptured();
+    };
   }, []);
 
   // Cancel capture overlay (mouse left click)
@@ -141,8 +202,13 @@ const ControlPanel: React.FC = () => {
 
   const onScale = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = Number(e.target.value);
-    setScale(v);
-    window.api.overlay.updateSettings({ scale: v });
+    setScale(v); // UI update immédiat
+
+    // Debounce IPC call pour éviter spam pendant drag
+    if (scaleDebounceRef.current) clearTimeout(scaleDebounceRef.current);
+    scaleDebounceRef.current = setTimeout(() => {
+      window.api.overlay.updateSettings({ scale: v });
+    }, 100);
   };
 
   const onLock = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -173,20 +239,88 @@ const ControlPanel: React.FC = () => {
       aria-label={title}
       aria-pressed={isActive}
       className={[
-        "h-7 w-14 sm:w-16 rounded-lg border transition outline-none focus:ring",
-        isActive ? "border-white/40 ring-2 ring-white/20" : "border-white/10 hover:border-white/20",
+        "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none",
+        isActive
+          ? "border-white ring-2 ring-white/50 ring-offset-2 ring-offset-zinc-900"
+          : "border-white/10 hover:border-white/30",
       ].join(" ")}
       style={{ background }}
     />
   );
 
   return (
-    <div className="mx-auto max-w-5xl p-6 text-zinc-100">
-      {/* Header */}
-      <header className="mb-4 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,.30)] px-4 py-3 flex items-center justify-between">
+    <>
+      <UpdateModal />
+      {showPremiumModal && <PremiumModal onClose={() => setShowPremiumModal(false)} />}
+
+      <div className="flex flex-col h-screen text-zinc-100 overflow-hidden">
+      {/* ====== Discord-style Titlebar ====== */}
+      <div className="titlebar-drag flex items-center justify-between h-[34px] min-h-[34px] bg-[#111114] border-b border-white/[0.06] select-none shrink-0 pl-3 pr-0">
+        {/* Left: Logo + App title */}
+        <div className="flex items-center gap-2.5 text-[11.5px] font-medium tracking-wide text-zinc-400 truncate">
+          <img src={import.meta.env.BASE_URL + 'logo.ico'} alt="DBD Timer" className="w-4 h-4 shrink-0" />
+          <span className="text-zinc-300 font-semibold">Dead by Timer 1v1</span>
+          <span className="text-zinc-600">—</span>
+          <span className="text-zinc-500">v{appVersion}</span>
+          <span className="text-zinc-600">—</span>
+          <span className="text-zinc-500">By Steaxs & Doc</span>
+        </div>
+
+        {/* Right: Window controls */}
+        <div className="flex items-center h-full">
+          {/* Minimize */}
+          <button
+            onClick={() => window.api.win.minimize()}
+            className="win-btn h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 transition-colors"
+            aria-label="Minimize"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="1" y="5.5" width="10" height="1" rx="0.5" fill="currentColor" />
+            </svg>
+          </button>
+
+          {/* Maximize / Restore */}
+          <button
+            onClick={() => window.api.win.maximize()}
+            className="win-btn h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 transition-colors"
+            aria-label={isMaximized ? "Restore" : "Maximize"}
+          >
+            {isMaximized ? (
+              /* Restore icon (two overlapping rects) */
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <rect x="2.5" y="3.5" width="6" height="6" rx="0.6" stroke="currentColor" strokeWidth="1" fill="none" />
+                <path d="M3.5 3.5V2.2a.6.6 0 0 1 .6-.6h5.2a.6.6 0 0 1 .6.6v5.2a.6.6 0 0 1-.6.6H8.5" stroke="currentColor" strokeWidth="1" fill="none" />
+              </svg>
+            ) : (
+              /* Maximize icon (single rect) */
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <rect x="1.5" y="1.5" width="9" height="9" rx="0.6" stroke="currentColor" strokeWidth="1.1" fill="none" />
+              </svg>
+            )}
+          </button>
+
+          {/* Close */}
+          <button
+            onClick={() => window.api.win.close()}
+            className="win-btn-close h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-[#e81123] hover:text-white transition-colors"
+            aria-label="Close"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* ====== Scrollable Content ====== */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-5xl px-6 pb-6 pt-4">
+
+      {/* Header: Overlay toggle */}
+      <header className="mb-4 rounded-2xl border border-white/10 bg-white/5 shadow-[0_8px_32px_rgba(0,0,0,.30)] px-5 py-3 flex items-center justify-between">
         <div>
-          <div className="text-[13px] uppercase tracking-wider font-bold text-[#FF6BCB]">1v1 Overlay</div>
-          <h1 className="text-xl font-semibold tracking-tight">DBD Overlay Tools</h1>
+          <div className="text-[11px] uppercase tracking-[0.15em] font-bold text-[#FF6BCB]/90">1v1 Overlay</div>
+          <h1 className="text-lg font-semibold tracking-tight leading-tight">DBD Overlay Tools</h1>
         </div>
 
         <div className="flex items-center gap-3">
@@ -201,114 +335,184 @@ const ControlPanel: React.FC = () => {
         </div>
       </header>
 
-      <div className="scroll-thin pr-1">
+      <div>
         {/* Hotkeys (desktop) */}
-        <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
-            <button
-              className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => {
-                setCapturing("start");
-                window.api.hotkeys.capture({ type: "start", source: "desktop" });
-              }}
+        <section className="mb-4 rounded-xl border border-white/10 bg-white/5 backdrop-blur overflow-hidden">
+          <button
+            className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/[0.04] transition"
+            onClick={() => setKbOpen(v => !v)}
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">⌨️ Keyboard / Mouse Hotkeys</span>
+            <svg
+              className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${kbOpen ? "rotate-180" : ""}`}
+              viewBox="0 0 16 16" fill="none"
             >
-              {capturing === "start" ? "Press a key…" : hkLabels.start}
-            </button>
-          </div>
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {kbOpen && (
+            <div className="px-4 pb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
+                  <button
+                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                    onClick={async () => {
+                      try {
+                        const result = await window.api.hotkeys.clear("start");
+                        setHkLabels({ ...hkLabels, start: result.startLabel || "F1" });
+                      } catch {}
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                    capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                  }`}
+                  onClick={() => {
+                    setCapturing("start");
+                    window.api.hotkeys.capture({ type: "start", source: "desktop" });
+                  }}
+                >
+                  {capturing === "start" ? "Press a key…" : hkLabels.start}
+                </button>
+              </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
-            <button
-              className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => {
-                setCapturing("swap");
-                window.api.hotkeys.capture({ type: "swap", source: "desktop" });
-              }}
-            >
-              {capturing === "swap" ? "Press a key…" : hkLabels.swap}
-            </button>
-          </div>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
+                  <button
+                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                    onClick={async () => {
+                      try {
+                        const result = await window.api.hotkeys.clear("swap");
+                        setHkLabels({ ...hkLabels, swap: result.swapLabel || "F2" });
+                      } catch {}
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                    capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                  }`}
+                  onClick={() => {
+                    setCapturing("swap");
+                    window.api.hotkeys.capture({ type: "swap", source: "desktop" });
+                  }}
+                >
+                  {capturing === "swap" ? "Press a key…" : hkLabels.swap}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* 🎮 Gamepad hotkeys */}
-        <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Start/Stop/Reset (Controller)</div>
-              <button
-                className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                onClick={async () => {
-                  try {
-                    await window.api?.gamepad?.clear?.("toggle");
-                    const next = await window.api?.gamepad?.get?.();
-                    if (next) setGp(next);
-                  } catch {}
-                }}
-              >
-                Clear
-              </button>
-            </div>
-            <button
-              className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturingGp === "toggle" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => {
-                setCapturingGp("toggle");
-                window.api.hotkeys.capture({ type: "start", source: "gamepad" });
-              }}
+        <section className="mb-6 rounded-xl border border-white/10 bg-white/5 backdrop-blur overflow-hidden">
+          <button
+            className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/[0.04] transition"
+            onClick={() => setGpOpen(v => !v)}
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Controller Hotkeys</span>
+            <svg
+              className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${gpOpen ? "rotate-180" : ""}`}
+              viewBox="0 0 16 16" fill="none"
             >
-              {capturingGp === "toggle" ? "Press a gamepad button…" : gp.toggle?.join(" + ") || "—"}
-            </button>
-          </div>
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {gpOpen && (
+            <>
+            <div className="px-4 pb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset</div>
+                  <button
+                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                    onClick={async () => {
+                      try {
+                        await window.api?.gamepad?.clear?.("toggle");
+                        const next = await window.api?.gamepad?.get?.();
+                        if (next) setGp(next);
+                      } catch {}
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                    capturingGp === "toggle" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                  }`}
+                  onClick={() => {
+                    setCapturingGp("toggle");
+                    window.api.hotkeys.capture({ type: "start", source: "gamepad" });
+                  }}
+                >
+                  {capturingGp === "toggle" ? "Press a gamepad button…" : gp.toggle?.join(" + ") || "—"}
+                </button>
+              </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Swap (Controller)</div>
-              <button
-                className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                onClick={async () => {
-                  try {
-                    await window.api?.gamepad?.clear?.("swap");
-                    const next = await window.api?.gamepad?.get?.();
-                    if (next) setGp(next);
-                  } catch {}
-                }}
-              >
-                Clear
-              </button>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap</div>
+                  <button
+                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                    onClick={async () => {
+                      try {
+                        await window.api?.gamepad?.clear?.("swap");
+                        const next = await window.api?.gamepad?.get?.();
+                        if (next) setGp(next);
+                      } catch {}
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                    capturingGp === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                  }`}
+                  onClick={() => {
+                    setCapturingGp("swap");
+                    window.api.hotkeys.capture({ type: "swap", source: "gamepad" });
+                  }}
+                >
+                  {capturingGp === "swap" ? "Press a gamepad button…" : gp.swap?.join(" + ") || "—"}
+                </button>
+              </div>
             </div>
-            <button
-              className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                capturingGp === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => {
-                setCapturingGp("swap");
-                window.api.hotkeys.capture({ type: "swap", source: "gamepad" });
-              }}
-            >
-              {capturingGp === "swap" ? "Press a gamepad button…" : gp.swap?.join(" + ") || "—"}
-            </button>
-          </div>
+
+            <div className="px-4 pb-4">
+              <div className="rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-2.5 text-xs text-zinc-500 leading-relaxed">
+                <span className="font-medium text-zinc-400">Controller not detected?</span>
+                {" "}This app uses XInput. If your controller isn't recognized, install <span className="font-medium text-zinc-300">DS4Windows</span> — the most recommended option for performance, compatible with PS4, PS5, Switch Pro and more.
+              </div>
+            </div>
+            </>
+          )}
         </section>
 
         {/* Players */}
         <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
-            <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 1</div>
+            <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 1 <span className="text-zinc-500 font-normal normal-case text-[11px] tracking-normal">(You)</span></div>
             <input
               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
               value={players.player1.name}
-              onChange={(e) =>
+              maxLength={MAX_PLAYER_NAME_LENGTH}
+              onChange={(e) => {
+                const sanitized = sanitizePlayerName(e.target.value);
                 savePlayers({
                   ...players,
-                  player1: { ...players.player1, name: e.target.value },
-                })
-              }
+                  player1: { ...players.player1, name: sanitized },
+                });
+              }}
+              placeholder="Player 1 name"
             />
             <div className="text-xs text-zinc-400">Score</div>
             <div className="mt-2 flex items-center gap-2">
@@ -339,16 +543,19 @@ const ControlPanel: React.FC = () => {
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
-            <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 2</div>
+            <div className="mb-2 text-[13px] uppercase tracking-wide font-semibold text-[#B579FF]">Player 2 <span className="text-zinc-500 font-normal normal-case text-[11px] tracking-normal">(Your opponent)</span></div>
             <input
               className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500"
               value={players.player2.name}
-              onChange={(e) =>
+              maxLength={MAX_PLAYER_NAME_LENGTH}
+              onChange={(e) => {
+                const sanitized = sanitizePlayerName(e.target.value);
                 savePlayers({
                   ...players,
-                  player2: { ...players.player2, name: e.target.value },
-                })
-              }
+                  player2: { ...players.player2, name: sanitized },
+                });
+              }}
+              placeholder="Player 2 name"
             />
             <div className="text-xs text-zinc-400">Score</div>
             <div className="mt-2 flex items-center gap-2">
@@ -438,7 +645,24 @@ const ControlPanel: React.FC = () => {
               ))}
             </div>
 
-            <p className="mt-2 text-xs text-zinc-400">The swap bar automatically follows the score color.</p>
+            {/* Premium upsell */}
+            <button
+              onClick={() => setShowPremiumModal(true)}
+              className="mt-2 w-full flex items-center justify-between pl-3.5 pr-3 py-2.5 rounded-lg border border-amber-400/20 bg-gradient-to-r from-amber-500/10 to-transparent hover:from-amber-500/16 hover:border-amber-400/35 transition-all group cursor-pointer"
+            >
+              <span className="flex items-center gap-2 text-xs text-zinc-400 group-hover:text-zinc-300 transition-colors">
+                <svg className="w-3 h-3 shrink-0 text-amber-400/60 group-hover:text-amber-400 transition-colors" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 1l1.5 9.5L23 12l-9.5 1.5L12 23l-1.5-9.5L1 12l9.5-1.5L12 1z"/>
+                </svg>
+                & more accent colors available with{' '}
+                <span className="text-amber-300/90 font-semibold group-hover:text-amber-300 transition-colors">Premium</span>
+              </span>
+              <span className="ml-3 shrink-0 text-xs font-semibold text-amber-500/60 group-hover:text-amber-400 transition-colors">
+                Unlock →
+              </span>
+            </button>
+
+            <p className="mt-2 text-xs text-zinc-500">The swap bar automatically follows the score color.</p>
           </div>
         </section>
 
@@ -577,6 +801,9 @@ const ControlPanel: React.FC = () => {
           </div>
         </footer>
       </div>
+        </div>
+      </div>
+
       {/* 🧊 Overlay de cancel capture (clic gauche) */}
       {(capturing || capturingGp) && (
         <div
@@ -593,6 +820,7 @@ const ControlPanel: React.FC = () => {
         </div>
       )}
     </div>
+    </>
   );
 };
 

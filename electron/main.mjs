@@ -12,6 +12,9 @@ import { fileURLToPath } from "node:url";
 import Store from "electron-store";
 import { createRequire } from "node:module";
 import fs from "node:fs";
+import updaterPkg from "electron-updater";
+const { autoUpdater } = updaterPkg;
+import log from "electron-log";
 
 const require = createRequire(import.meta.url);
 
@@ -26,6 +29,61 @@ const {
   clearGamepadMapping,
   getGamepadMapping,
 } = require("./input/gamepad-exe.cjs");
+
+/* -------------------- auto-updater config -------------------- */
+const isPortable = !!process.env.PORTABLE_EXECUTABLE_DIR;
+const RELEASES_URL = 'https://github.com/steaxss/deadbytimer/releases/latest';
+
+autoUpdater.logger = log;
+autoUpdater.logger.transports.file.level = "info";
+autoUpdater.autoDownload = false;
+autoUpdater.allowPrerelease = false;
+autoUpdater.allowDowngrade = false;
+
+autoUpdater.on("update-available", (info) => {
+  log.info("Update available:", info.version, isPortable ? "(portable)" : "(installed)");
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-available", {
+      version: info.version,
+      releaseDate: info.releaseDate,
+      releaseNotes: info.releaseNotes,
+      isPortable,
+    });
+  }
+});
+
+autoUpdater.on("update-not-available", () => {
+  log.info("App is up to date");
+});
+
+autoUpdater.on("download-progress", (progressObj) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-download-progress", {
+      percent: progressObj.percent,
+      transferred: progressObj.transferred,
+      total: progressObj.total,
+      bytesPerSecond: progressObj.bytesPerSecond,
+    });
+  }
+});
+
+autoUpdater.on("update-downloaded", (info) => {
+  log.info("Update downloaded, will install on quit");
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-downloaded", {
+      version: info.version,
+    });
+  }
+});
+
+autoUpdater.on("error", (err) => {
+  log.error("Auto-updater error:", err);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-error", {
+      message: err.message,
+    });
+  }
+});
 
 /** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
 (function loadDevEnv() {
@@ -50,6 +108,12 @@ const DEBUG_HK = process.env.DEBUG_HK === "1";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+
+// Build mode flag injected by set-build-mode.mjs before electron-builder
+let buildMode = 'prod';
+try { buildMode = require('./build-flags.cjs').buildMode || 'prod'; } catch {}
+const isTestBuild = !isDev && buildMode === 'test';
+const isSimulateMode = isTestBuild || (isDev && process.env.SIMULATE_UPDATE === '1');
 
 if (process.platform === "win32") {
   app.setAppUserModelId("com.steaxs.dbdtimer.free");
@@ -97,6 +161,31 @@ const defaults = {
 };
 
 const getStore = (key) => store.get(key) ?? defaults[key];
+
+/* -------------------- reset config on version change -------------------- */
+{
+  const storedVersion = store.get('_appVersion');
+  const currentVersion = app.getVersion();
+  if (storedVersion && storedVersion !== currentVersion) {
+    log.info(`[update] Version changed ${storedVersion} → ${currentVersion} — resetting config`);
+    store.clear();
+    // Clear Chromium runtime dirs in %APPDATA%\productName
+    try {
+      const userData = app.getPath('userData');
+      for (const d of ['Cache', 'Code Cache', 'GPUCache', 'Session Storage', 'Local Storage', 'IndexedDB']) {
+        try { fs.rmSync(join(userData, d), { recursive: true, force: true }); } catch {}
+      }
+    } catch {}
+    // Clear %LOCALAPPDATA%\productName if it exists
+    if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+      try {
+        const lp = join(process.env.LOCALAPPDATA, app.getName());
+        if (fs.existsSync(lp)) fs.rmSync(lp, { recursive: true, force: true });
+      } catch {}
+    }
+  }
+  store.set('_appVersion', currentVersion);
+}
 
 /* -------------------- état runtime -------------------- */
 let mainWindow = null;
@@ -404,8 +493,90 @@ function setupIPC() {
     return true;
   });
 
+  ipcMain.handle("hotkeys-clear", (_evt, action) => {
+    const key = action === "start" ? "start" : "swap";
+    hotkeys[key] = null;
+    hotkeysLabel[key] = action === "start" ? "F1" : "F2";
+    store.set(K.HK_CODES, hotkeys);
+    store.set(K.HK_LABELS, hotkeysLabel);
+
+    // Refresh fallback mode
+    usingUiohook = false;
+    capture.refreshHotkeyEngine({
+      globalShortcut,
+      hotkeysLabel,
+      isAlphaNumLabel,
+      logHK,
+      getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
+      dispatchHotkey,
+    });
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send("hotkeys-mode", "fallback");
+
+    return { start: hotkeys.start, swap: hotkeys.swap, startLabel: hotkeysLabel.start, swapLabel: hotkeysLabel.swap };
+  });
+
   // 🚀 Capture: tout le workflow (IPC) déplacé dans le module capture
   capture.setupCaptureIPC();
+
+  // Window controls (custom titlebar)
+  ipcMain.handle("win-minimize", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+    return true;
+  });
+  ipcMain.handle("win-maximize", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+    return mainWindow.isMaximized();
+  });
+  ipcMain.handle("win-close", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+    return true;
+  });
+  ipcMain.handle("win-is-maximized", () => {
+    return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false;
+  });
+  ipcMain.handle("app-version", () => app.getVersion());
+  ipcMain.handle("open-premium", () => shell.openExternal("https://dbdoverlaytools.com/"));
+
+  // Auto-updater
+  ipcMain.handle("updater-start-download", async () => {
+    if (isSimulateMode) {
+      // Fake progressive download — sends progress events then fires update-downloaded
+      let pct = 0;
+      const iv = setInterval(() => {
+        pct = Math.min(pct + 12, 100);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("update-download-progress", {
+            percent: pct,
+            transferred: pct * 1024 * 1024,
+            total: 100 * 1024 * 1024,
+            bytesPerSecond: 12 * 1024 * 1024,
+          });
+        }
+        if (pct >= 100) {
+          clearInterval(iv);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("update-downloaded", { version: "99.99.99" });
+          }
+        }
+      }, 250);
+      return;
+    }
+    return autoUpdater.downloadUpdate();
+  });
+  ipcMain.handle("updater-install-now", () => {
+    if (isSimulateMode) {
+      log.info("[update] simulate — install triggered, quitting app");
+      app.quit();
+      return;
+    }
+    autoUpdater.quitAndInstall(true, true);
+  });
+  ipcMain.handle("updater-open-releases", () => {
+    shell.openExternal(RELEASES_URL);
+  });
 }
 
 /* -------------------- lifecycle -------------------- */
@@ -413,6 +584,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch("enable-zero-copy");
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
+// NOTE: disable-frame-rate-limit REMOVED - causes excessive CPU (300+ fps rendering)
 
 app.whenReady().then(() => {
   mainWindow = windows.createMainWindow(store, iconPath, isDev);
@@ -422,6 +594,36 @@ app.whenReady().then(() => {
     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
   }, 800);
   setupGamepadExe();
+
+  // Update check — 3 modes
+  setTimeout(() => {
+    if (!isDev && !isTestBuild) {
+      // PROD: real GitHub release check
+      autoUpdater.checkForUpdates().catch((err) => log.error("checkForUpdates error:", err));
+    } else if (!isDev && isTestBuild) {
+      // TEST BUILD: simulate update modal locally, never touches GitHub
+      log.info("[update] test build — simulating update-available");
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("update-available", {
+          version: "99.99.99",
+          releaseDate: new Date().toISOString(),
+          releaseNotes: "<strong>[TEST MODE]</strong> Simulated update — testing the update flow.",
+          isPortable,
+        });
+      }
+    } else if (isDev && process.env.SIMULATE_UPDATE === "1") {
+      // DEV: npm run dev:update — simulate without building
+      log.info("[update] dev simulate — simulating update-available");
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("update-available", {
+          version: "99.99.99",
+          releaseDate: new Date().toISOString(),
+          releaseNotes: "<strong>[DEV SIMULATE]</strong> Simulated update for dev testing.",
+          isPortable,
+        });
+      }
+    }
+  }, 3000);
 }).catch(err => console.error("[Electron] whenReady error:", err));
 
 app.on("second-instance", () => {

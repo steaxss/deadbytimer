@@ -1,6 +1,6 @@
 {
   "name": "dbdtimer-steaxs",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "private": true,
   "description": "DBD 1v1 Timer Overlay by Steaxs (Free)",
   "main": "electron/main.mjs",
@@ -9,8 +9,11 @@
   "type": "commonjs",
   "scripts": {
     "dev": "concurrently -k -n VITE,ELECTRON \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "dev:update": "concurrently -k -n VITE,ELECTRON \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development SIMULATE_UPDATE=1 electron .\"",
     "electron:dev": "npm run dev",
     "build": "vite build && npm run obfuscate:dist && electron-builder",
+    "build:prod": "node scripts/set-build-mode.mjs prod && vite build && npm run obfuscate:dist && electron-builder --publish always",
+    "build:test": "node scripts/set-build-mode.mjs test && vite build && npm run obfuscate:dist && electron-builder --publish never",
     "build:portable": "vite build && npm run obfuscate:dist && electron-builder --win portable",
     "build:installer": "vite build && npm run obfuscate:dist && electron-builder --win nsis",
     "build:dir": "vite build && npm run obfuscate:dist && electron-builder --win dir",
@@ -19,7 +22,9 @@
   },
   "dependencies": {
     "dotenv": "^17.2.1",
+    "electron-log": "^5.4.3",
     "electron-store": "^9.0.0",
+    "electron-updater": "^6.8.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "uiohook-napi": "^1.5.4",
@@ -63,7 +68,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": true,
+      "deleteAppDataOnUninstall": false,
       "shortcutName": "DBD 1V1 Timer Overlay"
     },
     "files": [
@@ -87,15 +92,19 @@
           "arch": [
             "x64"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
         }
       ],
       "artifactName": "DBD-Timer-Free-${version}-Setup.exe"
+    },
+    "portable": {
+      "artifactName": "DBD-Timer-Free-${version}-Portable.exe"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "steaxss",
+      "repo": "deadbytimer",
+      "private": false,
+      "releaseType": "release"
     }
   }
 }

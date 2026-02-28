@@ -12,3 +12,38 @@ body { font-family: 'Poppins-Regular', system-ui, sans-serif; }
   font-feature-settings: "tnum";
   letter-spacing: 0.02em;
 }
+
+/* ===== Custom Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.20);
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.35);
+}
+::-webkit-scrollbar-thumb:active {
+  background: rgba(161, 161, 170, 0.50);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ===== Custom Titlebar Region ===== */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-drag button,
+.titlebar-drag a,
+.titlebar-drag label,
+.titlebar-drag input,
+.titlebar-drag select {
+  -webkit-app-region: no-drag;
+}

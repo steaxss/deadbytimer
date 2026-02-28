@@ -221,11 +221,14 @@ function setupCaptureIPC() {
     captureWaitUntil = Date.now() + 15000;
     if (captureState) { clearCaptureTimers(); captureState = null; }
 
+    const captureId = Date.now() + Math.random();
+
     captureState = {
       type,
       source: source || "any",
       label: null,
       code: null,
+      captureId,
       primaryTimer: setTimeout(() => { logHK && logHK("CAPTURE PRIMARY TIMEOUT — cancel"); finalizeCapture("primary-timeout"); }, 15000),
       secondaryTimer: null,
     };
@@ -236,7 +239,10 @@ function setupCaptureIPC() {
 
     const mw = getMainWindow();
     const once = (event, input) => {
-      if (!captureState) return;
+      if (!captureState || captureState.captureId !== captureId) {
+        mw?.webContents.removeListener("before-input-event", once);
+        return;
+      }
       if (captureState.source === "gamepad") return; // capture gamepad: ignorer clavier
       if (input.type !== "keyDown" || input.isAutoRepeat) return;
 
