@@ -3,7 +3,6 @@ import React, { useEffect, useState } from 'react';
 export default function UpdateModal() {
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
-    releaseNotes: string;
     isPortable: boolean;
   } | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -15,7 +14,6 @@ export default function UpdateModal() {
     const cleanup1 = window.api.updater.onAvailable((data) => {
       setUpdateInfo({
         version: data.version,
-        releaseNotes: data.releaseNotes || 'No release notes available.',
         isPortable: !!data.isPortable,
       });
     });
@@ -75,12 +73,6 @@ export default function UpdateModal() {
             <p className="text-sm text-zinc-400">Version {updateInfo.version}</p>
           </div>
         </div>
-
-        {/* Release notes */}
-        <div
-          className="mb-6 max-h-32 overflow-y-auto rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-zinc-300"
-          dangerouslySetInnerHTML={{ __html: updateInfo.releaseNotes }}
-        />
 
         {/* Portable: no download/install, just a link */}
         {updateInfo.isPortable ? (

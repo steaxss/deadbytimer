@@ -572,7 +572,7 @@ function setupIPC() {
       app.quit();
       return;
     }
-    autoUpdater.quitAndInstall(false, true);
+    autoUpdater.quitAndInstall(true, true);
   });
   ipcMain.handle("updater-open-releases", () => {
     shell.openExternal(RELEASES_URL);
