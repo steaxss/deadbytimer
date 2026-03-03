@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('api', {
     get: () => ipcRenderer.invoke('hotkeys-get'),
     set: (hk) => ipcRenderer.invoke('hotkeys-set', hk),
     clear: (action) => ipcRenderer.invoke('hotkeys-clear', action),
+    restartHooks: () => ipcRenderer.invoke('hotkeys-restart-hooks'),
     capture: (arg1, arg2) => ipcRenderer.invoke('hotkeys-capture', arg1, arg2),
     cancel: () => ipcRenderer.invoke('hotkeys-capture-cancel'),
     onCaptured: (cb) => {

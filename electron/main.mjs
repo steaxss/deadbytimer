@@ -454,6 +454,7 @@ function setupIPC() {
     startLabel: hotkeysLabel.start,
     swapLabel: hotkeysLabel.swap,
     mode: usingUiohook ? "pass-through" : "fallback",
+    uiohookLoaded: uio.isLoaded(),
   }));
   
   ipcMain.handle("gamepad-mapping-get", () => getGamepadMapping());
@@ -514,6 +515,14 @@ function setupIPC() {
       mainWindow.webContents.send("hotkeys-mode", "fallback");
 
     return { start: hotkeys.start, swap: hotkeys.swap, startLabel: hotkeysLabel.start, swapLabel: hotkeysLabel.swap };
+  });
+
+  // Restart manuel des hooks (bouton dans le panel, utile si EAC a tué uIOhook)
+  ipcMain.handle("hotkeys-restart-hooks", () => {
+    if (uio.isLoaded() && !capture.isCapturing()) {
+      uio.restart();
+    }
+    return true;
   });
 
   // 🚀 Capture: tout le workflow (IPC) déplacé dans le module capture
@@ -594,6 +603,29 @@ app.whenReady().then(() => {
     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
   }, 800);
   setupGamepadExe();
+
+  // Watchdog uIOhook — relance le hook quand la fenêtre perd le focus (user bascule dans le jeu)
+  // et toutes les 60s en fond comme filet de sécurité.
+  // C'est le moment le plus critique : EAC / Windows peuvent tuer WH_KEYBOARD_LL quand un jeu
+  // passe au premier plan. On réarme juste avant que ça arrive.
+  function uiohookWatchdogRestart() {
+    if (!uio.isLoaded()) return;
+    if (capture.isCapturing()) return;
+    if (!usingUiohook) return;
+    uio.restart();
+  }
+
+  // Déclenchement quand toute l'app perd le focus (user entre dans le jeu).
+  // On attend 100ms pour distinguer un vrai alt-tab vers le jeu d'un simple clic
+  // entre la fenêtre principale et l'overlay (les deux sont des BrowserWindow).
+  app.on("browser-window-blur", () => {
+    setTimeout(() => {
+      if (!BrowserWindow.getFocusedWindow()) uiohookWatchdogRestart();
+    }, 100);
+  });
+
+  // Filet de sécurité périodique pour les hooks morts en fond
+  setInterval(uiohookWatchdogRestart, 60_000);
 
   // Update check — 3 modes
   setTimeout(() => {

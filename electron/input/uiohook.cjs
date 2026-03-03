@@ -3,6 +3,7 @@
 
 let _uIOhook = null;
 let _loaded = false;
+let _handlers = null; // refs des handlers actifs pour pouvoir les retirer
 
 let requireFn,
   FORCE_NO_UIOHOOK,
@@ -61,7 +62,17 @@ function isLoaded() {
   return !!_loaded && !!_uIOhook;
 }
 
+// Retire tous les handlers actifs de l'instance uIOhook
+function _removeHandlers() {
+  if (!_uIOhook || !_handlers) return;
+  try { _uIOhook.removeListener("keydown", _handlers.keydown); } catch {}
+  try { _uIOhook.removeListener("mousedown", _handlers.mousedown); } catch {}
+  try { _uIOhook.removeListener("wheel", _handlers.wheel); } catch {}
+  _handlers = null;
+}
+
 function stop() {
+  _removeHandlers();
   try {
     if (_uIOhook) _uIOhook.stop();
   } catch {}
@@ -76,10 +87,10 @@ function start() {
         const { response } = await dialog.showMessageBox({
           type: "warning",
           title: "Pass-Through unavailable",
-          message: "uIOhook couldn’t start because the Microsoft C++ runtime is missing.",
+          message: "uIOhook couldn't start because the Microsoft C++ runtime is missing.",
           detail:
-            "Install the “Microsoft Visual C++ Redistributable 2015–2022 (x64)”. " +
-            "It provides the system libraries (MSVCP140 / VCRUNTIME140) required to listen to A–Z / 0–9 without stealing them from other apps. " +
+            `Install the \u201cMicrosoft Visual C++ Redistributable 2015\u20132022 (x64)\u201d. ` +
+            "It provides the system libraries (MSVCP140 / VCRUNTIME140) required to listen to A\u2013Z / 0\u20139 without stealing them from other apps. " +
             "After installing, restart the app and recapture your hotkeys to enable pass-through.",
           buttons: ["Install runtime (x64)", "Continue in limited mode"],
           defaultId: 0,
@@ -91,7 +102,7 @@ function start() {
         await dialog.showMessageBox({
           type: "warning",
           title: "Pass-Through unavailable",
-          message: "uIOhook couldn’t start even though the C++ runtime is present.",
+          message: "uIOhook couldn't start even though the C++ runtime is present.",
           detail:
             "Possible causes: antivirus/anti-cheat blocking global hooks, architecture mismatch, native module not rebuilt, or asar not unpacked.\n\n" +
             "You can still use function keys (F1/F2) in limited mode. " +
@@ -106,12 +117,15 @@ function start() {
     return;
   }
 
+  // Retirer les anciens handlers avant d'en ajouter de nouveaux (évite duplicates sur restart)
+  _removeHandlers();
+
   // Handlers
   const RATE = 180;
   let lastToggle = 0,
     lastSwap = 0;
 
-  _uIOhook.on("keydown", (e) => {
+  const keydownHandler = (e) => {
     logHK &&
       logHK("uiohook keydown", {
         keycode: e.keycode,
@@ -141,7 +155,7 @@ function start() {
       lastSwap = now;
       dispatchHotkey("swap");
     }
-  });
+  };
 
   // Souris
   let lastMouseToggle = 0,
@@ -166,7 +180,7 @@ function start() {
     return null;
   }
 
-  _uIOhook.on("mousedown", (e) => {
+  const mousedownHandler = (e) => {
     const label = mouseLabelFromEvent(e, "mousedown");
     if (!label) return;
 
@@ -191,9 +205,9 @@ function start() {
       lastMouseSwap = now;
       dispatchHotkey("swap");
     }
-  });
+  };
 
-  _uIOhook.on("wheel", (e) => {
+  const wheelHandler = (e) => {
     const label = mouseLabelFromEvent(e, "wheel");
 
     if (isCapturing()) {
@@ -215,7 +229,14 @@ function start() {
       lastMouseSwap = now;
       dispatchHotkey("swap");
     }
-  });
+  };
+
+  // Stocker les refs pour pouvoir les retirer sur restart
+  _handlers = { keydown: keydownHandler, mousedown: mousedownHandler, wheel: wheelHandler };
+
+  _uIOhook.on("keydown", keydownHandler);
+  _uIOhook.on("mousedown", mousedownHandler);
+  _uIOhook.on("wheel", wheelHandler);
 
   // Démarrer
   try {
@@ -223,6 +244,7 @@ function start() {
     logHK && logHK("uiohook started (capture enabled)");
   } catch (e) {
     logHK && logHK("uiohook START failed -> fallback", e?.message || e);
+    _removeHandlers();
     setUsingUiohook(false);
     return;
   }
@@ -233,9 +255,28 @@ function start() {
   setUsingUiohook(!!haveCodes);
 }
 
+// Restart propre : stop → retire handlers → start
+// Appelé par le watchdog dans main.mjs quand uIOhook semble mort
+function restart() {
+  if (!_uIOhook) return;
+  logHK && logHK("uiohook RESTART requested");
+  try { _uIOhook.stop(); } catch {}
+  _removeHandlers();
+  // Petit délai pour laisser le thread natif se terminer proprement
+  setTimeout(() => {
+    try {
+      start();
+      logHK && logHK("uiohook RESTART done");
+    } catch (e) {
+      logHK && logHK("uiohook RESTART failed", e?.message || e);
+    }
+  }, 300);
+}
+
 module.exports = {
   setupUiohook,
   start,
   stop,
+  restart,
   isLoaded,
 };

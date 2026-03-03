@@ -16,9 +16,10 @@ declare global {
         onSync(cb: (d: any) => void): () => void
       }
       hotkeys: {
-        get(): Promise<{start:number|null, swap:number|null, startLabel?:string, swapLabel?:string, mode?:'pass-through'|'fallback'}>
+        get(): Promise<{start:number|null, swap:number|null, startLabel?:string, swapLabel?:string, mode?:'pass-through'|'fallback', uiohookLoaded?:boolean}>
         set(hk: {start?:number|null, swap?:number|null}): Promise<any>
         clear(action: 'start'|'swap'): Promise<{start:number|null, swap:number|null, startLabel:string, swapLabel:string}>
+        restartHooks(): Promise<boolean>
         capture(
           type:'start'|'swap' | { type:'start'|'swap', source?: 'any'|'desktop'|'gamepad' },
           source?: 'any'|'desktop'|'gamepad'
