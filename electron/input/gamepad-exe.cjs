@@ -14,6 +14,7 @@ const {
   writeFileSync,
   watch,
 } = require("fs");
+const log = require("electron-log");
 
 let child = null;
 let isQuitting = false;
@@ -107,8 +108,10 @@ function loadMapping() {
       writeFileSync(file, JSON.stringify(out, null, 2), "utf8");
     }
     mapping = out;
+    log.info(`[GAMEPAD] Mapping loaded — toggle: [${mapping.toggle.join(", ") || "none"}] | swap: [${mapping.swap.join(", ") || "none"}]`);
   } catch (e) {
     console.error("[GAMEPAD] loadMapping error", e?.message || e);
+    log.warn(`[GAMEPAD] loadMapping error — ${e?.message ?? e}`);
     mapping = { ...DEFAULT_MAPPING };
   }
 }
@@ -178,12 +181,17 @@ function handleGamepadEventName(name) {
 
 function launch() {
   const exe = resolveExePath();
-  if (!existsSync(exe)) return;
+  if (!existsSync(exe)) {
+    log.warn("[GAMEPAD] Bridge exe not found: " + exe);
+    return;
+  }
 
   child = spawn(exe, [], {
     stdio: ["ignore", "pipe", "ignore"],
     windowsHide: true,
   });
+
+  log.info(`[GAMEPAD] Bridge started — PID: ${child.pid}`);
 
   let buffer = "";
   child.stdout.on("data", (chunk) => {
@@ -196,14 +204,16 @@ function launch() {
     }
   });
 
-  child.on("exit", () => {
+  child.on("exit", (code) => {
+    log.info(`[GAMEPAD] Bridge exited (code: ${code ?? "null"}) — relaunching in 1s`);
     child = null;
     if (isQuitting) return;
     clearTimeout(relaunchTimer);
     relaunchTimer = setTimeout(launch, 1000);
   });
 
-  child.on("error", () => {
+  child.on("error", (err) => {
+    log.warn(`[GAMEPAD] Bridge error — ${err?.message ?? err} — relaunching in 1.5s`);
     child = null;
     if (isQuitting) return;
     clearTimeout(relaunchTimer);

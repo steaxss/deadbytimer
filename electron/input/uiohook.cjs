@@ -1,6 +1,8 @@
 // electron/input/uiohook.cjs
 // Charge uIOhook et gère clavier + souris (capture & runtime)
 
+const log = require("electron-log");
+
 let _uIOhook = null;
 let _loaded = false;
 let _handlers = null; // refs des handlers actifs pour pouvoir les retirer
@@ -51,10 +53,12 @@ function setupUiohook(ctx) {
     _uIOhook = lib.uIOhook;
     _loaded = true;
     logHK && logHK("uiohook loaded OK");
+    log.info("[UIOHOOK] Loaded OK");
   } catch (e) {
     _uIOhook = null;
     _loaded = false;
     logHK && logHK("uiohook FAILED to load -> fallback", e?.message || e);
+    log.warn(`[UIOHOOK] Failed to load — ${e?.message ?? e}`);
   }
 }
 
@@ -244,6 +248,7 @@ function start() {
     logHK && logHK("uiohook started (capture enabled)");
   } catch (e) {
     logHK && logHK("uiohook START failed -> fallback", e?.message || e);
+    log.warn(`[UIOHOOK] Start failed — ${e?.message ?? e}`);
     _removeHandlers();
     setUsingUiohook(false);
     return;
@@ -253,6 +258,7 @@ function start() {
   const hk = getHotkeys();
   const haveCodes = Number.isFinite(hk.start) && Number.isFinite(hk.swap);
   setUsingUiohook(!!haveCodes);
+  log.info(`[UIOHOOK] Started — mode: ${haveCodes ? "pass-through" : "fallback"} | start:${hk.start ?? "null"} swap:${hk.swap ?? "null"}`);
 }
 
 // Restart propre : stop → retire handlers → start
@@ -260,6 +266,7 @@ function start() {
 function restart() {
   if (!_uIOhook) return;
   logHK && logHK("uiohook RESTART requested");
+  log.info("[UIOHOOK] Restart initiated");
   try { _uIOhook.stop(); } catch {}
   _removeHandlers();
   // Petit délai pour laisser le thread natif se terminer proprement
@@ -269,6 +276,7 @@ function restart() {
       logHK && logHK("uiohook RESTART done");
     } catch (e) {
       logHK && logHK("uiohook RESTART failed", e?.message || e);
+      log.warn(`[UIOHOOK] Restart failed — ${e?.message ?? e}`);
     }
   }, 300);
 }

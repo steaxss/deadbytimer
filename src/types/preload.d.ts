@@ -41,6 +41,7 @@ declare global {
         onMaximizeChange(cb: (v: boolean) => void): () => void
         getVersion(): Promise<string>
         openPremium(): Promise<void>
+        openLogFolder(): Promise<boolean>
       }
       updater: {
         startDownload(): Promise<void>

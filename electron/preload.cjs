@@ -90,5 +90,6 @@ contextBridge.exposeInMainWorld('api', {
     },
     getVersion: () => ipcRenderer.invoke('app-version'),
     openPremium: () => ipcRenderer.invoke('open-premium'),
+    openLogFolder: () => ipcRenderer.invoke('open-log-folder'),
   }
 });

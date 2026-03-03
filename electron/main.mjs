@@ -9,6 +9,7 @@ import {
 } from "electron";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 import Store from "electron-store";
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -36,6 +37,12 @@ const RELEASES_URL = 'https://github.com/steaxss/deadbytimer/releases/latest';
 
 autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = "info";
+
+/* -------------------- log config -------------------- */
+// Max 500 KB puis rotation (1 ancien fichier conservé) → logs légers
+log.transports.file.maxSize = 500 * 1024;
+log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}";
+
 autoUpdater.autoDownload = false;
 autoUpdater.allowPrerelease = false;
 autoUpdater.allowDowngrade = false;
@@ -548,6 +555,7 @@ function setupIPC() {
   });
   ipcMain.handle("app-version", () => app.getVersion());
   ipcMain.handle("open-premium", () => shell.openExternal("https://dbdoverlaytools.com/"));
+  ipcMain.handle("open-log-folder", () => { shell.openPath(app.getPath("logs")); return true; });
 
   // Auto-updater
   ipcMain.handle("updater-start-download", async () => {
@@ -596,6 +604,19 @@ app.commandLine.appendSwitch("ignore-gpu-blocklist");
 // NOTE: disable-frame-rate-limit REMOVED - causes excessive CPU (300+ fps rendering)
 
 app.whenReady().then(() => {
+  // ---- Log: infos système au démarrage ----
+  log.info("========== APP START ==========");
+  log.info(`App: v${app.getVersion()} | Electron: ${process.versions.electron} | Node: ${process.versions.node} | Chrome: ${process.versions.chrome}`);
+  log.info(`OS: Windows ${os.release()} | Arch: ${os.arch()} | Portable: ${isPortable}`);
+  log.info(`CPU: ${os.cpus()[0]?.model ?? "unknown"} × ${os.cpus().length} cores`);
+  log.info(`RAM: ${Math.round(os.totalmem() / 1024 / 1024)} MB total`);
+  log.info(`Log file: ${app.getPath("logs")}`);
+  // GPU info (async, best-effort)
+  app.getGPUInfo("basic").then((info) => {
+    const renderer = info.auxAttributes?.glRenderer ?? info.gpuDevice?.[0]?.vendorId ?? "unknown";
+    log.info(`GPU: ${renderer}`);
+  }).catch(() => {});
+
   mainWindow = windows.createMainWindow(store, iconPath, isDev);
   setupIPC();
   uio.start(); // lance uIOhook (si possible) et configure mode fallback/pass-through
@@ -604,14 +625,38 @@ app.whenReady().then(() => {
   }, 800);
   setupGamepadExe();
 
+  // ---- Log: métriques CPU/RAM toutes les 60s ----
+  let _cpuPrev = null;
+  function _cpuSample() {
+    const cpus = os.cpus();
+    let total = 0, idle = 0;
+    for (const c of cpus) { for (const v of Object.values(c.times)) total += v; idle += c.times.idle; }
+    return { total, idle };
+  }
+  setInterval(() => {
+    const cur = _cpuSample();
+    let cpuStr = "?%";
+    if (_cpuPrev) {
+      const dt = cur.total - _cpuPrev.total;
+      const di = cur.idle - _cpuPrev.idle;
+      if (dt > 0) cpuStr = `${Math.round((1 - di / dt) * 100)}%`;
+    }
+    _cpuPrev = cur;
+    const freeMB  = Math.round(os.freemem()  / 1024 / 1024);
+    const totalMB = Math.round(os.totalmem() / 1024 / 1024);
+    const appMB   = Math.round(process.memoryUsage().rss / 1024 / 1024);
+    log.info(`[METRICS] CPU: ${cpuStr} | RAM: ${totalMB - freeMB}/${totalMB} MB | App: ${appMB} MB | uiohook: ${uio.isLoaded() ? (usingUiohook ? "pass-through" : "fallback") : "unavailable"} | gamepad: ${getGamepadMapping().toggle.length > 0 || getGamepadMapping().swap.length > 0 ? "mapped" : "no-mapping"}`);
+  }, 60_000);
+
   // Watchdog uIOhook — relance le hook quand la fenêtre perd le focus (user bascule dans le jeu)
   // et toutes les 60s en fond comme filet de sécurité.
   // C'est le moment le plus critique : EAC / Windows peuvent tuer WH_KEYBOARD_LL quand un jeu
   // passe au premier plan. On réarme juste avant que ça arrive.
-  function uiohookWatchdogRestart() {
+  function uiohookWatchdogRestart(reason) {
     if (!uio.isLoaded()) return;
     if (capture.isCapturing()) return;
     if (!usingUiohook) return;
+    log.info(`[UIOHOOK] Watchdog restart — reason: ${reason}`);
     uio.restart();
   }
 
@@ -620,12 +665,12 @@ app.whenReady().then(() => {
   // entre la fenêtre principale et l'overlay (les deux sont des BrowserWindow).
   app.on("browser-window-blur", () => {
     setTimeout(() => {
-      if (!BrowserWindow.getFocusedWindow()) uiohookWatchdogRestart();
+      if (!BrowserWindow.getFocusedWindow()) uiohookWatchdogRestart("app-blur");
     }, 100);
   });
 
   // Filet de sécurité périodique pour les hooks morts en fond
-  setInterval(uiohookWatchdogRestart, 60_000);
+  setInterval(() => uiohookWatchdogRestart("interval"), 60_000);
 
   // Update check — 3 modes
   setTimeout(() => {

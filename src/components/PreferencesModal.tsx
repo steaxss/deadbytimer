@@ -115,6 +115,30 @@ export default function PreferencesModal({ appVersion, onClose }: PreferencesMod
               </button>
             )}
           </div>
+
+          <div className="h-px bg-white/[0.06]" />
+
+          {/* Diagnostics */}
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-3">
+              Diagnostics
+            </div>
+            <button
+              onClick={() => window.api.win.openLogFolder()}
+              className="w-full rounded-lg px-3 py-2.5 text-sm font-medium border border-white/[0.08] bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-100 transition flex items-center gap-2.5"
+            >
+              <svg className="w-4 h-4 text-zinc-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+              </svg>
+              Open log folder
+              <svg className="w-3 h-3 text-zinc-600 ml-auto shrink-0" viewBox="0 0 12 12" fill="none">
+                <path d="M3.5 1.5h7v7M1.5 10.5l9-9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+            </button>
+            <p className="mt-1.5 text-[11px] text-zinc-600 leading-relaxed px-0.5">
+              Share the <span className="text-zinc-500 font-mono">main.log</span> file with the developer to diagnose issues.
+            </p>
+          </div>
         </div>
       </div>
     </div>
