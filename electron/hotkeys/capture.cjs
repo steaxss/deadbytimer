@@ -1,6 +1,8 @@
 // electron/hotkeys/capture.cjs
 // Gère la capture transactionnelle (IPC), le stockage labels/codes, le fallback globalShortcut.
 
+const log = require("electron-log");
+
 let ipcMain,
   store,
   globalShortcut,
@@ -138,6 +140,14 @@ function finalizeCapture(reason = "done") {
   const { type, source, label, code } = captureState;
   clearCaptureTimers();
   logHK && logHK("CAPTURE FINALIZE", { reason, type, source, label, code });
+  // Log permanent (même sans DEBUG_HK)
+  if (reason !== "cancel" && reason !== "cancel-by-user" && reason !== "primary-timeout") {
+    const codeStr   = typeof code === "number" ? `code:${code}` : "no-code";
+    const labelStr  = label ?? "no-label";
+    log.info(`[HOTKEY] Captured — action: ${type} | source: ${source} | label: "${labelStr}" | ${codeStr}`);
+  } else {
+    log.info(`[HOTKEY] Capture cancelled — action: ${type} | reason: ${reason}`);
+  }
 
   // Persistance : seulement pour “desktop” on écrit dans hotkeys/hotkeysLabel
   if (source !== "gamepad") {

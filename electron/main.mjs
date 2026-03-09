@@ -625,8 +625,23 @@ app.whenReady().then(() => {
   }, 800);
   setupGamepadExe();
 
+  // ---- Log: config touches/souris/manette après init complète ----
+  setTimeout(() => {
+    const hkCodes  = getStore(K.HK_CODES);
+    const hkLabels = getStore(K.HK_LABELS);
+    const mb       = getStore(K.MOUSE_BINDS);
+    const gm       = getGamepadMapping();
+    const mode     = usingUiohook ? "pass-through" : "fallback";
+    log.info(`[CONFIG] Input mode: ${mode} | uiohook: ${uio.isLoaded() ? "loaded" : "unavailable"}`);
+    log.info(`[CONFIG] Keyboard — toggle: "${hkLabels.start}" (code: ${hkCodes.start ?? "null"}) | swap: "${hkLabels.swap}" (code: ${hkCodes.swap ?? "null"})`);
+    log.info(`[CONFIG] Mouse    — toggle: ${mb.start ?? "null"} | swap: ${mb.swap ?? "null"}`);
+    log.info(`[CONFIG] Gamepad  — toggle: [${(gm.toggle ?? []).join(", ") || "none"}] | swap: [${(gm.swap ?? []).join(", ") || "none"}]`);
+  }, 1200);
+
   // ---- Log: métriques CPU/RAM toutes les 60s ----
   let _cpuPrev = null;
+  // Initialiser getCPUUsage pour avoir un delta valide dès le premier tick
+  process.getCPUUsage();
   function _cpuSample() {
     const cpus = os.cpus();
     let total = 0, idle = 0;
@@ -635,17 +650,24 @@ app.whenReady().then(() => {
   }
   setInterval(() => {
     const cur = _cpuSample();
-    let cpuStr = "?%";
+    let sysCpuStr = "?%";
     if (_cpuPrev) {
       const dt = cur.total - _cpuPrev.total;
       const di = cur.idle - _cpuPrev.idle;
-      if (dt > 0) cpuStr = `${Math.round((1 - di / dt) * 100)}%`;
+      if (dt > 0) sysCpuStr = `${Math.round((1 - di / dt) * 100)}%`;
     }
     _cpuPrev = cur;
-    const freeMB  = Math.round(os.freemem()  / 1024 / 1024);
-    const totalMB = Math.round(os.totalmem() / 1024 / 1024);
-    const appMB   = Math.round(process.memoryUsage().rss / 1024 / 1024);
-    log.info(`[METRICS] CPU: ${cpuStr} | RAM: ${totalMB - freeMB}/${totalMB} MB | App: ${appMB} MB | uiohook: ${uio.isLoaded() ? (usingUiohook ? "pass-through" : "fallback") : "unavailable"} | gamepad: ${getGamepadMapping().toggle.length > 0 || getGamepadMapping().swap.length > 0 ? "mapped" : "no-mapping"}`);
+    // CPU consommé par le process principal (moyenne depuis le dernier appel)
+    const appCpu    = process.getCPUUsage();
+    const appCpuStr = `${appCpu.percentCPUUsage.toFixed(1)}%`;
+    const freeMB    = Math.round(os.freemem()  / 1024 / 1024);
+    const totalMB   = Math.round(os.totalmem() / 1024 / 1024);
+    const mem       = process.memoryUsage();
+    const appMB     = Math.round(mem.rss        / 1024 / 1024);
+    const heapMB    = Math.round(mem.heapUsed   / 1024 / 1024);
+    const gm        = getGamepadMapping();
+    const gpStr     = (gm.toggle ?? []).length > 0 || (gm.swap ?? []).length > 0 ? "mapped" : "no-mapping";
+    log.info(`[METRICS] SysCPU: ${sysCpuStr} | AppCPU: ${appCpuStr} | RAM: ${totalMB - freeMB}/${totalMB} MB | App: ${appMB} MB (heap: ${heapMB} MB) | uiohook: ${uio.isLoaded() ? (usingUiohook ? "pass-through" : "fallback") : "unavailable"} | gamepad: ${gpStr}`);
   }, 60_000);
 
   // Watchdog uIOhook — relance le hook quand la fenêtre perd le focus (user bascule dans le jeu)

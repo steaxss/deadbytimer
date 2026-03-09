@@ -56,7 +56,8 @@
 .score-value {
   grid-row: 1; grid-column: 2; font-size: 24px; text-transform: uppercase;
   background: var(--accent-gradient);
-  padding: 0 15px; min-width: 90px; max-width: 120px;
+  padding: 0 15px; min-width: 90px;
+  white-space: nowrap;
 }
 .name.right {
   grid-row: 1; grid-column: 3; font-size: 24px; text-transform: uppercase;

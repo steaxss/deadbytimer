@@ -54,6 +54,15 @@ function setupUiohook(ctx) {
     _loaded = true;
     logHK && logHK("uiohook loaded OK");
     log.info("[UIOHOOK] Loaded OK");
+
+    // Listener permanent : détecte quand le hook natif meurt (antivirus, EAC, G Hub, etc.)
+    _uIOhook.on("error", (e) => {
+      log.error(`[UIOHOOK] Hook died — ${e?.message ?? e} — attempting auto-restart`);
+      _removeHandlers();
+      setTimeout(() => {
+        try { start(); } catch (err) { log.error(`[UIOHOOK] Auto-restart failed — ${err?.message ?? err}`); }
+      }, 500);
+    });
   } catch (e) {
     _uIOhook = null;
     _loaded = false;
@@ -256,9 +265,10 @@ function start() {
 
   // Mode d'entrée : fallback tant que les deux codes ne sont pas définis
   const hk = getHotkeys();
+  const mb = getMouseBinds();
   const haveCodes = Number.isFinite(hk.start) && Number.isFinite(hk.swap);
   setUsingUiohook(!!haveCodes);
-  log.info(`[UIOHOOK] Started — mode: ${haveCodes ? "pass-through" : "fallback"} | start:${hk.start ?? "null"} swap:${hk.swap ?? "null"}`);
+  log.info(`[UIOHOOK] Started — mode: ${haveCodes ? "pass-through" : "fallback"} | kb-start: ${hk.start ?? "null"} | kb-swap: ${hk.swap ?? "null"} | mouse-start: ${mb.start ?? "null"} | mouse-swap: ${mb.swap ?? "null"}`);
 }
 
 // Restart propre : stop → retire handlers → start

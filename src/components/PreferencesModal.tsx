@@ -114,6 +114,11 @@ export default function PreferencesModal({ appVersion, onClose }: PreferencesMod
                 {restarting ? "Restarting…" : "Restart keyboard listener"}
               </button>
             )}
+
+            <div className="mt-2.5 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2.5 text-[11px] text-zinc-400 leading-relaxed">
+              <span className="font-semibold text-amber-400/90">Compatibility notice —</span>
+              {" "}Software like <span className="text-zinc-300">Logitech G Hub</span>, <span className="text-zinc-300">Razer Synapse</span>, <span className="text-zinc-300">Corsair iCUE</span> or <span className="text-zinc-300">SteelSeries GG</span> installs its own low-level keyboard hook and can block or delay the timer hotkeys. If your keys stop responding in-game, click <span className="text-zinc-300 font-medium">Restart keyboard listener</span> above, or disable macro features in your peripheral software.
+            </div>
           </div>
 
           <div className="h-px bg-white/[0.06]" />
