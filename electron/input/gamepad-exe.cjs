@@ -14,10 +14,18 @@ const {
   writeFileSync,
   watch,
 } = require("fs");
+const log = require("electron-log");
+const { shouldRunGamepadBridge } = require("./runtime-policy.cjs");
+const VERBOSE_LOGS =
+  process.env.NODE_ENV === "development" ||
+  process.env.DEBUG_HK === "1" ||
+  process.env.DEBUG_LOGS === "1";
 
 let child = null;
 let isQuitting = false;
 let relaunchTimer = null;
+let initialized = false;
+let stopRequested = false;
 
 const ACTION_THROTTLE_MS = 200;
 const lastActionAt = { toggle: 0, swap: 0 };
@@ -87,6 +95,7 @@ function loadMapping() {
     if (!existsSync(file)) {
       writeFileSync(file, JSON.stringify(DEFAULT_MAPPING, null, 2), "utf8");
       mapping = { ...DEFAULT_MAPPING };
+      ensureBridgeState();
       return;
     }
 
@@ -107,9 +116,14 @@ function loadMapping() {
       writeFileSync(file, JSON.stringify(out, null, 2), "utf8");
     }
     mapping = out;
+    if (VERBOSE_LOGS) {
+      log.info(`[GAMEPAD] Mapping loaded — toggle: [${mapping.toggle.join(", ") || "none"}] | swap: [${mapping.swap.join(", ") || "none"}]`);
+    }
+    ensureBridgeState();
   } catch (e) {
-    console.error("[GAMEPAD] loadMapping error", e?.message || e);
+    log.warn(`[GAMEPAD] loadMapping error — ${e?.message ?? e}`);
     mapping = { ...DEFAULT_MAPPING };
+    ensureBridgeState();
   }
 }
 
@@ -118,7 +132,7 @@ function saveMapping(next) {
     const file = configFilePath();
     writeFileSync(file, JSON.stringify(next, null, 2), "utf8");
   } catch (e) {
-    console.error("[GAMEPAD] saveMapping error", e?.message || e);
+    log.warn(`[GAMEPAD] saveMapping error — ${e?.message ?? e}`);
   }
 }
 
@@ -130,6 +144,7 @@ function setGamepadMapping(action, eventLabel, { append = false } = {}) {
   else next[key] = [label];
   saveMapping(next);
   mapping = next;
+  ensureBridgeState();
 }
 
 // 🚿 NOUVEAU : vider complètement une action (exclusivité par action)
@@ -138,6 +153,7 @@ function clearGamepadMapping(action) {
   const next = { ...mapping, [key]: [] };
   saveMapping(next);
   mapping = next;
+  ensureBridgeState();
 }
 
 // --- Flux brut pour la capture ------------------------------------------------
@@ -145,7 +161,11 @@ const rawListeners = new Set();
 function onGamepadRaw(cb) {
   if (typeof cb === "function") {
     rawListeners.add(cb);
-    return () => rawListeners.delete(cb);
+    ensureBridgeState();
+    return () => {
+      rawListeners.delete(cb);
+      ensureBridgeState();
+    };
   }
   return () => {};
 }
@@ -155,6 +175,34 @@ function emitRaw(ev) {
       cb(ev);
     } catch {}
   }
+}
+
+function hasMappedActions() {
+  return (mapping.toggle || []).length > 0 || (mapping.swap || []).length > 0;
+}
+
+function shouldRunBridge() {
+  return shouldRunGamepadBridge({ mapping, rawListenerCount: rawListeners.size });
+}
+
+function stopBridge(reason = "idle") {
+  clearTimeout(relaunchTimer);
+  relaunchTimer = null;
+  if (!child) return;
+  stopRequested = true;
+  if (VERBOSE_LOGS) log.info(`[GAMEPAD] Bridge stopping — reason: ${reason}`);
+  try {
+    child.kill();
+  } catch {}
+}
+
+function ensureBridgeState() {
+  if (isQuitting) return;
+  if (shouldRunBridge()) {
+    if (!child) launch();
+    return;
+  }
+  stopBridge("no-demand");
 }
 
 // --- Process natif -----------------------------------------------------------
@@ -177,13 +225,20 @@ function handleGamepadEventName(name) {
 }
 
 function launch() {
+  if (child || !shouldRunBridge()) return;
   const exe = resolveExePath();
-  if (!existsSync(exe)) return;
+  if (!existsSync(exe)) {
+    log.warn("[GAMEPAD] Bridge exe not found: " + exe);
+    return;
+  }
 
+  stopRequested = false;
   child = spawn(exe, [], {
     stdio: ["ignore", "pipe", "ignore"],
     windowsHide: true,
   });
+
+  if (VERBOSE_LOGS) log.info(`[GAMEPAD] Bridge started — PID: ${child.pid}`);
 
   let buffer = "";
   child.stdout.on("data", (chunk) => {
@@ -196,16 +251,23 @@ function launch() {
     }
   });
 
-  child.on("exit", () => {
+  child.on("exit", (code) => {
+    const intentional = stopRequested || isQuitting;
+    if (VERBOSE_LOGS) {
+      log.info(`[GAMEPAD] Bridge exited (code: ${code ?? "null"})${intentional ? "" : " — relaunching if needed"}`);
+    }
+    stopRequested = false;
     child = null;
-    if (isQuitting) return;
+    if (intentional || !shouldRunBridge()) return;
     clearTimeout(relaunchTimer);
     relaunchTimer = setTimeout(launch, 1000);
   });
 
-  child.on("error", () => {
+  child.on("error", (err) => {
+    log.warn(`[GAMEPAD] Bridge error — ${err?.message ?? err} — relaunching in 1.5s`);
+    stopRequested = false;
     child = null;
-    if (isQuitting) return;
+    if (isQuitting || !shouldRunBridge()) return;
     clearTimeout(relaunchTimer);
     relaunchTimer = setTimeout(launch, 1500);
   });
@@ -214,30 +276,25 @@ function launch() {
 function setupGamepadExe() {
   if (process.platform !== "win32") return; // l’app est Windows-only, garde au cas où
 
+  if (initialized) {
+    ensureBridgeState();
+    return;
+  }
+  initialized = true;
+
   loadMapping();
   try {
     watch(configFilePath(), { persistent: false }, () => loadMapping());
   } catch {}
-
-  launch();
+  ensureBridgeState();
 
   app.on("before-quit", () => {
     isQuitting = true;
-    try {
-      clearTimeout(relaunchTimer);
-    } catch {}
-    try {
-      child?.kill();
-    } catch {}
+    stopBridge("before-quit");
   });
   app.on("will-quit", () => {
     isQuitting = true;
-    try {
-      clearTimeout(relaunchTimer);
-    } catch {}
-    try {
-      child?.kill();
-    } catch {}
+    stopBridge("will-quit");
   });
 }
 

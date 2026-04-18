@@ -1,6 +1,12 @@
 // electron/hotkeys/capture.cjs
 // Gère la capture transactionnelle (IPC), le stockage labels/codes, le fallback globalShortcut.
 
+const log = require("electron-log");
+const VERBOSE_LOGS =
+  process.env.NODE_ENV === "development" ||
+  process.env.DEBUG_HK === "1" ||
+  process.env.DEBUG_LOGS === "1";
+
 let ipcMain,
   store,
   globalShortcut,
@@ -23,6 +29,9 @@ let ipcMain,
   isAlphaNumLabel,
   sendHotkeysMode,
   dispatchHotkey,
+  refreshInputRuntime,
+  enableUiohookCapture,
+  disableUiohookCapture,
   onGamepadRaw,
   setGamepadMapping,
   clearGamepadMapping; // conservé pour compat
@@ -55,6 +64,9 @@ function initCapture(ctx) {
     isAlphaNumLabel,
     sendHotkeysMode,
     dispatchHotkey,
+    refreshInputRuntime,
+    enableUiohookCapture,
+    disableUiohookCapture,
     onGamepadRaw,
     setGamepadMapping,
     clearGamepadMapping,
@@ -70,6 +82,9 @@ function isKeyboardLabel(label) {
   if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(label)) return true;
   if (/^[A-Z0-9]$/.test(label)) return true;
   return /^(ESC|TAB|ENTER|BACKSPACE|SHIFT|CTRL|ALT|SPACE|UP|DOWN|LEFT|RIGHT)$/i.test(label);
+}
+function isFunctionKeyLabel(label) {
+  return typeof label === "string" && /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
 }
 function isGamepadLabel(label) {
   return typeof label === "string" && !isKeyboardLabel(label) && !isMouseLabel(label);
@@ -116,6 +131,16 @@ function clearCaptureTimers() {
   if (captureState.secondaryTimer) { clearTimeout(captureState.secondaryTimer); captureState.secondaryTimer = null; }
 }
 
+function clearBeforeInputListener(state = captureState) {
+  const listener = state?.beforeInputListener;
+  const mw = getMainWindow();
+  if (!listener || !mw?.webContents) return;
+  try {
+    mw.webContents.removeListener("before-input-event", listener);
+  } catch {}
+  if (state) state.beforeInputListener = null;
+}
+
 // Exclusivité “desktop” : clavier OU souris (manette coexiste)
 function enforceDesktopExclusivityAfter(label, code, type) {
   const isKb = isKeyboardLabel(label) || typeof code === "number";
@@ -133,26 +158,42 @@ function enforceDesktopExclusivityAfter(label, code, type) {
 function finalizeCapture(reason = "done") {
   if (!captureState) return;
 
+  const currentCapture = captureState;
   if (offGamepadRaw) { try { offGamepadRaw(); } catch {} offGamepadRaw = null; }
 
-  const { type, source, label, code } = captureState;
+  const { type, source, label, code } = currentCapture;
   clearCaptureTimers();
+  clearBeforeInputListener(currentCapture);
   logHK && logHK("CAPTURE FINALIZE", { reason, type, source, label, code });
+  // Log permanent (même sans DEBUG_HK)
+  if (reason !== "cancel" && reason !== "cancel-by-user" && reason !== "primary-timeout") {
+    const codeStr   = typeof code === "number" ? `code:${code}` : "no-code";
+    const labelStr  = label ?? "no-label";
+    if (VERBOSE_LOGS) {
+      log.info(`[HOTKEY] Captured — action: ${type} | source: ${source} | label: "${labelStr}" | ${codeStr}`);
+    }
+  } else {
+    if (VERBOSE_LOGS) {
+      log.info(`[HOTKEY] Capture cancelled — action: ${type} | reason: ${reason}`);
+    }
+  }
 
   // Persistance : seulement pour “desktop” on écrit dans hotkeys/hotkeysLabel
   if (source !== "gamepad") {
+    const persistedCode = typeof code === "number" ? code : null;
+
     if (label) {
       const labels = { ...getHotkeysLabel(), [type]: label };
       setHotkeysLabel(labels);
     }
-    if (typeof code === "number") {
-      const codes = { ...getHotkeys(), [type]: code };
+    if (typeof persistedCode === "number") {
+      const codes = { ...getHotkeys(), [type]: persistedCode };
       setHotkeys(codes);
     }
-    if (label || typeof code === "number") {
-      enforceDesktopExclusivityAfter(label, code, type);
+    if (label || typeof persistedCode === "number") {
+      enforceDesktopExclusivityAfter(label, persistedCode, type);
       // si on n’a reçu qu’un label clavier (pas de code), retirer tout ancien code stale
-      if (label && isKeyboardLabel(label) && typeof code !== "number") {
+      if (label && isKeyboardLabel(label) && typeof persistedCode !== "number") {
         const hk = { ...getHotkeys() };
         if (hk[type] != null) { hk[type] = null; setHotkeys(hk); logHK && logHK("Cleared stale KEYCODE (keyboard label only)", type); }
       }
@@ -169,7 +210,7 @@ function finalizeCapture(reason = "done") {
   }
 
   // Alerte VC++ (desktop uniquement)
-  if (source !== "gamepad" && !getUsingUiohook() && label && isAlphaNumLabel(label) && !hasVCRedist()) {
+  if (source !== "gamepad" && label && isAlphaNumLabel(label) && typeof code !== "number" && !hasVCRedist()) {
     dialog.showMessageBox({
       type: "info",
       title: "Pass-Through unavailable",
@@ -180,30 +221,11 @@ function finalizeCapture(reason = "done") {
     }).then(({ response }) => { if (response === 0) shell.openExternal(VC_REDIST_X64_URL); });
   }
 
-  // Pass-through si 2 codes capturés (desktop)
-  const codes = getHotkeys();
-  const haveBoth = Number.isFinite(codes.start) && Number.isFinite(codes.swap);
-  if (haveBoth && getUsingUiohook() === false) {
-    setUsingUiohook(true);
-    try { globalShortcut.unregisterAll(); } catch {}
-    sendHotkeysMode("pass-through");
-  }
-
   // Reset
   captureState = null;
   captureWaitUntil = 0;
-
-  // Réarmer fallback si nécessaire
-  if (!getUsingUiohook()) {
-    refreshHotkeyEngine({
-      globalShortcut,
-      hotkeysLabel: getHotkeysLabel(),
-      isAlphaNumLabel,
-      logHK,
-      getCaptureBlockUntil,
-      dispatchHotkey,
-    });
-  }
+  disableUiohookCapture?.();
+  refreshInputRuntime?.();
 }
 
 function parseCaptureArgs(arg1, arg2) {
@@ -235,7 +257,8 @@ function setupCaptureIPC() {
 
     try { const mw = getMainWindow(); mw?.focus(); } catch {}
 
-    if (!getUsingUiohook()) { try { globalShortcut.unregisterAll(); } catch {} }
+    try { globalShortcut.unregisterAll(); } catch {}
+    if (source !== "gamepad") enableUiohookCapture?.();
 
     const mw = getMainWindow();
     const once = (event, input) => {
@@ -263,7 +286,10 @@ function setupCaptureIPC() {
 
       mw?.webContents.removeListener("before-input-event", once);
     };
-    mw?.webContents.on("before-input-event", once);
+    if (source !== "gamepad") {
+      captureState.beforeInputListener = once;
+      mw?.webContents.on("before-input-event", once);
+    }
 
     // RAW manette → uniquement mapping + event source: 'gamepad'
     offGamepadRaw = onGamepadRaw((evLabel) => {

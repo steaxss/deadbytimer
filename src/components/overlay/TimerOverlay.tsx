@@ -154,9 +154,12 @@ export default function TimerOverlay() {
     const running = status1 === 'running' || status2 === 'running';
 
     const updateDOM = () => {
+      const elapsed1 = elapsed(1);
+      const elapsed2 = elapsed(2);
+
       // Timer text (direct DOM write, bypasses React)
-      writeTimerSpans(t1SpansRef.current, elapsed(1));
-      writeTimerSpans(t2SpansRef.current, elapsed(2));
+      writeTimerSpans(t1SpansRef.current, elapsed1);
+      writeTimerSpans(t2SpansRef.current, elapsed2);
 
       // Warn class computation + direct DOM class update
       const div1 = timer1DivRef.current;
@@ -167,9 +170,10 @@ export default function TimerOverlay() {
       const actStatus = active === 1 ? status1 : status2;
       if (actStatus === 'running') {
         const other: 1 | 2 = active === 1 ? 2 : 1;
-        const otherMs = elapsed(other);
+        const activeMs = active === 1 ? elapsed1 : elapsed2;
+        const otherMs = other === 1 ? elapsed1 : elapsed2;
         if (otherMs > 0) {
-          const delta = otherMs - elapsed(active);
+          const delta = otherMs - activeMs;
           if (delta <= 0) warn = 'winning'; // Timer actif a dépassé l'autre = en train de gagner
           else if (delta <= DIFF10) warn = 'warn10';
           else if (delta <= DIFF20) warn = 'warn20';
@@ -189,21 +193,11 @@ export default function TimerOverlay() {
       return;
     }
 
-    let cancel = false;
-    let frame = 0;
-    const loop = () => {
-      if (cancel) return;
-      // 30fps instead of 60fps: -50% CPU usage, visually identical
-      if (++frame % 2 === 0) updateDOM();
-      requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
-    // Heartbeat: if RAF is briefly suspended, keep at least ~2fps
-    const hb = window.setInterval(updateDOM, 500);
+    updateDOM();
+    const intervalId = window.setInterval(updateDOM, 33);
 
     return () => {
-      cancel = true;
-      clearInterval(hb);
+      clearInterval(intervalId);
     };
   }, [status1, status2, active, elapsed]);
 

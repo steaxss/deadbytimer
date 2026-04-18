@@ -1,6 +1,6 @@
 {
   "name": "dbdtimer-steaxs",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "description": "DBD 1v1 Timer Overlay by Steaxs (Free)",
   "main": "electron/main.mjs",
@@ -18,7 +18,9 @@
     "build:installer": "vite build && npm run obfuscate:dist && electron-builder --win nsis",
     "build:dir": "vite build && npm run obfuscate:dist && electron-builder --win dir",
     "obfuscate:dist": "javascript-obfuscator dist --output dist --compact true --control-flow-flattening false --dead-code-injection false --string-array true --string-array-encoding base64 --string-array-threshold 0.5 --rename-properties false --target browser",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-unit-tests.cjs",
+    "test:unit": "node scripts/run-unit-tests.cjs"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
@@ -104,7 +106,7 @@
       "owner": "steaxss",
       "repo": "deadbytimer",
       "private": false,
-      "releaseType": "release"
+      "releaseType": "prerelease"
     }
   }
 }

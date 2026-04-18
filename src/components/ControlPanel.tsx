@@ -3,6 +3,7 @@ import { ACCENTS, NAME_BG, AccentKey, NameTheme } from "@/themes/palette";
 import { sanitizePlayerName, MAX_PLAYER_NAME_LENGTH } from "@/utils/sanitize";
 import UpdateModal from "./UpdateModal";
 import PremiumModal from "./PremiumModal";
+import PreferencesModal from "./PreferencesModal";
 
 type HKGet = {
   start: number | null;
@@ -56,6 +57,7 @@ const ControlPanel: React.FC = () => {
   const [nameTheme, setNameTheme] = useState<NameTheme>("default");
   const [accentKey, setAccentKey] = useState<AccentKey>("default");
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showPreferences, setShowPreferences] = useState(false);
 
   // Auto-score
   const [autoScore, setAutoScore] = useState<boolean>(true);
@@ -252,6 +254,7 @@ const ControlPanel: React.FC = () => {
     <>
       <UpdateModal />
       {showPremiumModal && <PremiumModal onClose={() => setShowPremiumModal(false)} />}
+      {showPreferences && <PreferencesModal appVersion={appVersion} onClose={() => setShowPreferences(false)} />}
 
       <div className="flex flex-col h-screen text-zinc-100 overflow-hidden">
       {/* ====== Discord-style Titlebar ====== */}
@@ -266,8 +269,20 @@ const ControlPanel: React.FC = () => {
           <span className="text-zinc-500">By Steaxs & Doc</span>
         </div>
 
-        {/* Right: Window controls */}
+        {/* Right: Preferences + Window controls */}
         <div className="flex items-center h-full">
+          {/* Preferences */}
+          <button
+            onClick={() => setShowPreferences(true)}
+            className="win-btn h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 transition-colors"
+            aria-label="Preferences"
+            title="Preferences"
+          >
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" clipRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" />
+            </svg>
+          </button>
+
           {/* Minimize */}
           <button
             onClick={() => window.api.win.minimize()}
@@ -351,61 +366,63 @@ const ControlPanel: React.FC = () => {
             </svg>
           </button>
           {kbOpen && (
-            <div className="px-4 pb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
+            <div className="px-4 pb-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
+                    <button
+                      className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                      onClick={async () => {
+                        try {
+                          const result = await window.api.hotkeys.clear("start");
+                          setHkLabels({ ...hkLabels, start: result.startLabel || "F1" });
+                        } catch {}
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
                   <button
-                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                    onClick={async () => {
-                      try {
-                        const result = await window.api.hotkeys.clear("start");
-                        setHkLabels({ ...hkLabels, start: result.startLabel || "F1" });
-                      } catch {}
+                    className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                      capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                    }`}
+                    onClick={() => {
+                      setCapturing("start");
+                      window.api.hotkeys.capture({ type: "start", source: "desktop" });
                     }}
                   >
-                    Clear
+                    {capturing === "start" ? "Press a key…" : hkLabels.start}
                   </button>
                 </div>
-                <button
-                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                    capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-                  }`}
-                  onClick={() => {
-                    setCapturing("start");
-                    window.api.hotkeys.capture({ type: "start", source: "desktop" });
-                  }}
-                >
-                  {capturing === "start" ? "Press a key…" : hkLabels.start}
-                </button>
-              </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
+                    <button
+                      className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
+                      onClick={async () => {
+                        try {
+                          const result = await window.api.hotkeys.clear("swap");
+                          setHkLabels({ ...hkLabels, swap: result.swapLabel || "F2" });
+                        } catch {}
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
                   <button
-                    className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                    onClick={async () => {
-                      try {
-                        const result = await window.api.hotkeys.clear("swap");
-                        setHkLabels({ ...hkLabels, swap: result.swapLabel || "F2" });
-                      } catch {}
+                    className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
+                      capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
+                    }`}
+                    onClick={() => {
+                      setCapturing("swap");
+                      window.api.hotkeys.capture({ type: "swap", source: "desktop" });
                     }}
                   >
-                    Clear
+                    {capturing === "swap" ? "Press a key…" : hkLabels.swap}
                   </button>
                 </div>
-                <button
-                  className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                    capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-                  }`}
-                  onClick={() => {
-                    setCapturing("swap");
-                    window.api.hotkeys.capture({ type: "swap", source: "desktop" });
-                  }}
-                >
-                  {capturing === "swap" ? "Press a key…" : hkLabels.swap}
-                </button>
               </div>
             </div>
           )}
