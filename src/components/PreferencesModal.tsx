@@ -44,7 +44,6 @@ export default function PreferencesModal({ appVersion, onClose }: PreferencesMod
     setTimeout(async () => {
       try {
         const h = await window.api.hotkeys.get();
-        setMode(h.mode ?? "fallback");
         setUiohookLoaded(h.uiohookLoaded ?? false);
       } catch {}
       setRestarting(false);

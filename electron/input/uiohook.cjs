@@ -2,10 +2,17 @@
 // Charge uIOhook et gère clavier + souris (capture & runtime)
 
 const log = require("electron-log");
+const VERBOSE_LOGS =
+  process.env.NODE_ENV === "development" ||
+  process.env.DEBUG_HK === "1" ||
+  process.env.DEBUG_LOGS === "1";
 
 let _uIOhook = null;
 let _loaded = false;
 let _handlers = null; // refs des handlers actifs pour pouvoir les retirer
+let _running = false;
+const _reasons = new Set();
+let _restartTimer = null;
 
 let requireFn,
   FORCE_NO_UIOHOOK,
@@ -53,14 +60,21 @@ function setupUiohook(ctx) {
     _uIOhook = lib.uIOhook;
     _loaded = true;
     logHK && logHK("uiohook loaded OK");
-    log.info("[UIOHOOK] Loaded OK");
+    if (VERBOSE_LOGS) log.info("[UIOHOOK] Loaded OK");
 
     // Listener permanent : détecte quand le hook natif meurt (antivirus, EAC, G Hub, etc.)
     _uIOhook.on("error", (e) => {
       log.error(`[UIOHOOK] Hook died — ${e?.message ?? e} — attempting auto-restart`);
+      _running = false;
       _removeHandlers();
-      setTimeout(() => {
-        try { start(); } catch (err) { log.error(`[UIOHOOK] Auto-restart failed — ${err?.message ?? err}`); }
+      if (_reasons.size === 0) {
+        setUsingUiohook(false);
+        return;
+      }
+      clearTimeout(_restartTimer);
+      _restartTimer = setTimeout(() => {
+        _restartTimer = null;
+        try { _startHook(); } catch (err) { log.error(`[UIOHOOK] Auto-restart failed — ${err?.message ?? err}`); }
       }, 500);
     });
   } catch (e) {
@@ -75,23 +89,33 @@ function isLoaded() {
   return !!_loaded && !!_uIOhook;
 }
 
+function isRunning() {
+  return _running;
+}
+
 // Retire tous les handlers actifs de l'instance uIOhook
 function _removeHandlers() {
   if (!_uIOhook || !_handlers) return;
   try { _uIOhook.removeListener("keydown", _handlers.keydown); } catch {}
+  try { _uIOhook.removeListener("keyup", _handlers.keyup); } catch {}
   try { _uIOhook.removeListener("mousedown", _handlers.mousedown); } catch {}
+  try { _uIOhook.removeListener("mouseup", _handlers.mouseup); } catch {}
   try { _uIOhook.removeListener("wheel", _handlers.wheel); } catch {}
   _handlers = null;
 }
 
 function stop() {
+  clearTimeout(_restartTimer);
+  _restartTimer = null;
   _removeHandlers();
   try {
-    if (_uIOhook) _uIOhook.stop();
+    if (_uIOhook && _running) _uIOhook.stop();
   } catch {}
+  _running = false;
+  setUsingUiohook(false);
 }
 
-function start() {
+function _startHook() {
   if (!_uIOhook) {
     // Prompt éventuel si non chargé
     const vcPresent = hasVCRedist();
@@ -127,7 +151,12 @@ function start() {
       // fallback mode
       setUsingUiohook(false);
     })();
-    return;
+    return false;
+  }
+
+  if (_running) {
+    setUsingUiohook(_reasons.has("runtime"));
+    return true;
   }
 
   // Retirer les anciens handlers avant d'en ajouter de nouveaux (évite duplicates sur restart)
@@ -137,11 +166,17 @@ function start() {
   const RATE = 180;
   let lastToggle = 0,
     lastSwap = 0;
+  const pressedKeys = new Set();
+  const pressedMouse = new Set();
 
   const keydownHandler = (e) => {
+    const keycode = e.keycode;
+    const isRepeat = pressedKeys.has(keycode);
+    if (!isRepeat) pressedKeys.add(keycode);
     logHK &&
       logHK("uiohook keydown", {
-        keycode: e.keycode,
+        keycode,
+        repeat: isRepeat,
         captureState: isCapturing(),
         now: Date.now(),
         blockUntil: getCaptureBlockUntil(),
@@ -149,25 +184,30 @@ function start() {
 
     // Capture: récupérer le keycode
     if (isCapturing()) {
-      onCaptureKeyboardCode(e.keycode);
+      if (!isRepeat) onCaptureKeyboardCode(keycode);
       return;
     }
 
     // Runtime: déclenchement si codes définis
     if (!getOverlayWindow() || getOverlayWindow().isDestroyed()) return;
     if (Date.now() < getCaptureBlockUntil()) return;
+    if (isRepeat) return;
 
     const now = Date.now();
     const hk = getHotkeys();
-    if (Number.isFinite(hk.start) && e.keycode === hk.start) {
+    if (Number.isFinite(hk.start) && keycode === hk.start) {
       if (now - lastToggle < RATE) return;
       lastToggle = now;
       dispatchHotkey("toggle");
-    } else if (Number.isFinite(hk.swap) && e.keycode === hk.swap) {
+    } else if (Number.isFinite(hk.swap) && keycode === hk.swap) {
       if (now - lastSwap < RATE) return;
       lastSwap = now;
       dispatchHotkey("swap");
     }
+  };
+
+  const keyupHandler = (e) => {
+    pressedKeys.delete(e.keycode);
   };
 
   // Souris
@@ -196,16 +236,19 @@ function start() {
   const mousedownHandler = (e) => {
     const label = mouseLabelFromEvent(e, "mousedown");
     if (!label) return;
+    const isRepeat = pressedMouse.has(label);
+    if (!isRepeat) pressedMouse.add(label);
 
     // Capture: on pousse le label
     if (isCapturing()) {
-      onCaptureMouseLabel(label);
+      if (!isRepeat) onCaptureMouseLabel(label);
       return;
     }
 
     // Runtime
     if (!getOverlayWindow() || getOverlayWindow().isDestroyed()) return;
     if (Date.now() < getCaptureBlockUntil()) return;
+    if (isRepeat) return;
 
     const now = Date.now();
     const mb = getMouseBinds();
@@ -218,6 +261,12 @@ function start() {
       lastMouseSwap = now;
       dispatchHotkey("swap");
     }
+  };
+
+  const mouseupHandler = (e) => {
+    const label = mouseLabelFromEvent(e, "mouseup");
+    if (!label) return;
+    pressedMouse.delete(label);
   };
 
   const wheelHandler = (e) => {
@@ -245,10 +294,18 @@ function start() {
   };
 
   // Stocker les refs pour pouvoir les retirer sur restart
-  _handlers = { keydown: keydownHandler, mousedown: mousedownHandler, wheel: wheelHandler };
+  _handlers = {
+    keydown: keydownHandler,
+    keyup: keyupHandler,
+    mousedown: mousedownHandler,
+    mouseup: mouseupHandler,
+    wheel: wheelHandler,
+  };
 
   _uIOhook.on("keydown", keydownHandler);
+  _uIOhook.on("keyup", keyupHandler);
   _uIOhook.on("mousedown", mousedownHandler);
+  _uIOhook.on("mouseup", mouseupHandler);
   _uIOhook.on("wheel", wheelHandler);
 
   // Démarrer
@@ -259,30 +316,54 @@ function start() {
     logHK && logHK("uiohook START failed -> fallback", e?.message || e);
     log.warn(`[UIOHOOK] Start failed — ${e?.message ?? e}`);
     _removeHandlers();
+    _running = false;
     setUsingUiohook(false);
-    return;
+    return false;
   }
 
-  // Mode d'entrée : fallback tant que les deux codes ne sont pas définis
+  _running = true;
+  // Mode d'entrée : "pass-through" seulement si le runtime dépend effectivement du hook
   const hk = getHotkeys();
   const mb = getMouseBinds();
-  const haveCodes = Number.isFinite(hk.start) && Number.isFinite(hk.swap);
-  setUsingUiohook(!!haveCodes);
-  log.info(`[UIOHOOK] Started — mode: ${haveCodes ? "pass-through" : "fallback"} | kb-start: ${hk.start ?? "null"} | kb-swap: ${hk.swap ?? "null"} | mouse-start: ${mb.start ?? "null"} | mouse-swap: ${mb.swap ?? "null"}`);
+  const runtimeActive = _reasons.has("runtime");
+  setUsingUiohook(runtimeActive);
+  if (VERBOSE_LOGS) {
+    log.info(`[UIOHOOK] Started — runtime: ${runtimeActive ? "on" : "off"} | reasons: [${[..._reasons].join(", ") || "none"}] | kb-start: ${hk.start ?? "null"} | kb-swap: ${hk.swap ?? "null"} | mouse-start: ${mb.start ?? "null"} | mouse-swap: ${mb.swap ?? "null"}`);
+  }
+  return true;
+}
+
+function start() {
+  _reasons.add("runtime");
+  return _startHook();
+}
+
+function enable(reason = "runtime") {
+  _reasons.add(reason);
+  return _startHook();
+}
+
+function disable(reason = "runtime") {
+  _reasons.delete(reason);
+  if (_reasons.size === 0) {
+    stop();
+    return;
+  }
+  setUsingUiohook(_reasons.has("runtime"));
 }
 
 // Restart propre : stop → retire handlers → start
 // Appelé par le watchdog dans main.mjs quand uIOhook semble mort
 function restart() {
-  if (!_uIOhook) return;
+  if (!_uIOhook || _reasons.size === 0) return;
   logHK && logHK("uiohook RESTART requested");
-  log.info("[UIOHOOK] Restart initiated");
-  try { _uIOhook.stop(); } catch {}
-  _removeHandlers();
+  if (VERBOSE_LOGS) log.info("[UIOHOOK] Restart initiated");
+  stop();
   // Petit délai pour laisser le thread natif se terminer proprement
-  setTimeout(() => {
+  _restartTimer = setTimeout(() => {
+    _restartTimer = null;
     try {
-      start();
+      _startHook();
       logHK && logHK("uiohook RESTART done");
     } catch (e) {
       logHK && logHK("uiohook RESTART failed", e?.message || e);
@@ -296,5 +377,8 @@ module.exports = {
   start,
   stop,
   restart,
+  enable,
+  disable,
   isLoaded,
+  isRunning,
 };

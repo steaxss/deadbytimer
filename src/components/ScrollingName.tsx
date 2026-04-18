@@ -26,8 +26,8 @@ export default function ScrollingName({ text, speed = 40, className = "" }: Prop
       const overflowPx = Math.max(0, textWidth - wrapWidth);
       const needsScroll = overflowPx > 2; // 2px threshold
 
-      setOverflow(overflowPx);
-      setScrollNeeded(needsScroll);
+      setOverflow((prev) => (prev === overflowPx ? prev : overflowPx));
+      setScrollNeeded((prev) => (prev === needsScroll ? prev : needsScroll));
 
       // Center text if no scroll needed
       wrap.style.justifyContent = needsScroll ? "flex-start" : "center";
@@ -59,8 +59,8 @@ export default function ScrollingName({ text, speed = 40, className = "" }: Prop
     // as it's informational, not decorative
 
     // Dynamic speed based on overflow (longer names scroll faster)
-    const baseSpeed = 25;   // Minimum speed for short names
-    const maxSpeed = 70;    // Maximum speed for very long names
+    const baseSpeed = Math.max(22, speed * 0.7);   // Minimum speed for short names
+    const maxSpeed = Math.max(baseSpeed, speed * 1.8);    // Maximum speed for very long names
     const scaleFactor = 0.15; // How quickly speed increases with length
     const dynamicSpeed = Math.min(maxSpeed, baseSpeed + overflow * scaleFactor);
 
@@ -98,7 +98,7 @@ export default function ScrollingName({ text, speed = 40, className = "" }: Prop
     });
 
     return () => cancelAnimationFrame(raf);
-  }, [scrollNeeded, overflow]);
+  }, [scrollNeeded, overflow, speed]);
 
   return (
     <div ref={wrapRef} className={`scrolling-name ${className}`} title={text} aria-label={text}>
