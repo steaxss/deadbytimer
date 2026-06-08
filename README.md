@@ -1,10 +1,27 @@
 # DBD 1v1 Timer Overlay
 
+[![Version 3.2.0](https://img.shields.io/badge/Version-3.2.0-informational)](https://github.com/steaxss/deadbytimer)
+[![Electron 42.3.3](https://img.shields.io/badge/Electron-42.3.3-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![React 18.3.1](https://img.shields.io/badge/React-18.3.1-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![Vite 8.0.16](https://img.shields.io/badge/Vite-8.0.16-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+[![TypeScript 5.5.4](https://img.shields.io/badge/TypeScript-5.5.4-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS 3.4.7](https://img.shields.io/badge/Tailwind_CSS-3.4.7-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Zustand 4.5.2](https://img.shields.io/badge/Zustand-4.5.2-000000)](https://github.com/pmndrs/zustand)
+[![electron-store 9.0.0](https://img.shields.io/badge/electron--store-9.0.0-2C3E50)](https://github.com/sindresorhus/electron-store)
+[![uIOhook 1.5.4](https://img.shields.io/badge/uIOhook-1.5.4-5C6BC0)](https://github.com/SnosMe/uiohook-napi)
+[![electron-builder 26.15.2](https://img.shields.io/badge/electron--builder-26.15.2-4E9A06)](https://www.electron.build/)
+[![XInput](https://img.shields.io/badge/Gamepad-XInput-informational)](https://learn.microsoft.com/windows/win32/xinput/getting-started)
+[![License](https://img.shields.io/badge/License-Non--commercial-informational)](#license)
+
 Desktop overlay for Dead by Daylight 1v1 matches. The app provides two timers,
 player names, scores, global shortcuts, controller bindings and a transparent
 overlay designed to stay above the game window.
 
 Created by STEAXS.
+
+## Preview
+
+![DBD 1v1 Timer Overlay Preview](https://i.imgur.com/5rLwdeD.png)
 
 ## Features
 
