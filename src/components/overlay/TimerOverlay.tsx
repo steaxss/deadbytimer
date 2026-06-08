@@ -148,8 +148,7 @@ export default function TimerOverlay() {
     return cleanup;
   }, []);
 
-  // === CRITICAL PERF: Direct DOM updates for timer display + warn classes ===
-  // No React re-renders at 60fps — only direct DOM writes via RAF
+  // Direct DOM updates avoid React re-renders while timers are running.
   React.useEffect(() => {
     const running = status1 === 'running' || status2 === 'running';
 
@@ -235,7 +234,7 @@ export default function TimerOverlay() {
     return () => window.removeEventListener("resize", measure);
   }, [players.player1.name, players.player2.name]);
 
-  // ===================== AUTO-SCORE =====================
+  // Auto-score
   const prevStatusRef = React.useRef<{ 1: string; 2: string }>({
     1: "stopped",
     2: "stopped",
@@ -296,7 +295,7 @@ export default function TimerOverlay() {
     }
 
     prevStatusRef.current = { 1: status1, 2: status2 };
-  }, [status1, status2, autoScoreEnabled, autoScoreThresholdMs]); // Removed 'elapsed' from deps
+  }, [status1, status2, autoScoreEnabled, autoScoreThresholdMs]);
 
   // Purge snapshots on auto-score toggle
   const prevAutoRef = React.useRef(autoScoreEnabled);

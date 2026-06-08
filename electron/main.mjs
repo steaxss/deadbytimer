@@ -160,8 +160,8 @@ const defaults = {
     alwaysOnTop: true,
     nameTheme: 'default',
     accentKey: 'default',
-    autoScoreEnabled: true,         // ← NEW
-    autoScoreThresholdSec: 25,      // ← NEW
+    autoScoreEnabled: true,
+    autoScoreThresholdSec: 25,
   },
   [K.TIMER]: {
     player1: { name: "Player 1", score: 0 },
@@ -393,9 +393,9 @@ capture.initCapture({
   refreshInputRuntime,
   enableUiohookCapture: () => uio.enable("capture"),
   disableUiohookCapture: () => uio.disable("capture"),
-  onGamepadRaw,         // ↔️ gamepad
+  onGamepadRaw,
   setGamepadMapping,
-  clearGamepadMapping,    // ↔️ gamepad
+  clearGamepadMapping,
 });
 
 // Initialiser le module uIOhook (clavier + souris)
@@ -529,8 +529,6 @@ function setupIPC() {
     }
     return true;
   });
-
-  // 🚀 Capture: tout le workflow (IPC) déplacé dans le module capture
   capture.setupCaptureIPC();
 
   // Window controls (custom titlebar)

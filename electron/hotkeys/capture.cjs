@@ -266,7 +266,7 @@ function setupCaptureIPC() {
         mw?.webContents.removeListener("before-input-event", once);
         return;
       }
-      if (captureState.source === "gamepad") return; // capture gamepad: ignorer clavier
+      if (captureState.source === "gamepad") return; // Gamepad: ignorer clavier
       if (input.type !== "keyDown" || input.isAutoRepeat) return;
 
       const label = makeLabelFromBeforeInput(input);
@@ -307,7 +307,7 @@ function setupCaptureIPC() {
     return true;
   });
 
-  // ✅ Annulation explicite (clic utilisateur)
+  // Annulation explicite.
   ipcMain.handle("hotkeys-capture-cancel", () => {
     if (!captureState) return true;
     logHK && logHK("CAPTURE CANCELLED BY USER");

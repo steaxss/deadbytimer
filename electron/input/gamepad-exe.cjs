@@ -147,7 +147,7 @@ function setGamepadMapping(action, eventLabel, { append = false } = {}) {
   ensureBridgeState();
 }
 
-// 🚿 NOUVEAU : vider complètement une action (exclusivité par action)
+// Vider completement une action.
 function clearGamepadMapping(action) {
   const key = action === "swap" ? "swap" : "toggle";
   const next = { ...mapping, [key]: [] };
@@ -297,8 +297,6 @@ function setupGamepadExe() {
     stopBridge("will-quit");
   });
 }
-
-  // 👇 Nouveau : expose un snapshot lisible depuis le renderer
   function getGamepadMapping() {
     return {
       toggle: Array.isArray(mapping.toggle) ? [...mapping.toggle] : [],
