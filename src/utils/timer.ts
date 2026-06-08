@@ -34,7 +34,6 @@ export function formatMillis(ms:number) {
   return `${pad(mins)}:${pad(secs)}:${pad(cs)}`;
 }
 
-// Nouveau : dynamique
 export function formatMillisDynamic(ms:number) {
   const total = Math.max(0, Math.floor(ms));
   const cs = Math.floor((total % 1000) / 10);           // 0..99

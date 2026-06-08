@@ -76,7 +76,7 @@ const ControlPanel: React.FC = () => {
   });
   const [capturing, setCapturing] = useState<null | "start" | "swap">(null);
 
-  // 🎮 Gamepad
+  // Gamepad
   const [gp, setGp] = useState<GamepadMapping>({ toggle: [], swap: [] });
   const [capturingGp, setCapturingGp] = useState<null | "toggle" | "swap">(null);
 
@@ -110,7 +110,7 @@ const ControlPanel: React.FC = () => {
       setHkLabels({ start: h.startLabel || "F1", swap: h.swapLabel || "F2" });
     });
 
-    // 🎮 charger mapping
+    // Charger le mapping manette.
     if (window.api?.gamepad?.get) {
       window.api.gamepad.get().then((m: any) => {
         setGp(m && typeof m === "object" ? m : { toggle: [], swap: [] });
@@ -428,13 +428,13 @@ const ControlPanel: React.FC = () => {
           )}
         </section>
 
-        {/* 🎮 Gamepad hotkeys */}
+        {/* Gamepad hotkeys */}
         <section className="mb-6 rounded-xl border border-white/10 bg-white/5 backdrop-blur overflow-hidden">
           <button
             className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/[0.04] transition"
             onClick={() => setGpOpen(v => !v)}
           >
-            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">🎮 Controller Hotkeys</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Controller Hotkeys</span>
             <svg
               className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${gpOpen ? "rotate-180" : ""}`}
               viewBox="0 0 16 16" fill="none"
@@ -821,7 +821,7 @@ const ControlPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 🧊 Overlay de cancel capture (clic gauche) */}
+      {/* Overlay de cancel capture */}
       {(capturing || capturingGp) && (
         <div
           className="fixed inset-0 z-[100] bg-black/20"
