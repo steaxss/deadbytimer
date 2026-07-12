@@ -347,7 +347,7 @@ function launch() {
 /** @param {(action: GamepadAction) => void} actionDispatcher */
 function setupGamepadExe(actionDispatcher) {
   dispatchHotkey = actionDispatcher;
-  if (process.platform !== "win32") return; // l’app est Windows-only, garde au cas où
+  if (process.platform !== "win32") return;
 
   if (initialized) {
     ensureBridgeState();

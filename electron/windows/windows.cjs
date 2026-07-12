@@ -222,7 +222,6 @@ function createOverlayWindow(currentOverlay, _currentMain) {
     return overlayWindow;
   }
 
-  // --- INIT ROBUSTE ---
   const activeStore = requireStore();
   const s = activeStore.get("overlaySettings", /** @type {OverlaySettings} */ ({
     x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true,
@@ -236,7 +235,6 @@ function createOverlayWindow(currentOverlay, _currentMain) {
   if (typeof s.locked !== "boolean") s.locked = true;
   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
   activeStore.set("overlaySettings", s);
-  // --- FIN INIT ROBUSTE
 
   const scale = (s.scale || 100) / 100;
   const dims = _getBaseDims();
@@ -264,8 +262,8 @@ function createOverlayWindow(currentOverlay, _currentMain) {
       preload: join(__dirname, "../preload.cjs"),
       backgroundThrottling: false,
       devTools: !!isDev,
-      webgl: false,        // No 3D rendering needed → saves 10-20MB RAM
-      enableWebSQL: false, // No database needed
+      webgl: false,
+      enableWebSQL: false,
     },
   });
   overlayWindow = window;
@@ -367,7 +365,6 @@ module.exports = {
   updateOverlayDrag,
   endOverlayDrag,
 
-  // (utiles si besoin)
   getMainWindow: () => mainWindow,
   getOverlayWindow: () => overlayWindow,
 };

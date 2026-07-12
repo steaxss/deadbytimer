@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { PreciseTimer, formatMillisDynamic } = require("../perf/artifacts/test-build/timer.js");
+const { PreciseTimer, formatMillisDynamic } = require("../.test-build/timer.js");
 
 let now = 1_000;
 const timer = new PreciseTimer(() => now);

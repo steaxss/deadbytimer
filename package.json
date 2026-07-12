@@ -18,15 +18,12 @@
     "build:installer": "vite build && electron-builder --win nsis",
     "build:dir": "vite build && electron-builder --win dir",
     "check:lines": "node scripts/check-source-lines.mjs",
-    "lint": "oxlint src electron scripts perf/baseline --deny-warnings",
-    "perf:soak:analyze": "node perf/baseline/analyze-soak.mjs",
-    "perf:panel": "electron perf/baseline/panel-bootstrap.cjs",
-    "perf:panel:metrics": "electron perf/baseline/panel-metrics-bootstrap.cjs",
+    "lint": "oxlint src electron scripts --deny-warnings",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json",
     "verify": "npm run check:lines && npm run lint && npm run typecheck && npm test && npm audit && npm audit --omit=dev",
     "test": "node scripts/run-unit-tests.cjs && npm run test:timer",
     "test:unit": "node scripts/run-unit-tests.cjs",
-    "test:timer": "tsc --ignoreConfig src/utils/timer.ts --target ES2022 --module commonjs --outDir perf/artifacts/test-build && node scripts/run-timer-tests.cjs"
+    "test:timer": "tsc --ignoreConfig src/utils/timer.ts --target ES2022 --module commonjs --outDir .test-build && node scripts/run-timer-tests.cjs"
   },
   "dependencies": {
     "dotenv": "^17.2.1",

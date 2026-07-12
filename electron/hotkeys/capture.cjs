@@ -307,16 +307,15 @@ function setupCaptureIPC(assertSender) {
       mw?.webContents.on("before-input-event", once);
     }
 
-    // RAW manette → uniquement mapping + event source: 'gamepad'
     offGamepadRaw = onGamepadRaw((evLabel) => {
       if (!captureState) return;
-      if (captureState.source === "desktop") return; // capture desktop: ignorer manette
+      if (captureState.source === "desktop") return;
       const { type } = captureState;
 
-      captureState.label = evLabel; // pour la fin de capture; on NE stockera pas dans hotkeysLabel
+      captureState.label = evLabel;
       mw?.webContents.send("hotkeys-captured", { type, label: evLabel, source: "gamepad" });
 
-      setGamepadMapping(type, evLabel, { append: false }); // remplace
+      setGamepadMapping(type, evLabel, { append: false });
       finalizeCapture("gamepad");
     });
 

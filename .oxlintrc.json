@@ -20,7 +20,6 @@
   "ignorePatterns": [
     "dist/**",
     "release/**",
-    "node_modules/**",
-    "perf/artifacts/**"
+    "node_modules/**"
   ]
 }
