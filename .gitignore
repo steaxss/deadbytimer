@@ -15,6 +15,7 @@ dist-electron
 
 # Build outputs
 release
+perf/artifacts/
 
 # Editor directories and files
 .vscode/*
@@ -50,6 +51,8 @@ electron/build-flags.cjs
 resources/
 
 # Other
+AGENTS.md
+PERFORMANCE_REFACTOR.md
 project-overview-free.md
 .claude/settings.local.json
 AUTO_UPDATE_GUIDE.md

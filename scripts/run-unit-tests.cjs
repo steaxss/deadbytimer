@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const Module = require("node:module");
 
 const {
   isFunctionKeyLabel,
@@ -8,6 +9,12 @@ const {
   hasMappedGamepadActions,
   shouldRunGamepadBridge,
 } = require("../electron/input/runtime-policy.cjs");
+const { createSenderGuard } = require("../electron/ipc/security.cjs");
+const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions } = require("../electron/ipc/validation.cjs");
+const { createDeferredWriter } = require("../electron/persistence/deferred-writer.cjs");
+const uiohookRuntime = require("../electron/input/uiohook.cjs");
+const { parseGamepadProtocolLine } = require("../electron/input/gamepad-protocol.cjs");
+const { createRateLimiter } = require("../electron/input/rate-limiter.cjs");
 
 const tests = [];
 
@@ -109,21 +116,166 @@ test("gamepad bridge only runs when a mapping exists or a capture listener is ac
   );
 });
 
-let passed = 0;
+test("gamepad protocol accepts only versioned known events", () => {
+  assert.equal(parseGamepadProtocolLine("DBT1\tBTN A"), "BTN A");
+  assert.equal(parseGamepadProtocolLine("DBT1\tAXIS RY_NEG"), "AXIS RY_NEG");
+  assert.equal(parseGamepadProtocolLine("BTN A"), null);
+  assert.equal(parseGamepadProtocolLine("DBT2\tBTN A"), null);
+  assert.equal(parseGamepadProtocolLine("DBT1\tUNKNOWN"), null);
+  assert.equal(parseGamepadProtocolLine(`DBT1\t${"A".repeat(65)}`), null);
+});
 
-for (const { name, fn } of tests) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`PASS ${name}`);
-  } catch (error) {
-    console.error(`FAIL ${name}`);
-    console.error(error);
-    process.exitCode = 1;
-    break;
+test("input rate limiter uses a monotonic clock per action", () => {
+  let now = 1000;
+  const canFire = createRateLimiter(220, () => now);
+  assert.equal(canFire("toggle"), true);
+  now += 219;
+  assert.equal(canFire("toggle"), false);
+  assert.equal(canFire("swap"), true);
+  now += 1;
+  assert.equal(canFire("toggle"), true);
+  now = 10;
+  assert.equal(canFire("toggle"), false);
+
+  let eventTime = 0;
+  let accepted = 0;
+  const validEvents = createRateLimiter(220, () => eventTime);
+  for (let index = 0; index < 10_000; index += 1) {
+    if (validEvents("toggle")) accepted += 1;
+    eventTime += 220;
   }
+  assert.equal(accepted, 10_000);
+});
+
+test("IPC payload validators accept product contracts and reject malformed data", () => {
+  assert.deepEqual(parseOverlayPatch({ scale: 125, locked: false, accentKey: "cyan" }), { scale: 125, locked: false, accentKey: "cyan" });
+  assert.throws(() => parseOverlayPatch({ scale: 500 }), /scale/);
+  assert.throws(() => parseOverlayPatch({ unexpected: true }), /Unknown/);
+  assert.deepEqual(parseHotkeyPatch({ start: 59, swap: null }), { start: 59, swap: null });
+  assert.throws(() => parseHotkeyPatch({ start: -1 }), /Invalid/);
+  assert.throws(() => parseHotkeyPatch({ start: 59, injected: true }), /Unknown/);
+  assert.deepEqual(parseTimerData({ player1: { name: "A", score: 0 }, player2: { name: "B", score: 12 } }), { player1: { name: "A", score: 0 }, player2: { name: "B", score: 12 } });
+  assert.throws(() => parseTimerData({ player1: { name: "A", score: -1 }, player2: { name: "B", score: 0 } }), /score/);
+  assert.throws(() => parseTimerData({ player1: { name: "A", score: 0, role: "admin" }, player2: { name: "B", score: 0 } }), /Unknown/);
+  assert.deepEqual(parseDimensions({ width: 520, height: 120 }), { width: 520, height: 120 });
+  assert.throws(() => parseDimensions({ width: 0, height: 120 }), /dimensions/);
+  assert.throws(() => parseDimensions({ width: 520, height: 120, extra: 1 }), /Unknown/);
+});
+
+test("IPC sender guard enforces window identity and rejects subframes", () => {
+  const panelFrame = {};
+  const overlayFrame = {};
+  const panel = { webContents: { id: 10, mainFrame: panelFrame } };
+  const overlay = { webContents: { id: 20, mainFrame: overlayFrame } };
+  const guard = createSenderGuard({ getMainWindow: () => panel, getOverlayWindow: () => overlay });
+  guard({ sender: panel.webContents, senderFrame: panelFrame }, "panel");
+  guard({ sender: overlay.webContents, senderFrame: overlayFrame }, "overlay");
+  assert.throws(() => guard({ sender: overlay.webContents, senderFrame: overlayFrame }, "panel"), /untrusted/);
+  assert.throws(() => guard({ sender: panel.webContents, senderFrame: {} }, "both"), /subframes/);
+});
+
+test("deferred persistence coalesces writes and flushes the newest value", () => {
+  const writes = [];
+  const writer = createDeferredWriter({ write: (value) => writes.push(value), delayMs: 60_000 });
+  writer.schedule({ name: "first" });
+  writer.schedule({ name: "latest" });
+  assert.deepEqual(writes, []);
+  writer.flush();
+  assert.deepEqual(writes, [{ name: "latest" }]);
+  writer.flush();
+  assert.equal(writes.length, 1);
+});
+
+test("uIOhook stays unloaded until a runtime capability requests it", () => {
+  let requireCalls = 0;
+  let starts = 0;
+  let stops = 0;
+  const fakeHook = {
+    addListener() {},
+    on() {},
+    removeListener() {},
+    start() { starts += 1; },
+    stop() { stops += 1; },
+  };
+  uiohookRuntime.setupUiohook({
+    require: () => { requireCalls += 1; return { uIOhook: fakeHook }; },
+    FORCE_NO_UIOHOOK: false,
+    hasVCRedist: () => true,
+    dialog: { showMessageBox: async () => ({ response: 1 }) },
+    shell: { openExternal: async () => undefined },
+    VC_REDIST_X64_URL: "https://example.invalid",
+    logHK() {},
+    getOverlayWindow: () => null,
+    dispatchHotkey() {},
+    isCapturing: () => false,
+    getCaptureBlockUntil: () => 0,
+    onCaptureKeyboardCode() {},
+    onCaptureMouseLabel() {},
+    getHotkeys: () => ({ start: 30, swap: null }),
+    getMouseBinds: () => ({ start: null, swap: null }),
+    setUsingUiohook() {},
+  });
+
+  assert.equal(uiohookRuntime.isLoaded(), false);
+  assert.equal(requireCalls, 0);
+  assert.equal(uiohookRuntime.enable("runtime"), true);
+  assert.equal(requireCalls, 1);
+  assert.equal(starts, 1);
+  uiohookRuntime.stop();
+  assert.equal(stops, 1);
+});
+
+test("electron-updater stays unloaded until the first update operation", async () => {
+  const originalLoad = Module._load;
+  let updaterLoads = 0;
+  let checks = 0;
+  const fakeUpdater = {
+    logger: null,
+    autoDownload: true,
+    allowPrerelease: true,
+    allowDowngrade: true,
+    on() {},
+    checkForUpdates: async () => { checks += 1; return null; },
+  };
+  try {
+    Module._load = (request, parent, isMain) => {
+      if (request === "electron") {
+        return { app: { quit() {} }, shell: { openExternal: async () => undefined } };
+      }
+      if (request === "electron-updater") {
+        updaterLoads += 1;
+        return { autoUpdater: fakeUpdater };
+      }
+      return originalLoad(request, parent, isMain);
+    };
+    const modulePath = require.resolve("../electron/updates/updater.cjs");
+    delete require.cache[modulePath];
+    const updater = require(modulePath);
+    updater.initializeUpdater({ getMainWindow: () => null, isPortable: false, verboseLogs: false });
+    assert.equal(updaterLoads, 0);
+    await updater.checkForUpdates();
+    assert.equal(updaterLoads, 1);
+    assert.equal(checks, 1);
+  } finally {
+    Module._load = originalLoad;
+  }
+});
+
+async function run() {
+  let passed = 0;
+  for (const { name, fn } of tests) {
+    try {
+      await fn();
+      passed += 1;
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      console.error(`FAIL ${name}`);
+      console.error(error);
+      process.exitCode = 1;
+      break;
+    }
+  }
+  if (!process.exitCode) console.log(`\n${passed}/${tests.length} tests passed`);
 }
 
-if (!process.exitCode) {
-  console.log(`\n${passed}/${tests.length} tests passed`);
-}
+void run();

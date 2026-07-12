@@ -1,0 +1,21 @@
+*, ::before, ::after {
+  box-sizing: border-box;
+  border-width: 0;
+  border-style: solid;
+  border-color: #e5e7eb;
+}
+
+html {
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  tab-size: 4;
+}
+
+body {
+  margin: 0;
+  line-height: inherit;
+  font-family: 'Poppins-Regular', system-ui, sans-serif;
+}
+
+.pointer-events-none { pointer-events: none; }
+.select-none { user-select: none; }

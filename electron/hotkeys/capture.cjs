@@ -2,48 +2,50 @@
 // Gère la capture transactionnelle (IPC), le stockage labels/codes, le fallback globalShortcut.
 
 const log = require("electron-log");
+/** @typedef {"start" | "swap"} CaptureAction */
+/** @typedef {"any" | "desktop" | "gamepad"} CaptureSource */
+/** @typedef {Record<CaptureAction, number | null>} HotkeyCodes */
+/** @typedef {Record<CaptureAction, string | null>} HotkeyLabels */
+/** @typedef {{ type: CaptureAction, source: CaptureSource, label: string | null, code: number | null, captureId: number, primaryTimer: ReturnType<typeof setTimeout> | null, secondaryTimer: ReturnType<typeof setTimeout> | null, beforeInputListener?: ((event: Electron.Event, input: Electron.Input) => void) | null }} CaptureState */
+/** @typedef {{ ipcMain: typeof import("electron").ipcMain, globalShortcut: typeof import("electron").globalShortcut, dialog: typeof import("electron").dialog, shell: typeof import("electron").shell, VC_REDIST_X64_URL: string, hasVCRedist: () => boolean, logHK: (message: string, details?: unknown) => void, getMainWindow: () => Electron.BrowserWindow | null, getUsingUiohook: () => boolean, getHotkeys: () => HotkeyCodes, setHotkeys: (codes: HotkeyCodes) => void, getHotkeysLabel: () => HotkeyLabels, setHotkeysLabel: (labels: HotkeyLabels) => void, getMouseBinds: () => HotkeyLabels, setMouseBinds: (labels: HotkeyLabels) => void, makeLabelFromBeforeInput: (input: Electron.Input) => string, isAlphaNumLabel: (label: unknown) => boolean, refreshInputRuntime: () => void, enableUiohookCapture: () => void, disableUiohookCapture: () => void, onGamepadRaw: (callback: (label: string) => void) => () => void, setGamepadMapping: (action: CaptureAction, label: string, options: { append: boolean }) => void }} CaptureContext */
 const VERBOSE_LOGS =
   process.env.NODE_ENV === "development" ||
   process.env.DEBUG_HK === "1" ||
   process.env.DEBUG_LOGS === "1";
 
-let ipcMain,
-  store,
-  globalShortcut,
-  dialog,
-  shell,
-  VC_REDIST_X64_URL,
-  hasVCRedist,
-  logHK,
-  getMainWindow,
-  getOverlayWindow,
-  getUsingUiohook,
-  setUsingUiohook,
-  getHotkeys,
-  setHotkeys,
-  getHotkeysLabel,
-  setHotkeysLabel,
-  getMouseBinds,
-  setMouseBinds,
-  makeLabelFromBeforeInput,
-  isAlphaNumLabel,
-  sendHotkeysMode,
-  dispatchHotkey,
-  refreshInputRuntime,
-  enableUiohookCapture,
-  disableUiohookCapture,
-  onGamepadRaw,
-  setGamepadMapping,
-  clearGamepadMapping; // conservé pour compat
+/** @type {typeof import("electron").ipcMain} */ let ipcMain;
+/** @type {typeof import("electron").globalShortcut} */ let globalShortcut;
+/** @type {typeof import("electron").dialog} */ let dialog;
+/** @type {typeof import("electron").shell} */ let shell;
+/** @type {string} */ let VC_REDIST_X64_URL;
+/** @type {() => boolean} */ let hasVCRedist;
+/** @type {(message: string, details?: unknown) => void} */ let logHK;
+/** @type {() => Electron.BrowserWindow | null} */ let getMainWindow;
+/** @type {() => boolean} */ let getUsingUiohook;
+/** @type {() => HotkeyCodes} */ let getHotkeys;
+/** @type {(codes: HotkeyCodes) => void} */ let setHotkeys;
+/** @type {() => HotkeyLabels} */ let getHotkeysLabel;
+/** @type {(labels: HotkeyLabels) => void} */ let setHotkeysLabel;
+/** @type {() => HotkeyLabels} */ let getMouseBinds;
+/** @type {(labels: HotkeyLabels) => void} */ let setMouseBinds;
+/** @type {(input: Electron.Input) => string} */ let makeLabelFromBeforeInput;
+/** @type {(label: unknown) => boolean} */ let isAlphaNumLabel;
+/** @type {() => void} */ let refreshInputRuntime;
+/** @type {() => void} */ let enableUiohookCapture;
+/** @type {() => void} */ let disableUiohookCapture;
+/** @type {(callback: (label: string) => void) => () => void} */ let onGamepadRaw;
+/** @type {(action: CaptureAction, label: string, options: { append: boolean }) => void} */ let setGamepadMapping;
 
+/** @type {CaptureState | null} */
 let captureState = null; // { type: 'start'|'swap', source: 'any'|'desktop'|'gamepad', label, code, primaryTimer, secondaryTimer }
 let captureWaitUntil = 0;
+/** @type {(() => void) | null} */
 let offGamepadRaw = null;
 
+/** @param {CaptureContext} ctx */
 function initCapture(ctx) {
   ({
     ipcMain,
-    store,
     globalShortcut,
     dialog,
     shell,
@@ -51,9 +53,7 @@ function initCapture(ctx) {
     hasVCRedist,
     logHK,
     getMainWindow,
-    getOverlayWindow,
     getUsingUiohook,
-    setUsingUiohook,
     getHotkeys,
     setHotkeys,
     getHotkeysLabel,
@@ -62,38 +62,31 @@ function initCapture(ctx) {
     setMouseBinds,
     makeLabelFromBeforeInput,
     isAlphaNumLabel,
-    sendHotkeysMode,
-    dispatchHotkey,
     refreshInputRuntime,
     enableUiohookCapture,
     disableUiohookCapture,
     onGamepadRaw,
     setGamepadMapping,
-    clearGamepadMapping,
   } = ctx);
 }
 
 // Helpers label
+/** @param {unknown} label */
 function isMouseLabel(label) {
   return typeof label === "string" && /^(MOUSE\d+|WHEEL_(UP|DOWN))$/i.test(label);
 }
+/** @param {unknown} label */
 function isKeyboardLabel(label) {
   if (typeof label !== "string") return false;
   if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(label)) return true;
   if (/^[A-Z0-9]$/.test(label)) return true;
   return /^(ESC|TAB|ENTER|BACKSPACE|SHIFT|CTRL|ALT|SPACE|UP|DOWN|LEFT|RIGHT)$/i.test(label);
 }
-function isFunctionKeyLabel(label) {
-  return typeof label === "string" && /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
-}
-function isGamepadLabel(label) {
-  return typeof label === "string" && !isKeyboardLabel(label) && !isMouseLabel(label);
-}
-
 function isCapturing() { return !!captureState; }
 function getCaptureBlockUntil() { return captureWaitUntil; }
 
 // Hooks appelés par uIOhook pendant capture
+/** @param {number} code */
 function onKeyboardCode(code) {
   if (!captureState) return;
   if (captureState.source === "gamepad") return; // capture manette: ignorer clavier
@@ -105,6 +98,7 @@ function onKeyboardCode(code) {
   }
 }
 
+/** @param {string} label */
 function onMouseLabel(label) {
   if (!captureState) return;
   if (captureState.source === "gamepad") return; // capture manette: ignorer souris
@@ -137,11 +131,14 @@ function clearBeforeInputListener(state = captureState) {
   if (!listener || !mw?.webContents) return;
   try {
     mw.webContents.removeListener("before-input-event", listener);
-  } catch {}
+  } catch (error) {
+    logHK?.("Failed to remove before-input listener", error);
+  }
   if (state) state.beforeInputListener = null;
 }
 
 // Exclusivité “desktop” : clavier OU souris (manette coexiste)
+/** @param {string | null} label @param {number | null} code @param {CaptureAction} type */
 function enforceDesktopExclusivityAfter(label, code, type) {
   const isKb = isKeyboardLabel(label) || typeof code === "number";
   const isMs = isMouseLabel(label);
@@ -159,7 +156,12 @@ function finalizeCapture(reason = "done") {
   if (!captureState) return;
 
   const currentCapture = captureState;
-  if (offGamepadRaw) { try { offGamepadRaw(); } catch {} offGamepadRaw = null; }
+  if (offGamepadRaw) {
+    try { offGamepadRaw(); } catch (error) {
+      logHK?.("Failed to unsubscribe gamepad capture", error);
+    }
+    offGamepadRaw = null;
+  }
 
   const { type, source, label, code } = currentCapture;
   clearCaptureTimers();
@@ -203,6 +205,7 @@ function finalizeCapture(reason = "done") {
   // Notifier panel (avec source)
   const mw = getMainWindow();
   if (mw && !mw.isDestroyed() && (label || typeof code === "number")) {
+    /** @type {{ type: CaptureAction, source: "desktop" | "gamepad", label?: string, keycode?: number }} */
     const payload = { type, source: source === "gamepad" ? "gamepad" : "desktop" };
     if (label) payload.label = label;
     if (typeof code === "number") payload.keycode = code;
@@ -228,19 +231,27 @@ function finalizeCapture(reason = "done") {
   refreshInputRuntime?.();
 }
 
+/** @param {unknown} arg1 @param {unknown} arg2 */
 function parseCaptureArgs(arg1, arg2) {
-  if (typeof arg1 === "object" && arg1) return { type: arg1.type, source: arg1.source || "any" };
-  return { type: arg1, source: arg2 || "any" };
+  if (typeof arg1 === "object" && arg1) {
+    const value = /** @type {{ type?: unknown, source?: unknown }} */ (arg1);
+    return { type: value.type, source: value.source };
+  }
+  return { type: arg1, source: arg2 };
 }
 
-function setupCaptureIPC() {
-  ipcMain.handle("hotkeys-capture", (_evt, arg1, arg2) => {
-    const { type, source } = parseCaptureArgs(arg1, arg2);
+/** @param {(event: Electron.IpcMainInvokeEvent) => void} assertSender */
+function setupCaptureIPC(assertSender) {
+  ipcMain.handle("hotkeys-capture", (event, arg1, arg2) => {
+    assertSender(event);
+    const parsed = parseCaptureArgs(arg1, arg2);
+    const { type } = parsed;
+    const source = parsed.source === "desktop" || parsed.source === "gamepad" ? parsed.source : "any";
     if (!(type === "start" || type === "swap")) { finalizeCapture("cancel"); return true; }
 
     logHK && logHK("CAPTURE BEGIN", { type, source, mode: getUsingUiohook() ? "pass-through" : "fallback" });
 
-    captureWaitUntil = Date.now() + 15000;
+    captureWaitUntil = performance.now() + 15000;
     if (captureState) { clearCaptureTimers(); captureState = null; }
 
     const captureId = Date.now() + Math.random();
@@ -255,12 +266,17 @@ function setupCaptureIPC() {
       secondaryTimer: null,
     };
 
-    try { const mw = getMainWindow(); mw?.focus(); } catch {}
+    try { const mw = getMainWindow(); mw?.focus(); } catch (error) {
+      logHK?.("Failed to focus panel for hotkey capture", error);
+    }
 
-    try { globalShortcut.unregisterAll(); } catch {}
+    try { globalShortcut.unregisterAll(); } catch (error) {
+      logHK?.("Failed to unregister shortcuts for capture", error);
+    }
     if (source !== "gamepad") enableUiohookCapture?.();
 
     const mw = getMainWindow();
+    /** @param {Electron.Event} event @param {Electron.Input} input */
     const once = (event, input) => {
       if (!captureState || captureState.captureId !== captureId) {
         mw?.webContents.removeListener("before-input-event", once);
@@ -308,7 +324,8 @@ function setupCaptureIPC() {
   });
 
   // Annulation explicite.
-  ipcMain.handle("hotkeys-capture-cancel", () => {
+  ipcMain.handle("hotkeys-capture-cancel", (event) => {
+    assertSender(event);
     if (!captureState) return true;
     logHK && logHK("CAPTURE CANCELLED BY USER");
     finalizeCapture("cancel-by-user");
@@ -317,51 +334,44 @@ function setupCaptureIPC() {
 }
 
 /* -------------------- Fallback engine (globalShortcut) -------------------- */
+/** @param {{ globalShortcut: typeof import("electron").globalShortcut, hotkeysLabel: HotkeyLabels, getCaptureBlockUntil: () => number, dispatchHotkey: (action: "toggle" | "swap") => void }} engine */
 function refreshHotkeyEngine({
   globalShortcut,
   hotkeysLabel,
-  isAlphaNumLabel,
-  logHK,
   getCaptureBlockUntil,
   dispatchHotkey,
 }) {
-  try { globalShortcut.unregisterAll(); } catch {}
-  const RATE = 180;
-  let lastT = 0, lastS = 0;
-
+  try { globalShortcut.unregisterAll(); } catch (error) {
+    logHK?.("Failed to reset global shortcuts", error);
+  }
   const sKey = hotkeysLabel.start || "F1";
   const wKey = hotkeysLabel.swap || "F2";
+  /** @param {string} label */
   const canUse = (label) => /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
 
   if (canUse(sKey)) {
     try {
       globalShortcut.register(sKey, () => {
-        if (Date.now() < getCaptureBlockUntil()) return;
-        const now = Date.now();
-        if (now - lastT < RATE) return;
-        lastT = now;
+        if (performance.now() < getCaptureBlockUntil()) return;
         dispatchHotkey("toggle");
       });
-    } catch {}
+    } catch (error) {
+      logHK?.("Failed to register toggle shortcut", error);
+    }
   }
   if (canUse(wKey)) {
     try {
       globalShortcut.register(wKey, () => {
-        if (Date.now() < getCaptureBlockUntil()) return;
-        const now = Date.now();
-        if (now - lastS < RATE) return;
-        lastS = now;
+        if (performance.now() < getCaptureBlockUntil()) return;
         dispatchHotkey("swap");
       });
-    } catch {}
+    } catch (error) {
+      logHK?.("Failed to register swap shortcut", error);
+    }
   }
 }
 
 /* -------------------- API complémentaire -------------------- */
-function attachWindowsAPI({ sendOverlaySettings }) {
-  module.exports._sendOverlaySettings = sendOverlaySettings;
-}
-
 module.exports = {
   initCapture,
   setupCaptureIPC,
@@ -370,5 +380,4 @@ module.exports = {
   getCaptureBlockUntil,
   onKeyboardCode,
   onMouseLabel,
-  attachWindowsAPI,
 };

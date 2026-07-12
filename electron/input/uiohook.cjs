@@ -2,87 +2,86 @@
 // Charge uIOhook et gère clavier + souris (capture & runtime)
 
 const log = require("electron-log");
+/** @typedef {"toggle" | "swap"} HotkeyAction */
+/** @typedef {{ start: number | null, swap: number | null }} HotkeyCodes */
+/** @typedef {{ start: string | null, swap: string | null }} MouseBinds */
+/** @typedef {import("uiohook-napi").UiohookKeyboardEvent} KeyboardEvent */
+/** @typedef {import("uiohook-napi").UiohookMouseEvent} MouseEvent */
+/** @typedef {import("uiohook-napi").UiohookWheelEvent} WheelEvent */
+/** @typedef {{ rotation?: number, amount?: number, deltaY?: number, button?: unknown }} MouseInput */
+/** @typedef {{ keydown: (event: KeyboardEvent) => void, keyup: (event: KeyboardEvent) => void, mousedown: (event: MouseEvent) => void, mouseup: (event: MouseEvent) => void, wheel: (event: WheelEvent) => void }} HookHandlers */
+/** @typedef {{ require: NodeRequire, FORCE_NO_UIOHOOK: boolean, hasVCRedist: () => boolean, dialog: typeof import("electron").dialog, shell: typeof import("electron").shell, VC_REDIST_X64_URL: string, logHK: (message: string, details?: unknown) => void, getOverlayWindow: () => Electron.BrowserWindow | null, dispatchHotkey: (action: HotkeyAction) => void, isCapturing: () => boolean, getCaptureBlockUntil: () => number, onCaptureKeyboardCode: (code: number) => void, onCaptureMouseLabel: (label: string) => void, getHotkeys: () => HotkeyCodes, getMouseBinds: () => MouseBinds, setUsingUiohook: (usingHook: boolean) => void }} UiohookContext */
 const VERBOSE_LOGS =
   process.env.NODE_ENV === "development" ||
   process.env.DEBUG_HK === "1" ||
   process.env.DEBUG_LOGS === "1";
 
+/** @type {typeof import("uiohook-napi").uIOhook | null} */
 let _uIOhook = null;
 let _loaded = false;
+let _loadAttempted = false;
+/** @type {HookHandlers | null} */
 let _handlers = null; // refs des handlers actifs pour pouvoir les retirer
 let _running = false;
+/** @type {Set<string>} */
 const _reasons = new Set();
+/** @type {ReturnType<typeof setTimeout> | null} */
 let _restartTimer = null;
 
-let requireFn,
-  FORCE_NO_UIOHOOK,
-  hasVCRedist,
-  dialog,
-  shell,
-  VC_REDIST_X64_URL,
-  logHK,
-  getOverlayWindow,
-  dispatchHotkey,
-  // capture API
-  isCapturing,
-  getCaptureBlockUntil,
-  onCaptureKeyboardCode,
-  onCaptureMouseLabel,
-  // binds & codes
-  getHotkeys,
-  getMouseBinds,
-  setUsingUiohook;
+/** @type {UiohookContext} */
+let context;
 
+/** @param {UiohookContext} ctx */
 function setupUiohook(ctx) {
-  ({
+  context = ctx;
+}
+
+function _loadHook() {
+  if (_loadAttempted) return isLoaded();
+  _loadAttempted = true;
+  const {
     require: requireFn,
     FORCE_NO_UIOHOOK,
-    hasVCRedist,
-    dialog,
-    shell,
-    VC_REDIST_X64_URL,
     logHK,
-    getOverlayWindow,
-    dispatchHotkey,
-    isCapturing,
-    getCaptureBlockUntil,
-    onCaptureKeyboardCode,
-    onCaptureMouseLabel,
-    getHotkeys,
-    getMouseBinds,
-    setUsingUiohook,
-  } = ctx);
-
+  } = context;
   // essaie de charger uiohook immédiatement (mais ne démarre qu'avec start())
   try {
     if (FORCE_NO_UIOHOOK) throw new Error("uIOhook forcibly disabled via .env");
     const lib = requireFn("uiohook-napi");
-    _uIOhook = lib.uIOhook;
+    const hook = /** @type {typeof import("uiohook-napi").uIOhook} */ (lib.uIOhook);
+    _uIOhook = hook;
     _loaded = true;
     logHK && logHK("uiohook loaded OK");
     if (VERBOSE_LOGS) log.info("[UIOHOOK] Loaded OK");
 
     // Listener permanent : détecte quand le hook natif meurt (antivirus, EAC, G Hub, etc.)
-    _uIOhook.on("error", (e) => {
-      log.error(`[UIOHOOK] Hook died — ${e?.message ?? e} — attempting auto-restart`);
+    hook.addListener("error", /** @param {Error} error */ (error) => {
+      log.error(`[UIOHOOK] Hook died — ${errorMessage(error)} — attempting auto-restart`);
       _running = false;
       _removeHandlers();
       if (_reasons.size === 0) {
-        setUsingUiohook(false);
+        context.setUsingUiohook(false);
         return;
       }
-      clearTimeout(_restartTimer);
+      if (_restartTimer) clearTimeout(_restartTimer);
       _restartTimer = setTimeout(() => {
         _restartTimer = null;
-        try { _startHook(); } catch (err) { log.error(`[UIOHOOK] Auto-restart failed — ${err?.message ?? err}`); }
+        try { _startHook(); } catch (error) { log.error(`[UIOHOOK] Auto-restart failed — ${errorMessage(error)}`); }
       }, 500);
     });
-  } catch (e) {
+    return true;
+  } catch (error) {
     _uIOhook = null;
     _loaded = false;
-    logHK && logHK("uiohook FAILED to load -> fallback", e?.message || e);
-    log.warn(`[UIOHOOK] Failed to load — ${e?.message ?? e}`);
+    logHK && logHK("uiohook FAILED to load -> fallback", errorMessage(error));
+    log.warn(`[UIOHOOK] Failed to load — ${errorMessage(error)}`);
+    return false;
   }
+}
+
+/** @param {unknown} error */
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isLoaded() {
@@ -93,35 +92,47 @@ function isRunning() {
   return _running;
 }
 
+/** @param {keyof HookHandlers} eventName @param {HookHandlers[keyof HookHandlers]} listener */
+function removeHookListener(eventName, listener) {
+  try {
+    _uIOhook?.removeListener(eventName, listener);
+  } catch (error) {
+    log.warn(`[UIOHOOK] Failed to remove ${eventName} listener â€” ${errorMessage(error)}`);
+  }
+}
+
 // Retire tous les handlers actifs de l'instance uIOhook
 function _removeHandlers() {
   if (!_uIOhook || !_handlers) return;
-  try { _uIOhook.removeListener("keydown", _handlers.keydown); } catch {}
-  try { _uIOhook.removeListener("keyup", _handlers.keyup); } catch {}
-  try { _uIOhook.removeListener("mousedown", _handlers.mousedown); } catch {}
-  try { _uIOhook.removeListener("mouseup", _handlers.mouseup); } catch {}
-  try { _uIOhook.removeListener("wheel", _handlers.wheel); } catch {}
+  removeHookListener("keydown", _handlers.keydown);
+  removeHookListener("keyup", _handlers.keyup);
+  removeHookListener("mousedown", _handlers.mousedown);
+  removeHookListener("mouseup", _handlers.mouseup);
+  removeHookListener("wheel", _handlers.wheel);
   _handlers = null;
 }
 
 function stop() {
-  clearTimeout(_restartTimer);
+  if (_restartTimer) clearTimeout(_restartTimer);
   _restartTimer = null;
   _removeHandlers();
   try {
     if (_uIOhook && _running) _uIOhook.stop();
-  } catch {}
+  } catch (error) {
+    log.warn(`[UIOHOOK] Failed to stop native hook â€” ${errorMessage(error)}`);
+  }
   _running = false;
-  setUsingUiohook(false);
+  context.setUsingUiohook(false);
 }
 
 function _startHook() {
+  if (!_uIOhook) _loadHook();
   if (!_uIOhook) {
     // Prompt éventuel si non chargé
-    const vcPresent = hasVCRedist();
+    const vcPresent = context.hasVCRedist();
     (async () => {
       if (!vcPresent) {
-        const { response } = await dialog.showMessageBox({
+        const { response } = await context.dialog.showMessageBox({
           type: "warning",
           title: "Pass-Through unavailable",
           message: "uIOhook couldn't start because the Microsoft C++ runtime is missing.",
@@ -134,9 +145,9 @@ function _startHook() {
           cancelId: 1,
           noLink: true,
         });
-        if (response === 0) shell.openExternal(VC_REDIST_X64_URL);
+        if (response === 0) context.shell.openExternal(context.VC_REDIST_X64_URL);
       } else {
-        await dialog.showMessageBox({
+        await context.dialog.showMessageBox({
           type: "warning",
           title: "Pass-Through unavailable",
           message: "uIOhook couldn't start even though the C++ runtime is present.",
@@ -149,13 +160,13 @@ function _startHook() {
         });
       }
       // fallback mode
-      setUsingUiohook(false);
+      context.setUsingUiohook(false);
     })();
     return false;
   }
 
   if (_running) {
-    setUsingUiohook(_reasons.has("runtime"));
+    context.setUsingUiohook(_reasons.has("runtime"));
     return true;
   }
 
@@ -163,57 +174,52 @@ function _startHook() {
   _removeHandlers();
 
   // Handlers
-  const RATE = 180;
-  let lastToggle = 0,
-    lastSwap = 0;
+  /** @type {Set<number>} */
   const pressedKeys = new Set();
+  /** @type {Set<string>} */
   const pressedMouse = new Set();
 
+  /** @param {KeyboardEvent} e */
   const keydownHandler = (e) => {
     const keycode = e.keycode;
     const isRepeat = pressedKeys.has(keycode);
     if (!isRepeat) pressedKeys.add(keycode);
-    logHK &&
-      logHK("uiohook keydown", {
+    context.logHK &&
+      context.logHK("uiohook keydown", {
         keycode,
         repeat: isRepeat,
-        captureState: isCapturing(),
-        now: Date.now(),
-        blockUntil: getCaptureBlockUntil(),
+        captureState: context.isCapturing(),
+        now: performance.now(),
+        blockUntil: context.getCaptureBlockUntil(),
       });
 
     // Capture: récupérer le keycode
-    if (isCapturing()) {
-      if (!isRepeat) onCaptureKeyboardCode(keycode);
+    if (context.isCapturing()) {
+      if (!isRepeat) context.onCaptureKeyboardCode(keycode);
       return;
     }
 
     // Runtime: déclenchement si codes définis
-    if (!getOverlayWindow() || getOverlayWindow().isDestroyed()) return;
-    if (Date.now() < getCaptureBlockUntil()) return;
+    const overlay = context.getOverlayWindow();
+    if (!overlay || overlay.isDestroyed()) return;
+    if (performance.now() < context.getCaptureBlockUntil()) return;
     if (isRepeat) return;
 
-    const now = Date.now();
-    const hk = getHotkeys();
+    const hk = context.getHotkeys();
     if (Number.isFinite(hk.start) && keycode === hk.start) {
-      if (now - lastToggle < RATE) return;
-      lastToggle = now;
-      dispatchHotkey("toggle");
+      context.dispatchHotkey("toggle");
     } else if (Number.isFinite(hk.swap) && keycode === hk.swap) {
-      if (now - lastSwap < RATE) return;
-      lastSwap = now;
-      dispatchHotkey("swap");
+      context.dispatchHotkey("swap");
     }
   };
 
+  /** @param {KeyboardEvent} e */
   const keyupHandler = (e) => {
     pressedKeys.delete(e.keycode);
   };
 
   // Souris
-  let lastMouseToggle = 0,
-    lastMouseSwap = 0;
-
+  /** @param {MouseInput} e @param {"mousedown" | "mouseup" | "wheel"} kind */
   function mouseLabelFromEvent(e, kind) {
     if (kind === "wheel") {
       const rot =
@@ -226,13 +232,14 @@ function _startHook() {
           : 0;
       return rot < 0 ? "WHEEL_UP" : "WHEEL_DOWN";
     }
-    const b = e.button; // 1=left,2=right,3=middle,>=4 extra
+    const b = Number(e.button); // 1=left,2=right,3=middle,>=4 extra
     if (b === 1 || b === 2) return null; // exclure gauche/droit
     if (b === 3) return "MOUSE3";
     if (b >= 4) return `MOUSE${b}`;
     return null;
   }
 
+  /** @param {MouseEvent} e */
   const mousedownHandler = (e) => {
     const label = mouseLabelFromEvent(e, "mousedown");
     if (!label) return;
@@ -240,56 +247,51 @@ function _startHook() {
     if (!isRepeat) pressedMouse.add(label);
 
     // Capture: on pousse le label
-    if (isCapturing()) {
-      if (!isRepeat) onCaptureMouseLabel(label);
+    if (context.isCapturing()) {
+      if (!isRepeat) context.onCaptureMouseLabel(label);
       return;
     }
 
     // Runtime
-    if (!getOverlayWindow() || getOverlayWindow().isDestroyed()) return;
-    if (Date.now() < getCaptureBlockUntil()) return;
+    const overlay = context.getOverlayWindow();
+    if (!overlay || overlay.isDestroyed()) return;
+    if (performance.now() < context.getCaptureBlockUntil()) return;
     if (isRepeat) return;
 
-    const now = Date.now();
-    const mb = getMouseBinds();
+    const mb = context.getMouseBinds();
     if (mb.start && label === mb.start) {
-      if (now - lastMouseToggle < RATE) return;
-      lastMouseToggle = now;
-      dispatchHotkey("toggle");
+      context.dispatchHotkey("toggle");
     } else if (mb.swap && label === mb.swap) {
-      if (now - lastMouseSwap < RATE) return;
-      lastMouseSwap = now;
-      dispatchHotkey("swap");
+      context.dispatchHotkey("swap");
     }
   };
 
+  /** @param {MouseEvent} e */
   const mouseupHandler = (e) => {
     const label = mouseLabelFromEvent(e, "mouseup");
     if (!label) return;
     pressedMouse.delete(label);
   };
 
+  /** @param {WheelEvent} e */
   const wheelHandler = (e) => {
     const label = mouseLabelFromEvent(e, "wheel");
+    if (!label) return;
 
-    if (isCapturing()) {
-      onCaptureMouseLabel(label);
+    if (context.isCapturing()) {
+      context.onCaptureMouseLabel(label);
       return;
     }
 
-    if (!getOverlayWindow() || getOverlayWindow().isDestroyed()) return;
-    if (Date.now() < getCaptureBlockUntil()) return;
+    const overlay = context.getOverlayWindow();
+    if (!overlay || overlay.isDestroyed()) return;
+    if (performance.now() < context.getCaptureBlockUntil()) return;
 
-    const now = Date.now();
-    const mb = getMouseBinds();
+    const mb = context.getMouseBinds();
     if (mb.start && label === mb.start) {
-      if (now - lastMouseToggle < RATE) return;
-      lastMouseToggle = now;
-      dispatchHotkey("toggle");
+      context.dispatchHotkey("toggle");
     } else if (mb.swap && label === mb.swap) {
-      if (now - lastMouseSwap < RATE) return;
-      lastMouseSwap = now;
-      dispatchHotkey("swap");
+      context.dispatchHotkey("swap");
     }
   };
 
@@ -311,22 +313,22 @@ function _startHook() {
   // Démarrer
   try {
     _uIOhook.start();
-    logHK && logHK("uiohook started (capture enabled)");
-  } catch (e) {
-    logHK && logHK("uiohook START failed -> fallback", e?.message || e);
-    log.warn(`[UIOHOOK] Start failed — ${e?.message ?? e}`);
+    context.logHK && context.logHK("uiohook started (capture enabled)");
+  } catch (error) {
+    context.logHK && context.logHK("uiohook START failed -> fallback", errorMessage(error));
+    log.warn(`[UIOHOOK] Start failed — ${errorMessage(error)}`);
     _removeHandlers();
     _running = false;
-    setUsingUiohook(false);
+    context.setUsingUiohook(false);
     return false;
   }
 
   _running = true;
   // Mode d'entrée : "pass-through" seulement si le runtime dépend effectivement du hook
-  const hk = getHotkeys();
-  const mb = getMouseBinds();
+  const hk = context.getHotkeys();
+  const mb = context.getMouseBinds();
   const runtimeActive = _reasons.has("runtime");
-  setUsingUiohook(runtimeActive);
+  context.setUsingUiohook(runtimeActive);
   if (VERBOSE_LOGS) {
     log.info(`[UIOHOOK] Started — runtime: ${runtimeActive ? "on" : "off"} | reasons: [${[..._reasons].join(", ") || "none"}] | kb-start: ${hk.start ?? "null"} | kb-swap: ${hk.swap ?? "null"} | mouse-start: ${mb.start ?? "null"} | mouse-swap: ${mb.swap ?? "null"}`);
   }
@@ -349,14 +351,14 @@ function disable(reason = "runtime") {
     stop();
     return;
   }
-  setUsingUiohook(_reasons.has("runtime"));
+  context.setUsingUiohook(_reasons.has("runtime"));
 }
 
 // Restart propre : stop → retire handlers → start
 // Appelé par le watchdog dans main.mjs quand uIOhook semble mort
 function restart() {
   if (!_uIOhook || _reasons.size === 0) return;
-  logHK && logHK("uiohook RESTART requested");
+  context.logHK && context.logHK("uiohook RESTART requested");
   if (VERBOSE_LOGS) log.info("[UIOHOOK] Restart initiated");
   stop();
   // Petit délai pour laisser le thread natif se terminer proprement
@@ -364,10 +366,10 @@ function restart() {
     _restartTimer = null;
     try {
       _startHook();
-      logHK && logHK("uiohook RESTART done");
-    } catch (e) {
-      logHK && logHK("uiohook RESTART failed", e?.message || e);
-      log.warn(`[UIOHOOK] Restart failed — ${e?.message ?? e}`);
+      context.logHK && context.logHK("uiohook RESTART done");
+    } catch (error) {
+      context.logHK && context.logHK("uiohook RESTART failed", errorMessage(error));
+      log.warn(`[UIOHOOK] Restart failed — ${errorMessage(error)}`);
     }
   }, 300);
 }

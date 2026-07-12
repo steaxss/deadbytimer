@@ -1,0 +1,1840 @@
+{
+  "viewport": {
+    "width": 1138,
+    "height": 831,
+    "devicePixelRatio": 1.1041666269302368
+  },
+  "scroll": {
+    "top": 1663.6981201171875,
+    "height": 2461,
+    "clientHeight": 797
+  },
+  "text": "Unlock Premium\n\nElevate your overlay experience\n\nMore accent colors\n\nNeons, pastels, vibrant gradients — a wider palette to match any stream aesthetic.\n\nComplete overlay themes\n\nFully redesigned layouts with unique styles — far beyond a color swap.\n\nAuto opponent & rank detection\n\nAutomatically retrieves your opponent's name and rank from the ladder — no manual input needed.\n\nAnimated overlays\nCustom typography\nExclusive designs\nRegular updates\n& more\nGet Premium Access →\n\ndbdoverlaytools.com\n\nDead by Timer 1v1\n—\nv3.3.0\n—\nBy Steaxs & Doc\n1V1 OVERLAY\nDBD Overlay Tools\nOverlay Hidden\n⌨️ KEYBOARD / MOUSE HOTKEYS\nSTART/STOP/RESET KEY\nClear\nF1\nSWAP TIMER KEY\nClear\nF2\nCONTROLLER HOTKEYS\nSTART/STOP/RESET\nClear\n—\nSWAP\nClear\n—\nController not detected? This app uses XInput. If your controller isn't recognized, install DS4Windows — the most recommended option for performance, compatible with PS4, PS5, Switch Pro and more.\nPLAYER 1 (You)\nScore\n−1\n0\n+1\nPLAYER 2 (Your opponent)\nScore\n−1\n0\n+1\nRESET SCORES\nTIMER APPEARANCE\nNAME BACKGROUND\nApplies to player name boxes\nACCENT COLOR\nAffects score background & swap bar\n& more accent colors available with\nPremium\nUnlock →\n\nThe swap bar automatically follows the score color.\n\nOVERLAY SETTINGS\nScale\n100%\nAuto-score winner (25s min)\nLock Overlay Position 🔓\nOverlay is locked – clicks will go through.\nHow auto-score works:\nMake sure the active timer is on the current survivor (use Swap before starting).\nPause each survivor’s run (F1). When both sides are paused, the player with the longest time gets +1.\nTimes under 25s are ignored (prevents accidental starts).\nThis never stops your timers — it only updates the score.\n👑 PREMIUM OVERLAYS\nUnlock more overlays & tools\n\nJoin our Discord to get the premium version: killer streaks, survivor streaks, win/loss counter, tournament overlay, and more!\n\nJoin the Discord\n🎨 ReShade Filters\nGET STEAXS RESHADES\n\nCompetitive ReShade presets tailored for Dead by Daylight. One filter per map. Sharper visibility, clean colors, and a consistent look across maps.\n\nGet the Presets\n☕ SUPPORT THE PROJECT\nBuy me a coffee\n\nIf these overlays help you, consider buying me a coffee. Your donation keeps the project alive, funds maintenance, and fuels new features.\n\nBuy Me a Coffee\n© TIMER BY STEAXS & PREMIUM VERSION BY DOC — 2025",
+  "elements": [
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Close",
+      "text": "",
+      "className": "absolute top-4 right-4 text-zinc-500 hover:text-zinc-300 transition-colors",
+      "rect": {
+        "x": 728.3207397460938,
+        "y": 166.41510009765625,
+        "width": 15.99056625366211,
+        "height": 15.99056625366211
+      },
+      "style": {
+        "color": "rgb(113, 113, 122)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "absolute"
+      }
+    },
+    {
+      "tag": "H2",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Unlock Premium",
+      "className": "text-base font-bold text-white",
+      "rect": {
+        "x": 458.1084899902344,
+        "y": 176.41981506347656,
+        "width": 189.5660400390625,
+        "height": 24
+      },
+      "style": {
+        "color": "rgb(255, 255, 255)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "700",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Get Premium Access →",
+      "className": "w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 text-sm font-bold text-black hover:from-amber-400 hover:to-orange-400 transition-all shadow-lg shadow-amber-500/20 active:scale-[0.98]",
+      "rect": {
+        "x": 402.11322021484375,
+        "y": 584.9716796875,
+        "width": 334.1886901855469,
+        "height": 43.99528503417969
+      },
+      "style": {
+        "color": "rgb(0, 0, 0)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "12px",
+        "display": "inline-block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "14px",
+        "fontWeight": "700",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Preferences",
+      "text": "",
+      "className": "win-btn h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 transition-colors",
+      "rect": {
+        "x": 954.4528198242188,
+        "y": 0,
+        "width": 45.99056625366211,
+        "height": 33.08490753173828
+      },
+      "style": {
+        "color": "rgb(161, 161, 170)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Minimize",
+      "text": "",
+      "className": "win-btn h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 transition-colors",
+      "rect": {
+        "x": 1000.4434204101562,
+        "y": 0,
+        "width": 45.99056625366211,
+        "height": 33.08490753173828
+      },
+      "style": {
+        "color": "rgb(161, 161, 170)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Maximize",
+      "text": "",
+      "className": "win-btn h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 transition-colors",
+      "rect": {
+        "x": 1046.4339599609375,
+        "y": 0,
+        "width": 45.99056625366211,
+        "height": 33.08490753173828
+      },
+      "style": {
+        "color": "rgb(161, 161, 170)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Close",
+      "text": "",
+      "className": "win-btn-close h-full w-[46px] flex items-center justify-center text-zinc-400 hover:bg-[#e81123] hover:text-white transition-colors",
+      "rect": {
+        "x": 1092.424560546875,
+        "y": 0,
+        "width": 45.99056625366211,
+        "height": 33.08490753173828
+      },
+      "style": {
+        "color": "rgb(161, 161, 170)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "HEADER",
+      "role": null,
+      "ariaLabel": null,
+      "text": "1v1 OverlayDBD Overlay ToolsOverlay Hidden",
+      "className": "mb-4 rounded-2xl border border-white/10 bg-white/5 shadow-[0_8px_32px_rgba(0,0,0,.30)] px-5 py-3 flex items-center justify-between",
+      "rect": {
+        "x": 78.49528503417969,
+        "y": -1613.717041015625,
+        "width": 975.9906005859375,
+        "height": 64.79717254638672
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(255, 255, 255, 0.05)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "16px",
+        "display": "flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "H1",
+      "role": null,
+      "ariaLabel": null,
+      "text": "DBD Overlay Tools",
+      "className": "text-lg font-semibold tracking-tight leading-tight",
+      "rect": {
+        "x": 99.39622497558594,
+        "y": -1584.325439453125,
+        "width": 153.8632049560547,
+        "height": 22.5
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "18px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "INPUT",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "className": "peer sr-only",
+      "rect": {
+        "x": 988.5990600585938,
+        "y": -1581.82080078125,
+        "width": 0.990566074848175,
+        "height": 0.990566074848175
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(244, 244, 245)",
+        "borderRadius": "0px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "absolute"
+      }
+    },
+    {
+      "tag": "SECTION",
+      "role": null,
+      "ariaLabel": null,
+      "text": "⌨️ Keyboard / Mouse HotkeysStart/Stop/Reset KeyClearF1Swap Timer KeyClearF2",
+      "className": "mb-4 rounded-xl border border-white/10 bg-white/5 backdrop-blur overflow-hidden",
+      "rect": {
+        "x": 78.49528503417969,
+        "y": -1532.9293212890625,
+        "width": 975.9906005859375,
+        "height": 173.39151000976562
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(255, 255, 255, 0.05)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "12px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "⌨️ Keyboard / Mouse Hotkeys",
+      "className": "w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/[0.04] transition",
+      "rect": {
+        "x": 79.40094757080078,
+        "y": -1532.0235595703125,
+        "width": 974.1792602539062,
+        "height": 40.00471878051758
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Clear",
+      "className": "text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10",
+      "rect": {
+        "x": 491.54718017578125,
+        "y": -1475.1226806640625,
+        "width": 50.05188751220703,
+        "height": 25.797170639038086
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.15)",
+        "borderRadius": "6px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "F1",
+      "className": "w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition bg-zinc-800 hover:bg-zinc-700",
+      "rect": {
+        "x": 112.28773498535156,
+        "y": -1441.3302001953125,
+        "width": 429.31134033203125,
+        "height": 48
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgb(39, 39, 42)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "8px",
+        "display": "inline-block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Clear",
+      "className": "text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10",
+      "rect": {
+        "x": 970.6415405273438,
+        "y": -1475.1226806640625,
+        "width": 50.05188751220703,
+        "height": 25.797170639038086
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.15)",
+        "borderRadius": "6px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "F2",
+      "className": "w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition bg-zinc-800 hover:bg-zinc-700",
+      "rect": {
+        "x": 591.382080078125,
+        "y": -1441.3302001953125,
+        "width": 429.31134033203125,
+        "height": 48
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgb(39, 39, 42)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "8px",
+        "display": "inline-block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "SECTION",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Controller HotkeysStart/Stop/ResetClear—SwapClear—Controller not detected? This app uses XInput. If your controller isn't recognized, install DS4Windows — the most recommended option for performance, compatible with PS4, PS5, Switch Pro and more.",
+      "className": "mb-6 rounded-xl border border-white/10 bg-white/5 backdrop-blur overflow-hidden",
+      "rect": {
+        "x": 78.49528503417969,
+        "y": -1343.5472412109375,
+        "width": 975.9906005859375,
+        "height": 250.17453002929688
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(255, 255, 255, 0.05)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "12px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Controller Hotkeys",
+      "className": "w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/[0.04] transition",
+      "rect": {
+        "x": 79.40094757080078,
+        "y": -1342.6414794921875,
+        "width": 974.1792602539062,
+        "height": 40.00471878051758
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Clear",
+      "className": "text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10",
+      "rect": {
+        "x": 491.54718017578125,
+        "y": -1285.7406005859375,
+        "width": 50.05188751220703,
+        "height": 25.797170639038086
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.15)",
+        "borderRadius": "6px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "—",
+      "className": "w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition bg-zinc-800 hover:bg-zinc-700",
+      "rect": {
+        "x": 112.28773498535156,
+        "y": -1251.9481201171875,
+        "width": 429.31134033203125,
+        "height": 48
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgb(39, 39, 42)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "8px",
+        "display": "inline-block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Clear",
+      "className": "text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10",
+      "rect": {
+        "x": 970.6415405273438,
+        "y": -1285.7406005859375,
+        "width": 50.05188751220703,
+        "height": 25.797170639038086
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.15)",
+        "borderRadius": "6px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "—",
+      "className": "w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition bg-zinc-800 hover:bg-zinc-700",
+      "rect": {
+        "x": 591.382080078125,
+        "y": -1251.9481201171875,
+        "width": 429.31134033203125,
+        "height": 48
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgb(39, 39, 42)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "8px",
+        "display": "inline-block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "SECTION",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Player 1 (You)Score−10+1Player 2 (Your opponent)Score−10+1",
+      "className": "mb-6 grid grid-cols-1 gap-4 md:grid-cols-2",
+      "rect": {
+        "x": 78.49528503417969,
+        "y": -1069.3726806640625,
+        "width": 975.9906005859375,
+        "height": 180.89151000976562
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "grid",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "INPUT",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "className": "mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -1024.981201171875,
+        "width": 446.2075500488281,
+        "height": 41.80188751220703
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(9, 9, 11, 0.6)",
+        "borderColor": "rgb(39, 39, 42)",
+        "borderRadius": "8px",
+        "display": "inline-block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "−1",
+      "className": "rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -947.1792602539062,
+        "width": 39.75,
+        "height": 41.80188751220703
+      },
+      "style": {
+        "color": "rgb(212, 212, 216)",
+        "backgroundColor": "rgba(255, 255, 255, 0.1)",
+        "borderColor": "rgba(255, 255, 255, 0.2)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "+1",
+      "className": "rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2",
+      "rect": {
+        "x": 191.12265014648438,
+        "y": -947.1792602539062,
+        "width": 41.858489990234375,
+        "height": 41.80188751220703
+      },
+      "style": {
+        "color": "rgb(68, 255, 65)",
+        "backgroundColor": "rgba(68, 255, 65, 0.1)",
+        "borderColor": "rgba(68, 255, 65, 0.2)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "INPUT",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "className": "mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500",
+      "rect": {
+        "x": 591.382080078125,
+        "y": -1024.981201171875,
+        "width": 446.2075500488281,
+        "height": 41.80188751220703
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(9, 9, 11, 0.6)",
+        "borderColor": "rgb(39, 39, 42)",
+        "borderRadius": "8px",
+        "display": "inline-block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "−1",
+      "className": "rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-zinc-300 hover:bg-white/15",
+      "rect": {
+        "x": 591.382080078125,
+        "y": -947.1792602539062,
+        "width": 39.75,
+        "height": 41.80188751220703
+      },
+      "style": {
+        "color": "rgb(212, 212, 216)",
+        "backgroundColor": "rgba(255, 255, 255, 0.1)",
+        "borderColor": "rgba(255, 255, 255, 0.2)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "+1",
+      "className": "rounded-lg border border-[#44FF41]/20 bg-[#44FF41]/10 text-[#44FF41] px-3 py-2",
+      "rect": {
+        "x": 687.1132202148438,
+        "y": -947.1792602539062,
+        "width": 41.858489990234375,
+        "height": 41.80188751220703
+      },
+      "style": {
+        "color": "rgb(68, 255, 65)",
+        "backgroundColor": "rgba(68, 255, 65, 0.1)",
+        "borderColor": "rgba(68, 255, 65, 0.2)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Reset scores",
+      "className": "rounded-lg border border-[#FF4141]/30 bg-[#FF4141]/15 text-[#FF4141] font-bold uppercase tracking-wide px-5 py-2",
+      "rect": {
+        "x": 488.15093994140625,
+        "y": -864.4811401367188,
+        "width": 156.6792449951172,
+        "height": 41.80188751220703
+      },
+      "style": {
+        "color": "rgb(255, 65, 65)",
+        "backgroundColor": "rgba(255, 65, 65, 0.15)",
+        "borderColor": "rgba(255, 65, 65, 0.3)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "700",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "SECTION",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Timer AppearanceName backgroundApplies to player name boxesAccent colorAffects score background & swap bar& more accent colors available with PremiumUnlock →The swap bar automatically follows the score color.",
+      "className": "mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4",
+      "rect": {
+        "x": 78.49528503417969,
+        "y": -798.6792602539062,
+        "width": 975.9906005859375,
+        "height": 331.51416015625
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(255, 255, 255, 0.05)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "16px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "H2",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Timer Appearance",
+      "className": "mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -781.7830200195312,
+        "width": 942.1981201171875,
+        "height": 19.995283126831055
+      },
+      "style": {
+        "color": "rgb(161, 161, 170)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "14px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Default",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white ring-2 ring-white/50 ring-offset-2 ring-offset-zinc-900",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -721.7971801757812,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 255, 255)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Dark",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 253.7547149658203,
+        "y": -721.7971801757812,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "White",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 412.117919921875,
+        "y": -721.7971801757812,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Blue (default)",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white ring-2 ring-white/50 ring-offset-2 ring-offset-zinc-900",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 255, 255)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Pink",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 190.40093994140625,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Red",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 285.4245300292969,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Orange",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 380.4481201171875,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Gold",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 475.4575500488281,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Yellow",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 570.4811401367188,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Green",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 665.5046997070312,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Mint",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 760.51416015625,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Dark Blue",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 855.5377197265625,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Light Blue",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 950.5613403320312,
+        "y": -653.8160400390625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Sky/Cyan",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Violet",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 190.40093994140625,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Lavender",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 285.4245300292969,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Brown",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 380.4481201171875,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Charcoal",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 475.4575500488281,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Silver",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 570.4811401367188,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Coral/Peach",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 665.5046997070312,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Turquoise",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 760.51416015625,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Indigo",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 855.5377197265625,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Fuchsia",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 950.5613403320312,
+        "y": -617.8302001953125,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Emerald",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -581.8443603515625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Peach",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 190.40093994140625,
+        "y": -581.8443603515625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": "Pride Rainbow",
+      "text": "",
+      "className": "h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none border-white/10 hover:border-white/30",
+      "rect": {
+        "x": 285.4245300292969,
+        "y": -581.8443603515625,
+        "width": 63.99056625366211,
+        "height": 27.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "8px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": null,
+      "ariaLabel": null,
+      "text": "& more accent colors available with PremiumUnlock →",
+      "className": "mt-2 w-full flex items-center justify-between pl-3.5 pr-3 py-2.5 rounded-lg border border-amber-400/20 bg-gradient-to-r from-amber-500/10 to-transparent hover:from-amber-500/16 hover:border-amber-400/35 transition-all group cursor-pointer",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -545.8585205078125,
+        "width": 942.1981201171875,
+        "height": 37.79716873168945
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(251, 191, 36, 0.2)",
+        "borderRadius": "8px",
+        "display": "flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "SECTION",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Overlay SettingsScale100%Auto-score winner (25s min)Lock Overlay Position 🔓Overlay is locked – clicks will go through.How auto-score works:Make sure the active timer is on the current survivor (use Swap before starting).Pause each survivor’s run (F1). When both sides are paused, the player with the longest time gets +1.Times under 25s are ignored (prevents accidental starts).This never stops your timers — it only updates the score.",
+      "className": "mb-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4",
+      "rect": {
+        "x": 78.49528503417969,
+        "y": -443.16510009765625,
+        "width": 975.9906005859375,
+        "height": 474.46697998046875
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(255, 255, 255, 0.05)",
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": "16px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "H2",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Overlay Settings",
+      "className": "mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -426.26885986328125,
+        "width": 942.1981201171875,
+        "height": 19.995283126831055
+      },
+      "style": {
+        "color": "rgb(161, 161, 170)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "14px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "INPUT",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "className": "w-full [accent-color:#5AC8FF]",
+      "rect": {
+        "x": 95.39151000976562,
+        "y": -361.0754699707031,
+        "width": 942.1981201171875,
+        "height": 15.99056625366211
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgb(255, 255, 255)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "inline-block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": "switch",
+      "ariaLabel": null,
+      "text": "",
+      "className": "relative h-6 w-11 rounded-full transition-colors bg-emerald-500 ring-1 ring-black/5",
+      "rect": {
+        "x": 980.688720703125,
+        "y": -301.3868103027344,
+        "width": 43.99528503417969,
+        "height": 24
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgb(16, 185, 129)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "9999px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "relative"
+      }
+    },
+    {
+      "tag": "BUTTON",
+      "role": "switch",
+      "ariaLabel": null,
+      "text": "",
+      "className": "relative h-6 w-11 rounded-full transition-colors bg-emerald-500 ring-1 ring-black/5",
+      "rect": {
+        "x": 980.688720703125,
+        "y": -239.57546997070312,
+        "width": 43.99528503417969,
+        "height": 24
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgb(16, 185, 129)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "9999px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "relative"
+      }
+    },
+    {
+      "tag": "SECTION",
+      "role": null,
+      "ariaLabel": null,
+      "text": "👑 PREMIUM OVERLAYSUnlock more overlays & toolsJoin our Discord to get the premium version: killer streaks, survivor streaks, win/loss counter, tournament overlay, and more!Join the Discord",
+      "className": "mt-8 relative overflow-hidden rounded-3xl border border-violet-500/30 bg-gradient-to-br from-violet-600/10 via-fuchsia-600/10 to-emerald-500/10 p-5",
+      "rect": {
+        "x": 78.49528503417969,
+        "y": 63.29717254638672,
+        "width": 975.9906005859375,
+        "height": 193.92453002929688
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(139, 92, 246, 0.3)",
+        "borderRadius": "24px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "relative"
+      }
+    },
+    {
+      "tag": "H3",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Unlock more overlays & tools",
+      "className": "mt-3 text-xl font-semibold tracking-tight text-white",
+      "rect": {
+        "x": 99.39622497558594,
+        "y": 122.53302001953125,
+        "width": 934.188720703125,
+        "height": 28.004716873168945
+      },
+      "style": {
+        "color": "rgb(255, 255, 255)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "20px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "A",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Join the Discord",
+      "className": "mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition",
+      "rect": {
+        "x": 99.39622497558594,
+        "y": 198.52359008789062,
+        "width": 177.52359008789062,
+        "height": 37.79716873168945
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(255, 255, 255, 0.1)",
+        "borderColor": "rgba(255, 255, 255, 0.2)",
+        "borderRadius": "12px",
+        "display": "inline-flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "SECTION",
+      "role": null,
+      "ariaLabel": null,
+      "text": "🎨 ReShade FiltersGET STEAXS RESHADESCompetitive ReShade presets tailored for Dead by Daylight. One filter per map. Sharper visibility, clean colors, and a consistent look across maps.Get the Presets",
+      "className": "mt-6 relative overflow-hidden rounded-3xl border border-cyan-400/30 bg-gradient-to-tr from-cyan-400/10 via-sky-500/10 to-indigo-500/10 p-5",
+      "rect": {
+        "x": 78.49528503417969,
+        "y": 281.2217102050781,
+        "width": 975.9906005859375,
+        "height": 213.91981506347656
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(34, 211, 238, 0.3)",
+        "borderRadius": "24px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "relative"
+      }
+    },
+    {
+      "tag": "H3",
+      "role": null,
+      "ariaLabel": null,
+      "text": "GET STEAXS RESHADES",
+      "className": "mt-3 text-xl font-semibold tracking-tight text-white",
+      "rect": {
+        "x": 99.39622497558594,
+        "y": 340.4575500488281,
+        "width": 934.188720703125,
+        "height": 28.004716873168945
+      },
+      "style": {
+        "color": "rgb(255, 255, 255)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "20px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "A",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Get the Presets",
+      "className": "mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition",
+      "rect": {
+        "x": 99.39622497558594,
+        "y": 436.4433898925781,
+        "width": 171.01416015625,
+        "height": 37.79716873168945
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(255, 255, 255, 0.1)",
+        "borderColor": "rgba(255, 255, 255, 0.2)",
+        "borderRadius": "12px",
+        "display": "inline-flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "SECTION",
+      "role": null,
+      "ariaLabel": null,
+      "text": "☕ SUPPORT THE PROJECTBuy me a coffeeIf these overlays help you, consider buying me a coffee. Your donation keeps the project alive, funds maintenance, and fuels new features.Buy Me a Coffee",
+      "className": "mt-6 relative overflow-hidden rounded-3xl border border-amber-400/30 bg-gradient-to-tr from-amber-400/10 via-orange-500/10 to-rose-500/10 p-5",
+      "rect": {
+        "x": 78.49528503417969,
+        "y": 519.1415405273438,
+        "width": 975.9906005859375,
+        "height": 213.91981506347656
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgba(251, 191, 36, 0.3)",
+        "borderRadius": "24px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "opacity": "1",
+        "position": "relative"
+      }
+    },
+    {
+      "tag": "H3",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Buy me a coffee",
+      "className": "mt-3 text-xl font-semibold tracking-tight text-white",
+      "rect": {
+        "x": 99.39622497558594,
+        "y": 578.3773803710938,
+        "width": 934.188720703125,
+        "height": 28.004716873168945
+      },
+      "style": {
+        "color": "rgb(255, 255, 255)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(229, 231, 235)",
+        "borderRadius": "0px",
+        "display": "block",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "20px",
+        "fontWeight": "600",
+        "opacity": "1",
+        "position": "static"
+      }
+    },
+    {
+      "tag": "A",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Buy Me a Coffee",
+      "className": "mt-5 inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium backdrop-blur hover:bg-white/15 transition",
+      "rect": {
+        "x": 99.39622497558594,
+        "y": 674.3632202148438,
+        "width": 178.91038513183594,
+        "height": 37.79716873168945
+      },
+      "style": {
+        "color": "rgb(244, 244, 245)",
+        "backgroundColor": "rgba(255, 255, 255, 0.1)",
+        "borderColor": "rgba(255, 255, 255, 0.2)",
+        "borderRadius": "12px",
+        "display": "inline-flex",
+        "fontFamily": "Poppins-Regular, system-ui, sans-serif",
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "opacity": "1",
+        "position": "static"
+      }
+    }
+  ]
+}

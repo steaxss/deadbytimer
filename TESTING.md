@@ -6,14 +6,24 @@ Run before every release candidate:
 
 ```powershell
 npm test
+npm run lint
+npm run check:lines
 npm run typecheck
+npm audit
+npm audit --omit=dev
 npm run build
 ```
 
+`npm run verify` groups every command above except the packaged build.
+
 What these cover:
 
-- `npm test`: input runtime policy invariants
-- `npm run typecheck`: TypeScript safety
+- `npm test`: input, IPC, persistence and monotonic timer invariants
+- `npm run lint`: correctness, suspicious constructs and unused code
+- `npm run check:lines`: 450-line limit for every maintained source file
+- `npm run typecheck`: strict TypeScript 7 safety for renderers and Electron
+- `npm audit`: zero known vulnerability in the complete dependency graph
+- `npm audit --omit=dev`: zero known vulnerability in shipped dependencies
 - `npm run build`: renderer + Electron packaging smoke test
 
 ## Manual Smoke
@@ -115,3 +125,19 @@ If any issue appears, capture:
 - exact binding mode used
 - whether G Hub / Synapse / iCUE / DS4Windows was running
 - `main.log`
+
+## OBS Matrix
+
+Validate with DBD running normally and without adding any injected overlay:
+
+1. Capture DBD with Game Capture and the timer with Window Capture.
+2. Repeat Window Capture with Automatic, Windows Graphics Capture and BitBlt.
+3. Repeat at 30 and 60 fps, with the timer source visible and hidden.
+4. Repeat with Display Capture only when it belongs to the real user workflow.
+5. Record OBS Stats and logs for 30 minutes in a non-saturated configuration.
+
+Expected:
+
+- unchanged transparency, alpha, dimensions and animation timing
+- stable source detection after restarting OBS and the timer
+- no new missed, skipped or dropped frames compared with the app-off baseline
