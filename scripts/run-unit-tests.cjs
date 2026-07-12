@@ -10,7 +10,8 @@ const {
   shouldRunGamepadBridge,
 } = require("../electron/input/runtime-policy.cjs");
 const { createSenderGuard } = require("../electron/ipc/security.cjs");
-const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions } = require("../electron/ipc/validation.cjs");
+const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer } = require("../electron/ipc/validation.cjs");
+const { clampToDisplay, findBestDisplay, snapBounds } = require("../electron/windows/overlay-layout.cjs");
 const { createDeferredWriter } = require("../electron/persistence/deferred-writer.cjs");
 const uiohookRuntime = require("../electron/input/uiohook.cjs");
 const { parseGamepadProtocolLine } = require("../electron/input/gamepad-protocol.cjs");
@@ -160,6 +161,23 @@ test("IPC payload validators accept product contracts and reject malformed data"
   assert.deepEqual(parseDimensions({ width: 520, height: 120 }), { width: 520, height: 120 });
   assert.throws(() => parseDimensions({ width: 0, height: 120 }), /dimensions/);
   assert.throws(() => parseDimensions({ width: 520, height: 120, extra: 1 }), /Unknown/);
+  assert.deepEqual(parsePointer({ x: 12.4, y: -8.7 }), { x: 12, y: -9 });
+  assert.throws(() => parsePointer({ x: 1, y: 2, injected: true }), /Unknown/);
+});
+
+test("overlay layout snaps per display and keeps a usable area visible", () => {
+  const displays = [
+    { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } },
+    { id: 2, bounds: { x: -1280, y: 0, width: 1280, height: 1024 } },
+  ];
+  const rightEdge = snapBounds({ x: 1392, y: 470, width: 520, height: 120 }, { x: 1800, y: 500 }, displays, displays[0]);
+  assert.deepEqual(rightEdge.bounds, { x: 1400, y: 480, width: 520, height: 120 });
+  assert.equal(rightEdge.snapTarget, "right-center-y");
+  const secondDisplay = snapBounds({ x: -1271, y: 4, width: 520, height: 120 }, { x: -1200, y: 40 }, displays, displays[0]);
+  assert.deepEqual(secondDisplay.bounds, { x: -1280, y: 0, width: 520, height: 120 });
+  assert.equal(secondDisplay.snapTarget, "left-top");
+  assert.equal(findBestDisplay({ x: -100, y: 100, width: 520, height: 120 }, displays)?.id, 1);
+  assert.deepEqual(clampToDisplay({ x: 5000, y: 5000, width: 520, height: 120 }, displays[0]), { x: 1496, y: 1032, width: 520, height: 120 });
 });
 
 test("IPC sender guard enforces window identity and rejects subframes", () => {

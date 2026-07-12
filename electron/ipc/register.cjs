@@ -3,7 +3,7 @@
 /** @typedef {{ x: number, y: number, scale: number, locked: boolean, alwaysOnTop: boolean, nameTheme: string, accentKey: string, autoScoreEnabled: boolean, autoScoreThresholdSec: number }} OverlaySettings */
 /** @typedef {{ player1: { name: string, score: number }, player2: { name: string, score: number } }} TimerData */
 const { createSenderGuard } = require("./security.cjs");
-const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions } = require("./validation.cjs");
+const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer } = require("./validation.cjs");
 
 /**
  * @typedef {object} IpcContext
@@ -92,6 +92,50 @@ function registerAppIpc(context) {
     if (current.width !== next.width || current.height !== next.height) {
       context.setBaseDims(next);
       context.windows.recomputeOverlaySize(context.getOverlayWindow(), context.store, context.getBaseDims);
+    }
+    return true;
+  });
+  ipcMain.handle("overlay-drag-start", (event, value) => {
+    assertSender(event, "overlay");
+    const overlay = context.getOverlayWindow();
+    if (!overlay || overlay.isDestroyed() || context.getOverlaySettings().locked) return null;
+    return context.windows.beginOverlayDrag(overlay, parsePointer(value));
+  });
+  ipcMain.handle("overlay-drag-move", (event, value) => {
+    assertSender(event, "overlay");
+    const overlay = context.getOverlayWindow();
+    if (!overlay || overlay.isDestroyed() || context.getOverlaySettings().locked) return null;
+    return context.windows.updateOverlayDrag(overlay, parsePointer(value));
+  });
+  ipcMain.handle("overlay-drag-end", (event) => {
+    assertSender(event, "overlay");
+    const overlay = context.getOverlayWindow();
+    if (!overlay || overlay.isDestroyed()) return null;
+    return context.windows.endOverlayDrag(overlay);
+  });
+  ipcMain.handle("overlay-edit-scale", (event, direction) => {
+    assertSender(event, "overlay");
+    if (direction !== -1 && direction !== 1) throw new TypeError("Invalid scale direction");
+    const current = context.getOverlaySettings();
+    if (current.locked) return current.scale;
+    const scale = Math.min(200, Math.max(50, Math.round(current.scale / 5) * 5 + direction * 5));
+    if (scale === current.scale) return scale;
+    const next = { ...current, scale };
+    context.setOverlaySettings(next); context.persistOverlaySettings(next);
+    const overlay = context.getOverlayWindow();
+    context.windows.recomputeOverlaySize(overlay, context.store, context.getBaseDims);
+    return scale;
+  });
+  ipcMain.handle("overlay-edit-lock", (event) => {
+    assertSender(event, "overlay");
+    const current = context.getOverlaySettings();
+    const next = { ...current, locked: true };
+    context.setOverlaySettings(next); context.persistOverlaySettings(next);
+    const overlay = context.getOverlayWindow();
+    if (overlay && !overlay.isDestroyed()) {
+      context.windows.endOverlayDrag(overlay);
+      overlay.setIgnoreMouseEvents(true);
+      context.windows.sendOverlaySettings(overlay, context.store, context.isDev);
     }
     return true;
   });

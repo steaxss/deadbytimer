@@ -22,7 +22,12 @@ const api = {
     updateSettings: (s) => ipcRenderer.invoke('overlay-settings-update', s),
     onReady: (cb) => subscribe('overlay-ready', cb),
     onSettings: (cb) => subscribe('overlay-settings', cb),
-    measure: (w, h) => ipcRenderer.invoke('overlay-measure', { width: w, height: h })
+    measure: (w, h) => ipcRenderer.invoke('overlay-measure', { width: w, height: h }),
+    beginDrag: (pointer) => ipcRenderer.invoke('overlay-drag-start', pointer),
+    moveDrag: (pointer) => ipcRenderer.invoke('overlay-drag-move', pointer),
+    endDrag: () => ipcRenderer.invoke('overlay-drag-end'),
+    scaleBy: (direction) => ipcRenderer.invoke('overlay-edit-scale', direction),
+    lock: () => ipcRenderer.invoke('overlay-edit-lock')
   },
   timer: {
     get: () => ipcRenderer.invoke('timer-data-get'),

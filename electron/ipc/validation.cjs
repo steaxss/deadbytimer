@@ -100,4 +100,14 @@ function parseDimensions(value) {
   return { width, height };
 }
 
-module.exports = { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions };
+/** @param {unknown} value */
+function parsePointer(value) {
+  const input = record(value);
+  exactKeys(input, ["x", "y"], "pointer");
+  const x = finiteNumber(input.x, "x");
+  const y = finiteNumber(input.y, "y");
+  if (Math.abs(x) > 1_000_000 || Math.abs(y) > 1_000_000) throw new RangeError("Invalid pointer");
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+module.exports = { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer };

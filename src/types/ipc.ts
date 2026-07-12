@@ -14,6 +14,10 @@ export type OverlaySettings = Readonly<{
   autoScoreEnabled?: boolean;
   autoScoreThresholdSec?: number;
 }>;
+export type OverlayDragState = Readonly<{
+  bounds: Readonly<{ x: number; y: number; width: number; height: number }>;
+  snapTarget: string | null;
+}>;
 
 export type HotkeySettings = Readonly<{
   start: number | null;
@@ -42,6 +46,11 @@ export interface RendererApi {
     onReady(callback: (visible: boolean) => void): Dispose;
     onSettings(callback: (settings: OverlaySettings) => void): Dispose;
     measure(width: number, height: number): Promise<void>;
+    beginDrag(pointer: Readonly<{ x: number; y: number }>): Promise<OverlayDragState | null>;
+    moveDrag(pointer: Readonly<{ x: number; y: number }>): Promise<OverlayDragState | null>;
+    endDrag(): Promise<OverlayDragState | null>;
+    scaleBy(direction: -1 | 1): Promise<number>;
+    lock(): Promise<void>;
   };
   timer: {
     get(): Promise<TimerData>;

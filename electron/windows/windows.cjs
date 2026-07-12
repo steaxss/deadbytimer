@@ -2,6 +2,7 @@
 const { BrowserWindow, shell, screen } = require("electron");
 const { join } = require("node:path");
 const log = require("electron-log");
+const { clampToDisplay, findBestDisplay, snapBounds } = require("./overlay-layout.cjs");
 
 /** @typedef {{ width: number, height: number }} Dimensions */
 /** @typedef {{ x?: number, y?: number, width?: number, height?: number }} WindowState */
@@ -28,6 +29,8 @@ let mainWindow = null;
 /** @type {Electron.BrowserWindow | null} */
 let overlayWindow = null;
 let sessionSecurityConfigured = false;
+/** @type {{ bounds: Electron.Rectangle, pointer: { x: number, y: number } } | null} */
+let overlayDragSession = null;
 
 /** @param {Electron.Session} targetSession */
 function configureSessionSecurity(targetSession) {
@@ -120,11 +123,10 @@ function recomputeOverlaySize(ov, storeRef, getBaseDims) {
   if (!ov || ov.isDestroyed()) return;
   const s =
     requireStore(storeRef).get("overlaySettings", { scale: 100, locked: true });
-  const dragH = s.locked ? 0 : 30;
   const scale = (s.scale || 100) / 100;
   const dims = (getBaseDims || _getBaseDims)();
   const w = Math.round(dims.width * scale);
-  const h = Math.round((dims.height + dragH) * scale);
+  const h = Math.round(dims.height * scale);
   const [cw, ch] = typeof ov.getContentSize === 'function' ? ov.getContentSize() : ov.getSize();
   if (cw !== w || ch !== h) {
     ov.setContentSize(w, h);
@@ -236,13 +238,12 @@ function createOverlayWindow(currentOverlay, _currentMain) {
   activeStore.set("overlaySettings", s);
   // --- FIN INIT ROBUSTE
 
-  const dragH = s.locked ? 0 : 30;
   const scale = (s.scale || 100) / 100;
   const dims = _getBaseDims();
 
   const window = new BrowserWindow({
     width: Math.ceil(dims.width * scale),
-    height: Math.ceil((dims.height + dragH) * scale),
+    height: Math.ceil(dims.height * scale),
     x: s.x,
     y: s.y,
     frame: false,
@@ -322,6 +323,38 @@ function createOverlayWindow(currentOverlay, _currentMain) {
   return window;
 }
 
+/** @param {Electron.BrowserWindow} window @param {{ x: number, y: number }} pointer */
+function beginOverlayDrag(window, pointer) {
+  const bounds = window.getBounds();
+  overlayDragSession = { bounds, pointer };
+  return { bounds, snapTarget: null };
+}
+
+/** @param {Electron.BrowserWindow} window @param {{ x: number, y: number }} pointer */
+function updateOverlayDrag(window, pointer) {
+  if (!overlayDragSession) return null;
+  const bounds = {
+    ...overlayDragSession.bounds,
+    x: overlayDragSession.bounds.x + pointer.x - overlayDragSession.pointer.x,
+    y: overlayDragSession.bounds.y + pointer.y - overlayDragSession.pointer.y,
+  };
+  const result = snapBounds(bounds, pointer, screen.getAllDisplays(), screen.getPrimaryDisplay());
+  window.setBounds(result.bounds, false);
+  return result;
+}
+
+/** @param {Electron.BrowserWindow} window */
+function endOverlayDrag(window) {
+  overlayDragSession = null;
+  const current = window.getBounds();
+  const displays = screen.getAllDisplays();
+  const display = findBestDisplay(current, displays) || screen.getPrimaryDisplay();
+  const bounds = clampToDisplay(current, display);
+  window.setBounds(bounds, false);
+  _onOverlayMove && _onOverlayMove(bounds.x, bounds.y);
+  return { bounds, snapTarget: null };
+}
+
 module.exports = {
   initWindows,
   createMainWindow,
@@ -330,6 +363,9 @@ module.exports = {
   applyAlwaysOnTop,
   sendOverlaySettings,
   recomputeOverlaySize,
+  beginOverlayDrag,
+  updateOverlayDrag,
+  endOverlayDrag,
 
   // (utiles si besoin)
   getMainWindow: () => mainWindow,

@@ -4,6 +4,7 @@ import { formatMillisDynamic } from "@/utils/timer";
 import ScrollingName from "@/components/ScrollingName";
 import { NAME_BG, ACCENTS_MAP, NameTheme, AccentKey } from "@/themes/palette";
 import { sanitizePlayerName } from "@/utils/sanitize";
+import OverlayEditor from "@/components/overlay/OverlayEditor";
 
 type TD = {
   player1: { name: string; score: number };
@@ -316,13 +317,11 @@ export default function TimerOverlay() {
       className="pointer-events-none select-none"
       style={{
         width: Math.round(520 * s),
-        height: Math.round((120 + (locked ? 0 : 30)) * s),
+        height: Math.round(120 * s),
         overflow: "hidden",
+        position: "relative",
       }}
     >
-      {/* Drag handle (visible quand unlock) */}
-      <div className={`drag-handle ${locked ? "" : "visible"}`}>Drag to move</div>
-
       {/* Zoom par transform sur le contenu interne */}
       <div
         style={{
@@ -361,6 +360,7 @@ export default function TimerOverlay() {
           </div>
         </div>
       </div>
+      <OverlayEditor locked={locked} scale={scale} />
     </div>
   );
 }
