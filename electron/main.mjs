@@ -1,5 +1,6 @@
 import {
   app,
+  clipboard,
   ipcMain,
   globalShortcut,
   shell,
@@ -11,18 +12,30 @@ import { fileURLToPath } from "node:url";
 import Store from "electron-store";
 import { createRequire } from "node:module";
 import fs from "node:fs";
-import updaterPkg from "electron-updater";
-const { autoUpdater } = updaterPkg;
 import log from "electron-log";
 
 const require = createRequire(import.meta.url);
+const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+require("./logging/configure.cjs").configureLogging(log, { development: isDev });
+
+/** @typedef {{ keycode: number | null, modifiers: number }} HotkeyChord */
+/** @typedef {{ start: number | HotkeyChord | null, reset: number | HotkeyChord | null, swap: number | HotkeyChord | null }} HotkeyCodes */
+/** @typedef {{ start: string | null, reset: string | null, swap: string | null }} HotkeyLabels */
+/** @typedef {{ x: number, y: number, scale: number, locked: boolean, alwaysOnTop: boolean, nameTheme: string, accentKey: string, autoScoreEnabled: boolean, autoScoreThresholdSec: number, pauseResumeEnabled: boolean }} OverlaySettings */
+/** @typedef {{ player1: { name: string, score: number }, player2: { name: string, score: number } }} TimerData */
+/** @typedef {{ windowState: { x?: number, y?: number, width?: number, height?: number }, overlaySettings: OverlaySettings, timerData: TimerData, hotkeys: HotkeyCodes, hotkeysLabel: HotkeyLabels, mouseBinds: HotkeyLabels, _appVersion: string }} AppStore */
 
 // Modules CJS
 const windows = require("./windows/windows.cjs");
 const capture = require("./hotkeys/capture.cjs");
 const uio = require("./input/uiohook.cjs");
+const updates = require("./updates/updater.cjs");
+const { registerAppIpc } = require("./ipc/register.cjs");
+const { isAlphaNumLabel, makeChordLabelFromBeforeInput } = require("./hotkeys/labels.cjs");
+const { describeBinding } = require("./hotkeys/binding.cjs");
+const { createDeferredWriter } = require("./persistence/deferred-writer.cjs");
+const { createRateLimiter } = require("./input/rate-limiter.cjs");
 const {
-  isFunctionKeyLabel,
   normalizeInputBindings: normalizeRuntimeBindings,
   runtimeNeedsUiohook: runtimeNeedsUiohookPolicy,
 } = require("./input/runtime-policy.cjs");
@@ -37,63 +50,6 @@ const {
 /* -------------------- auto-updater config -------------------- */
 const isPortable = !!process.env.PORTABLE_EXECUTABLE_DIR;
 const RELEASES_URL = 'https://github.com/steaxss/deadbytimer/releases/latest';
-
-autoUpdater.logger = log;
-autoUpdater.logger.transports.file.level = "info";
-
-/* -------------------- log config -------------------- */
-// Max 500 KB puis rotation (1 ancien fichier conservé) → logs légers
-log.transports.file.maxSize = 500 * 1024;
-log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}";
-
-autoUpdater.autoDownload = false;
-autoUpdater.allowPrerelease = false;
-autoUpdater.allowDowngrade = false;
-
-autoUpdater.on("update-available", (info) => {
-  log.info("Update available:", info.version, isPortable ? "(portable)" : "(installed)");
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("update-available", {
-      version: info.version,
-      releaseDate: info.releaseDate,
-      releaseNotes: info.releaseNotes,
-      isPortable,
-    });
-  }
-});
-
-autoUpdater.on("update-not-available", () => {
-  if (VERBOSE_LOGS) log.info("App is up to date");
-});
-
-autoUpdater.on("download-progress", (progressObj) => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("update-download-progress", {
-      percent: progressObj.percent,
-      transferred: progressObj.transferred,
-      total: progressObj.total,
-      bytesPerSecond: progressObj.bytesPerSecond,
-    });
-  }
-});
-
-autoUpdater.on("update-downloaded", (info) => {
-  log.info("Update downloaded, will install on quit");
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("update-downloaded", {
-      version: info.version,
-    });
-  }
-});
-
-autoUpdater.on("error", (err) => {
-  log.error("Auto-updater error:", err);
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("update-error", {
-      message: err.message,
-    });
-  }
-});
 
 /** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
 (function loadDevEnv() {
@@ -118,12 +74,13 @@ const DEBUG_HK = process.env.DEBUG_HK === "1";
 const DEBUG_LOGS = process.env.DEBUG_LOGS === "1";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 const VERBOSE_LOGS = isDev || DEBUG_HK || DEBUG_LOGS;
 
 // Build mode flag injected by set-build-mode.mjs before electron-builder
 let buildMode = 'prod';
-try { buildMode = require('./build-flags.cjs').buildMode || 'prod'; } catch {}
+try {
+  buildMode = require('./build-flags.cjs').buildMode || 'prod';
+} catch (error) { log.debug("Build mode flag unavailable; using production mode", error); }
 const isTestBuild = !isDev && buildMode === 'test';
 const isSimulateMode = isTestBuild || (isDev && process.env.SIMULATE_UPDATE === '1');
 
@@ -135,22 +92,24 @@ const iconPath = isDev
   ? join(__dirname, "../build/icon.ico")
   : join(process.resourcesPath, "icon.ico");
 
+/** @type {Store<AppStore>} */
 const store = new Store();
+const timerDataWriter = createDeferredWriter({ write: (data) => store.set(K.TIMER, data) });
 
-// single-instance (évite hooks dupliqués)
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
 /* -------------------- store keys & defaults -------------------- */
-const K = {
+const K = /** @type {const} */ ({
   WINDOW: "windowState",
   OVERLAY: "overlaySettings",
   TIMER: "timerData",
   HK_CODES: "hotkeys",
   HK_LABELS: "hotkeysLabel",
   MOUSE_BINDS: "mouseBinds",
-};
+});
+/** @type {Pick<AppStore, "overlaySettings" | "timerData" | "hotkeys" | "hotkeysLabel" | "mouseBinds">} */
 const defaults = {
   [K.OVERLAY]: {
     x: 0,
@@ -162,16 +121,18 @@ const defaults = {
     accentKey: 'default',
     autoScoreEnabled: true,
     autoScoreThresholdSec: 25,
+    pauseResumeEnabled: false,
   },
   [K.TIMER]: {
     player1: { name: "Player 1", score: 0 },
     player2: { name: "Player 2", score: 0 },
   },
-  [K.HK_CODES]: { start: null, swap: null },
-  [K.HK_LABELS]: { start: "F1", swap: "F2" },
-  [K.MOUSE_BINDS]: { start: null, swap: null },
+  [K.HK_CODES]: { start: null, reset: null, swap: null },
+  [K.HK_LABELS]: { start: "F1", reset: null, swap: "F2" },
+  [K.MOUSE_BINDS]: { start: null, reset: null, swap: null },
 };
 
+/** @template {keyof typeof defaults} T @param {T} key @returns {(typeof defaults)[T]} */
 const getStore = (key) => store.get(key) ?? defaults[key];
 
 /* -------------------- keep config stable across versions -------------------- */
@@ -195,7 +156,9 @@ const getStore = (key) => store.get(key) ?? defaults[key];
 }
 
 /* -------------------- état runtime -------------------- */
+/** @type {Electron.BrowserWindow | null} */
 let mainWindow = null;
+/** @type {Electron.BrowserWindow | null} */
 let overlayWindow = null;
 let usingUiohook = false;
 
@@ -207,7 +170,14 @@ let hotkeys = getStore(K.HK_CODES);
 let hotkeysLabel = getStore(K.HK_LABELS);
 let mouseBinds = getStore(K.MOUSE_BINDS);
 
+updates.initializeUpdater({
+  getMainWindow: () => mainWindow,
+  isPortable,
+  verboseLogs: VERBOSE_LOGS,
+});
+
 // ===== debug =====
+/** @param {...unknown} args */
 const logHK = (...args) => {
   if (DEBUG_HK) console.log("[HK]", ...args);
 };
@@ -230,50 +200,10 @@ function hasVCRedist() {
 }
 
 // Dédup unifié
-function createRateLimiter(defaultMs = 200) {
-  const last = new Map();
-  return (key, ms = defaultMs) => {
-    const now = Date.now();
-    const t = last.get(key) || 0;
-    if (now - t < ms) return false;
-    last.set(key, now);
-    return true;
-  };
-}
 const canFire = createRateLimiter(220);
 
-function isAlphaNumLabel(k) {
-  return typeof k === "string" && /^[A-Z0-9]$/.test(k);
-}
 
-// Normalise un label depuis before-input-event (fallback)
-function makeLabelFromBeforeInput(input) {
-  let k = input.key || "";
-  if (/^F\d{1,2}$/.test(k)) return k;
-  if (/^[a-z]$/.test(k)) return k.toUpperCase();
-  if (/^\d$/.test(k)) return k;
-  if (k === " ") return "SPACE";
-  const map = {
-    Escape: "ESC",
-    Tab: "TAB",
-    Enter: "ENTER",
-    Backspace: "BACKSPACE",
-    Shift: "SHIFT",
-    Control: "CTRL",
-    Alt: "ALT",
-    Meta: "META",
-    ArrowUp: "UP",
-    ArrowDown: "DOWN",
-    ArrowLeft: "LEFT",
-    ArrowRight: "RIGHT",
-  };
-  if (map[k]) return map[k];
-  const code = input.code || "";
-  if (/^Key[A-Z]$/.test(code)) return code.slice(3, 4);
-  if (/^Digit\d$/.test(code)) return code.slice(5);
-  return k && k.length <= 6 ? k.toUpperCase() : code || "KEY";
-}
-
+/** @param {"pass-through" | "fallback"} mode */
 function sendHotkeysMode(mode) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("hotkeys-mode", mode);
@@ -288,8 +218,8 @@ function normalizeInputBindings() {
       mouseBinds,
     });
   if (changed) {
-    hotkeys = nextHotkeys;
-    mouseBinds = nextMouseBinds;
+    hotkeys = { ...defaults[K.HK_CODES], ...nextHotkeys };
+    mouseBinds = { ...defaults[K.MOUSE_BINDS], ...nextMouseBinds };
     store.set(K.HK_CODES, hotkeys);
     store.set(K.MOUSE_BINDS, mouseBinds);
   }
@@ -302,21 +232,17 @@ function runtimeNeedsUiohook() {
 function refreshInputRuntime() {
   normalizeInputBindings();
 
-  const shouldUseUiohook = runtimeNeedsUiohook() && uio.isLoaded();
-  if (shouldUseUiohook) uio.enable("runtime");
-  else uio.disable("runtime");
-
-  usingUiohook = shouldUseUiohook;
+  const needsUiohook = runtimeNeedsUiohook();
+  usingUiohook = needsUiohook ? uio.enable("runtime") : false;
+  if (!needsUiohook) uio.disable("runtime");
   if (usingUiohook) {
     try {
       globalShortcut.unregisterAll();
-    } catch {}
+    } catch (error) { log.warn("Failed to unregister global shortcuts before uIOhook activation", error); }
   } else {
     capture.refreshHotkeyEngine({
       globalShortcut,
       hotkeysLabel,
-      isAlphaNumLabel,
-      logHK,
       getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
       dispatchHotkey,
     });
@@ -325,8 +251,10 @@ function refreshInputRuntime() {
 }
 
 /* -------------------- dispatch centralisé vers l’overlay -------------------- */
+/** @param {"toggle" | "reset" | "swap"} type */
 function dispatchHotkey(type) {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  if (type === "reset" && getStore(K.OVERLAY).pauseResumeEnabled !== true) return;
   if (!canFire(type, 220)) return;
   overlayWindow.webContents.send("global-hotkey", { type });
   logHK("DISPATCH", type);
@@ -334,6 +262,9 @@ function dispatchHotkey(type) {
 
 /* -------------------- wiring modules -------------------- */
 // Initialiser le module fenêtres
+/** @type {ReturnType<typeof setTimeout> | null} */
+let overlayMoveTimer = null;
+
 windows.initWindows({
   store,
   iconPath,
@@ -345,8 +276,8 @@ windows.initWindows({
   },
   onOverlayMove: (x, y) => {
     // débounce léger (100ms)
-    if (windows._moveDebounce) clearTimeout(windows._moveDebounce);
-    windows._moveDebounce = setTimeout(() => {
+    if (overlayMoveTimer) clearTimeout(overlayMoveTimer);
+    overlayMoveTimer = setTimeout(() => {
       store.set("overlaySettings.x", x);
       store.set("overlaySettings.y", y);
     }, 120);
@@ -360,7 +291,6 @@ windows.initWindows({
 // Initialiser le module capture
 capture.initCapture({
   ipcMain,
-  store,
   globalShortcut,
   dialog,
   shell,
@@ -368,9 +298,7 @@ capture.initCapture({
   hasVCRedist,
   logHK,
   getMainWindow: () => mainWindow,
-  getOverlayWindow: () => overlayWindow,
   getUsingUiohook: () => usingUiohook,
-  setUsingUiohook: (v) => (usingUiohook = !!v),
   getHotkeys: () => hotkeys,
   setHotkeys: (next) => {
     hotkeys = next;
@@ -386,16 +314,14 @@ capture.initCapture({
     mouseBinds = next;
     store.set(K.MOUSE_BINDS, mouseBinds);
   },
-  makeLabelFromBeforeInput,
+  makeChordLabelFromBeforeInput,
   isAlphaNumLabel,
-  sendHotkeysMode,
-  dispatchHotkey,
   refreshInputRuntime,
   enableUiohookCapture: () => uio.enable("capture"),
   disableUiohookCapture: () => uio.disable("capture"),
   onGamepadRaw,
-  setGamepadMapping,
-  clearGamepadMapping,
+  setGamepadMapping: (action, label, options) =>
+    setGamepadMapping(action === "swap" ? "swap" : "toggle", label, options),
 });
 
 // Initialiser le module uIOhook (clavier + souris)
@@ -412,7 +338,7 @@ uio.setupUiohook({
   // capture integration:
   isCapturing: () => capture.isCapturing(),
   getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
-  onCaptureKeyboardCode: (code) => capture.onKeyboardCode(code),
+  onCaptureKeyboardBinding: (binding) => capture.onKeyboardCode(binding),
   onCaptureMouseLabel: (label) => capture.onMouseLabel(label),
   // binds & codes
   getHotkeys: () => hotkeys,
@@ -423,178 +349,39 @@ uio.setupUiohook({
   },
 });
 
-// Expose quelques helpers Windows au module capture
-capture.attachWindowsAPI({
-  sendOverlaySettings: () => windows.sendOverlaySettings(overlayWindow, store, isDev),
-});
-
 /* -------------------- IPC (panneau ↔ main) -------------------- */
 function setupIPC() {
-  ipcMain.handle("overlay-show", () => {
-    overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
-    return true;
-  });
-  ipcMain.handle("overlay-hide", () => {
-    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
-    overlayWindow = null;
-    if (mainWindow && !mainWindow.isDestroyed())
-      mainWindow.webContents.send("overlay-ready", false);
-    return true;
-  });
-
-  ipcMain.handle("overlay-settings-update", (_evt, settings) => {
-    const current = getStore(K.OVERLAY);
-    const next = { ...current, ...settings };
-    store.set(K.OVERLAY, next);
-    if (!overlayWindow || overlayWindow.isDestroyed()) return true;
-
-    if (settings.locked !== undefined) {
-      overlayWindow.setIgnoreMouseEvents(!!next.locked, { forward: true });
-      overlayWindow.setFocusable(true); // OBS/Alt-Tab
-    }
-    if (settings.alwaysOnTop !== undefined)
-      windows.applyAlwaysOnTop(overlayWindow, next.alwaysOnTop);
-    if (settings.x !== undefined || settings.y !== undefined) {
-      const b = overlayWindow.getBounds();
-      overlayWindow.setPosition(settings.x ?? b.x, settings.y ?? b.y);
-    }
-    if (settings.scale !== undefined || settings.locked !== undefined)
-      windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
-    windows.sendOverlaySettings(overlayWindow, store, isDev);
-    return true;
-  });
-
-  ipcMain.handle("overlay-measure", (_evt, dims) => {
-    if (!dims || !Number.isFinite(dims.width) || !Number.isFinite(dims.height))
-      return false;
-    const nw = Math.max(1, Math.floor(dims.width));
-    const nh = Math.max(1, Math.floor(dims.height));
-    if (baseDims.width !== nw || baseDims.height !== nh) {
-      baseDims = { width: nw, height: nh };
-      windows.recomputeOverlaySize(overlayWindow, store, () => baseDims);
-    }
-    return true;
-  });
-
-  // Timer data
-  ipcMain.handle("timer-data-get", () => getStore(K.TIMER));
-  ipcMain.handle("timer-data-set", (_evt, data) => {
-    store.set(K.TIMER, data);
-    if (overlayWindow && !overlayWindow.isDestroyed())
-      overlayWindow.webContents.send("timer-data-sync", data);
-    return true;
-  });
-
-  // Hotkeys API
-  ipcMain.handle("hotkeys-get", () => ({
-    start: hotkeys.start,
-    swap: hotkeys.swap,
-    startLabel: hotkeysLabel.start,
-    swapLabel: hotkeysLabel.swap,
-    mode: usingUiohook ? "pass-through" : "fallback",
-    uiohookLoaded: uio.isLoaded(),
-  }));
-  
-  ipcMain.handle("gamepad-mapping-get", () => getGamepadMapping());
-  ipcMain.handle("gamepad-mapping-clear", (_evt, action) => {
-    clearGamepadMapping(action === "swap" ? "swap" : "toggle");
-    return getGamepadMapping();
-  });
-
-  ipcMain.handle("hotkeys-set", (_evt, hk) => {
-    hotkeys = { ...hotkeys, ...hk }; // codes uiohook si fournis
-    store.set(K.HK_CODES, hotkeys);
-    refreshInputRuntime();
-    return true;
-  });
-
-  ipcMain.handle("hotkeys-clear", (_evt, action) => {
-    const key = action === "start" ? "start" : "swap";
-    hotkeys[key] = null;
-    hotkeysLabel[key] = action === "start" ? "F1" : "F2";
-    mouseBinds[key] = null;
-    store.set(K.HK_CODES, hotkeys);
-    store.set(K.HK_LABELS, hotkeysLabel);
-    store.set(K.MOUSE_BINDS, mouseBinds);
-    refreshInputRuntime();
-
-    return { start: hotkeys.start, swap: hotkeys.swap, startLabel: hotkeysLabel.start, swapLabel: hotkeysLabel.swap };
-  });
-
-  // Restart manuel des hooks (bouton dans le panel, utile si EAC a tué uIOhook)
-  ipcMain.handle("hotkeys-restart-hooks", () => {
-    if (uio.isLoaded() && !capture.isCapturing() && runtimeNeedsUiohook()) {
-      uio.enable("runtime");
-      uio.restart();
-    }
-    return true;
-  });
-  capture.setupCaptureIPC();
-
-  // Window controls (custom titlebar)
-  ipcMain.handle("win-minimize", () => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
-    return true;
-  });
-  ipcMain.handle("win-maximize", () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return false;
-    if (mainWindow.isMaximized()) mainWindow.unmaximize();
-    else mainWindow.maximize();
-    return mainWindow.isMaximized();
-  });
-  ipcMain.handle("win-close", () => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
-    return true;
-  });
-  ipcMain.handle("win-is-maximized", () => {
-    return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false;
-  });
-  ipcMain.handle("app-version", () => app.getVersion());
-  ipcMain.handle("open-premium", () => shell.openExternal("https://dbdoverlaytools.com/"));
-  ipcMain.handle("open-log-folder", () => { shell.openPath(app.getPath("logs")); return true; });
-
-  // Auto-updater
-  ipcMain.handle("updater-start-download", async () => {
-    if (isSimulateMode) {
-      // Fake progressive download — sends progress events then fires update-downloaded
-      let pct = 0;
-      const iv = setInterval(() => {
-        pct = Math.min(pct + 12, 100);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("update-download-progress", {
-            percent: pct,
-            transferred: pct * 1024 * 1024,
-            total: 100 * 1024 * 1024,
-            bytesPerSecond: 12 * 1024 * 1024,
-          });
-        }
-        if (pct >= 100) {
-          clearInterval(iv);
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send("update-downloaded", { version: "99.99.99" });
-          }
-        }
-      }, 250);
-      return;
-    }
-    return autoUpdater.downloadUpdate();
-  });
-  ipcMain.handle("updater-install-now", () => {
-    if (isSimulateMode) {
-      if (VERBOSE_LOGS) log.info("[update] simulate — install triggered, quitting app");
-      app.quit();
-      return;
-    }
-    autoUpdater.quitAndInstall(true, true);
-  });
-  ipcMain.handle("updater-open-releases", () => {
-    shell.openExternal(RELEASES_URL);
+  registerAppIpc({
+    ipcMain, app, clipboard, shell, windows, uio, capture, store, isDev,
+    getMainWindow: () => mainWindow,
+    setMainWindow: (window) => { mainWindow = window; },
+    getOverlayWindow: () => overlayWindow,
+    setOverlayWindow: (window) => { overlayWindow = window; },
+    getOverlaySettings: () => getStore(K.OVERLAY),
+    setOverlaySettings: () => {},
+    persistOverlaySettings: (settings) => store.set(K.OVERLAY, settings),
+    getTimerData: () => getStore(K.TIMER),
+    setTimerData: () => {},
+    persistTimerData: timerDataWriter.schedule,
+    getBaseDims: () => baseDims,
+    setBaseDims: (dims) => { baseDims = dims; },
+    getHotkeys: () => hotkeys,
+    setHotkeys: (codes) => { hotkeys = codes; },
+    getHotkeyLabels: () => hotkeysLabel,
+    setHotkeyLabels: (labels) => { hotkeysLabel = labels; },
+    getMouseBinds: () => mouseBinds,
+    setMouseBinds: (binds) => { mouseBinds = binds; },
+    getUsingUiohook: () => usingUiohook,
+    runtimeNeedsUiohook, refreshInputRuntime, getGamepadMapping, clearGamepadMapping,
+    persistHotkeys: (codes) => store.set(K.HK_CODES, codes),
+    persistHotkeyLabels: (labels) => store.set(K.HK_LABELS, labels),
+    persistMouseBinds: (binds) => store.set(K.MOUSE_BINDS, binds),
+    registerUpdaterIpc: (assertSender) => updates.registerUpdaterIpc({ ipcMain, simulate: isSimulateMode, releasesUrl: RELEASES_URL, assertSender }),
   });
 }
 
 /* -------------------- lifecycle -------------------- */
-app.commandLine.appendSwitch('disable-background-timer-throttling');
-
+Menu.setApplicationMenu(null);
 app.whenReady().then(() => {
   if (VERBOSE_LOGS) {
     log.info(`App start | v${app.getVersion()} | Electron ${process.versions.electron} | Node ${process.versions.node}`);
@@ -602,7 +389,7 @@ app.whenReady().then(() => {
 
   mainWindow = windows.createMainWindow(store, iconPath, isDev);
   setupIPC();
-  setupGamepadExe();
+  setupGamepadExe(dispatchHotkey);
   refreshInputRuntime();
   setTimeout(() => {
     overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
@@ -616,41 +403,16 @@ app.whenReady().then(() => {
       const gm = getGamepadMapping();
       const mode = usingUiohook ? "pass-through" : "fallback";
       log.info(`[CONFIG] Input mode: ${mode} | uiohook: ${uio.isLoaded() ? (uio.isRunning() ? "running" : "loaded-idle") : "unavailable"}`);
-      log.info(`[CONFIG] Keyboard — toggle: "${hkLabels.start}" (code: ${hkCodes.start ?? "null"}) | swap: "${hkLabels.swap}" (code: ${hkCodes.swap ?? "null"})`);
-      log.info(`[CONFIG] Mouse — toggle: ${mb.start ?? "null"} | swap: ${mb.swap ?? "null"}`);
+      log.info(`[CONFIG] Keyboard — toggle: "${hkLabels.start}" (${describeBinding(hkCodes.start)}) | reset: "${hkLabels.reset ?? "none"}" (${describeBinding(hkCodes.reset)}) | swap: "${hkLabels.swap}" (${describeBinding(hkCodes.swap)})`);
+      log.info(`[CONFIG] Mouse — toggle: ${mb.start ?? "null"} | reset: ${mb.reset ?? "null"} | swap: ${mb.swap ?? "null"}`);
       log.info(`[CONFIG] Gamepad — toggle: [${(gm.toggle ?? []).join(", ") || "none"}] | swap: [${(gm.swap ?? []).join(", ") || "none"}]`);
     }, 1200);
   }
 
-  // Update check — 3 modes
-  setTimeout(() => {
-    if (!isDev && !isTestBuild) {
-      // PROD: real GitHub release check
-      autoUpdater.checkForUpdates().catch((err) => log.error("checkForUpdates error:", err));
-    } else if (!isDev && isTestBuild) {
-      // TEST BUILD: simulate update modal locally, never touches GitHub
-      if (VERBOSE_LOGS) log.info("[update] test build — simulating update-available");
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("update-available", {
-          version: "99.99.99",
-          releaseDate: new Date().toISOString(),
-          releaseNotes: "<strong>[TEST MODE]</strong> Simulated update — testing the update flow.",
-          isPortable,
-        });
-      }
-    } else if (isDev && process.env.SIMULATE_UPDATE === "1") {
-      // DEV: npm run dev:update — simulate without building
-      if (VERBOSE_LOGS) log.info("[update] dev simulate — simulating update-available");
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("update-available", {
-          version: "99.99.99",
-          releaseDate: new Date().toISOString(),
-          releaseNotes: "<strong>[DEV SIMULATE]</strong> Simulated update for dev testing.",
-          isPortable,
-        });
-      }
-    }
-  }, 3000);
+  updates.scheduleUpdateCheck({
+    isDev, isTestBuild, isPortable,
+    simulateDevelopment: process.env.SIMULATE_UPDATE === "1",
+  });
 }).catch(err => log.error("[Electron] whenReady error:", err));
 
 app.on("second-instance", () => {
@@ -662,12 +424,13 @@ app.on("second-instance", () => {
 });
 
 app.on("will-quit", () => {
+  timerDataWriter.flush();
   try {
     if (uio.isLoaded()) uio.stop();
-  } catch {}
+  } catch (error) { log.warn("Failed to stop uIOhook during shutdown", error); }
   try {
     globalShortcut.unregisterAll();
-  } catch {}
+  } catch (error) { log.warn("Failed to unregister global shortcuts during shutdown", error); }
 });
 
 app.on("window-all-closed", () => {

@@ -1,19 +1,53 @@
 // electron/windows/windows.cjs
-const { BrowserWindow, shell, screen, Menu } = require("electron");
+const { BrowserWindow, shell, screen } = require("electron");
 const { join } = require("node:path");
+const log = require("electron-log");
+const { clampToDisplay, findBestDisplay, snapBounds } = require("./overlay-layout.cjs");
 
+/** @typedef {{ width: number, height: number }} Dimensions */
+/** @typedef {{ x?: number, y?: number, width?: number, height?: number }} WindowState */
+/** @typedef {{ x: number, y: number, scale: number, locked: boolean, alwaysOnTop: boolean, nameTheme?: string, accentKey?: string, autoScoreEnabled?: boolean, autoScoreThresholdSec?: number }} OverlaySettings */
+/** @typedef {{ player1: { name: string, score: number }, player2: { name: string, score: number } }} TimerData */
+/** @typedef {{ get: <T>(key: string, fallback: T) => T, set: (key: string, value: unknown) => void }} StoreLike */
+
+/** @type {StoreLike | null} */
 let store = null;
 let iconPath = "";
 let isDev = false;
 let baseDims = { width: 520, height: 120 };
+/** @type {() => Dimensions} */
 let _getBaseDims = () => baseDims;
+/** @type {(width: number, height: number) => void} */
 let _setBaseDims = (w, h) => (baseDims = { width: w, height: h });
+/** @type {((x: number, y: number) => void) | null} */
 let _onOverlayMove = null;
+/** @type {((ready: boolean) => void) | null} */
 let _onOverlayReadyChange = null;
 
+/** @type {Electron.BrowserWindow | null} */
 let mainWindow = null;
+/** @type {Electron.BrowserWindow | null} */
 let overlayWindow = null;
+let sessionSecurityConfigured = false;
+/** @type {{ bounds: Electron.Rectangle, pointer: { x: number, y: number } } | null} */
+let overlayDragSession = null;
 
+/** @param {Electron.Session} targetSession */
+function configureSessionSecurity(targetSession) {
+  if (sessionSecurityConfigured) return;
+  sessionSecurityConfigured = true;
+  targetSession.setPermissionCheckHandler(() => false);
+  targetSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  targetSession.setDevicePermissionHandler(() => false);
+}
+
+/** @param {StoreLike | null} [candidate] */
+function requireStore(candidate = store) {
+  if (!candidate) throw new Error("Windows store is not initialized");
+  return candidate;
+}
+
+/** @param {{ store: StoreLike, iconPath: string, isDev: boolean, baseDims?: Dimensions, getBaseDims?: () => Dimensions, setBaseDims?: (width: number, height: number) => void, onOverlayMove?: (x: number, y: number) => void, onOverlayReadyChange?: (ready: boolean) => void }} ctx */
 function initWindows(ctx) {
   store = ctx.store;
   iconPath = ctx.iconPath;
@@ -25,14 +59,18 @@ function initWindows(ctx) {
   _onOverlayReadyChange = ctx.onOverlayReadyChange || null;
 }
 
+/** @param {Electron.BrowserWindow} win @param {boolean} on */
 function applyAlwaysOnTop(win, on) {
   try {
     win.setAlwaysOnTop(!!on, "screen-saver");
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     win.setFullScreenable(false);
-  } catch {}
+  } catch (error) {
+    log.warn("Failed to apply overlay workspace policy", error);
+  }
 }
 
+/** @param {Electron.BrowserWindow | null} win */
 function enforceExternalLinks(win) {
   if (!win || win.isDestroyed()) return;
 
@@ -58,8 +96,9 @@ function enforceExternalLinks(win) {
   if (!isDev) win.webContents.on("context-menu", (e) => e.preventDefault());
 }
 
-function sendOverlaySettings(ov, storeRef, isDevFlag) {
-  const s = (storeRef || store).get("overlaySettings", {
+/** @param {Electron.BrowserWindow | null} ov @param {StoreLike | null} storeRef @param {boolean} _isDevFlag */
+function sendOverlaySettings(ov, storeRef, _isDevFlag) {
+  const s = requireStore(storeRef).get("overlaySettings", {
     x: 0,
     y: 0,
     scale: 100,
@@ -79,15 +118,15 @@ function sendOverlaySettings(ov, storeRef, isDevFlag) {
   }
 }
 
+/** @param {Electron.BrowserWindow | null} ov @param {StoreLike | null} storeRef @param {(() => Dimensions) | null} getBaseDims */
 function recomputeOverlaySize(ov, storeRef, getBaseDims) {
   if (!ov || ov.isDestroyed()) return;
   const s =
-    (storeRef || store).get("overlaySettings", { scale: 100, locked: true });
-  const dragH = s.locked ? 0 : 30;
+    requireStore(storeRef).get("overlaySettings", { scale: 100, locked: true });
   const scale = (s.scale || 100) / 100;
   const dims = (getBaseDims || _getBaseDims)();
   const w = Math.round(dims.width * scale);
-  const h = Math.round((dims.height + dragH) * scale);
+  const h = Math.round(dims.height * scale);
   const [cw, ch] = typeof ov.getContentSize === 'function' ? ov.getContentSize() : ov.getSize();
   if (cw !== w || ch !== h) {
     ov.setContentSize(w, h);
@@ -95,16 +134,18 @@ function recomputeOverlaySize(ov, storeRef, getBaseDims) {
   sendOverlaySettings(ov, storeRef, isDev);
 }
 
+/** @param {StoreLike} storeRef @param {string} icoPath @param {boolean} isDevFlag */
 function createMainWindow(storeRef, icoPath, isDevFlag) {
-  const saved = (storeRef || store).get("windowState") || {};
+  const saved = requireStore(storeRef).get("windowState", /** @type {WindowState} */ ({}));
   const width = Math.max(saved.width || 1120, 980);
   const height = Math.max(saved.height || 820, 720);
+  const position = typeof saved.x === "number" && typeof saved.y === "number"
+    ? { x: saved.x, y: saved.y } : {};
 
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width,
     height,
-    x: saved.x,
-    y: saved.y,
+    ...position,
     minWidth: 980,
     minHeight: 720,
     show: false,
@@ -115,17 +156,19 @@ function createMainWindow(storeRef, icoPath, isDevFlag) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       preload: join(__dirname, "../preload.cjs"),
       devTools: !!isDevFlag || isDev,
     },
   });
+  mainWindow = window;
+  configureSessionSecurity(window.webContents.session);
 
-  Menu.setApplicationMenu?.(null);
-  mainWindow.setMenuBarVisibility(false);
-  enforceExternalLinks(mainWindow);
+  window.setMenuBarVisibility(false);
+  enforceExternalLinks(window);
 
   // Bloque Alt menu (évite le flash de barre menu)
-  mainWindow.webContents.on("before-input-event", (event, input) => {
+  window.webContents.on("before-input-event", (event, input) => {
     if (
       input.type === "keyDown" &&
       (input.key === "Alt" || input.code === "AltLeft" || input.code === "AltRight")
@@ -135,42 +178,43 @@ function createMainWindow(storeRef, icoPath, isDevFlag) {
   });
 
   if (!!isDevFlag || isDev) {
-    mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+    window.loadURL("http://localhost:5173");
+    window.webContents.openDevTools({ mode: "detach" });
   } else {
-    mainWindow.loadFile(join(__dirname, "../../dist/index.html"));
+    window.loadFile(join(__dirname, "../../dist/index.html"));
     // Bloque F12 / Ctrl+Shift+I en prod (existant côté panel)
-    mainWindow.webContents.on("before-input-event", (e, input) => {
+    window.webContents.on("before-input-event", (e, input) => {
       const combo =
         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
       if (combo || input.key === "F12") e.preventDefault();
     });
   }
 
-  mainWindow.once("ready-to-show", () => mainWindow.show());
-  mainWindow.on("close", () => {
-    const b = mainWindow.getBounds();
-    (storeRef || store).set("windowState", b);
+  window.once("ready-to-show", () => window.show());
+  window.on("close", () => {
+    const b = window.getBounds();
+    requireStore(storeRef).set("windowState", b);
   });
-  mainWindow.on("closed", () => {
+  window.on("closed", () => {
     mainWindow = null;
     if (overlayWindow) overlayWindow.close();
   });
 
   // Notify renderer of maximize state changes (for custom titlebar icon)
-  mainWindow.on("maximize", () => {
-    if (!mainWindow.isDestroyed())
-      mainWindow.webContents.send("win-maximize-change", true);
+  window.on("maximize", () => {
+    if (!window.isDestroyed())
+      window.webContents.send("win-maximize-change", true);
   });
-  mainWindow.on("unmaximize", () => {
-    if (!mainWindow.isDestroyed())
-      mainWindow.webContents.send("win-maximize-change", false);
+  window.on("unmaximize", () => {
+    if (!window.isDestroyed())
+      window.webContents.send("win-maximize-change", false);
   });
 
-  return mainWindow;
+  return window;
 }
 
-function createOverlayWindow(currentOverlay, currentMain) {
+/** @param {Electron.BrowserWindow | null} currentOverlay @param {Electron.BrowserWindow | null} _currentMain */
+function createOverlayWindow(currentOverlay, _currentMain) {
   if (currentOverlay && !currentOverlay.isDestroyed()) {
     currentOverlay.show();
     currentOverlay.focus();
@@ -178,8 +222,10 @@ function createOverlayWindow(currentOverlay, currentMain) {
     return overlayWindow;
   }
 
-  // --- INIT ROBUSTE ---
-  let s = (store || {}).get?.("overlaySettings") || {};
+  const activeStore = requireStore();
+  const s = activeStore.get("overlaySettings", /** @type {OverlaySettings} */ ({
+    x: 0, y: 0, scale: 100, locked: true, alwaysOnTop: true,
+  }));
   const pd = screen.getPrimaryDisplay();
   const origin = pd.bounds;
 
@@ -188,16 +234,14 @@ function createOverlayWindow(currentOverlay, currentMain) {
   if (typeof s.scale !== "number") s.scale = 100;
   if (typeof s.locked !== "boolean") s.locked = true;
   if (typeof s.alwaysOnTop !== "boolean") s.alwaysOnTop = true;
-  store.set("overlaySettings", s);
-  // --- FIN INIT ROBUSTE
+  activeStore.set("overlaySettings", s);
 
-  const dragH = s.locked ? 0 : 30;
   const scale = (s.scale || 100) / 100;
   const dims = _getBaseDims();
 
-  overlayWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: Math.ceil(dims.width * scale),
-    height: Math.ceil((dims.height + dragH) * scale),
+    height: Math.ceil(dims.height * scale),
     x: s.x,
     y: s.y,
     frame: false,
@@ -207,6 +251,7 @@ function createOverlayWindow(currentOverlay, currentMain) {
     skipTaskbar: false,
     focusable: true,
     title: "DBD Timer Overlay by Steaxs & Doc",
+    icon: iconPath,
     acceptFirstMouse: true,
     backgroundColor: "#00000000",
     useContentSize: true,
@@ -214,65 +259,99 @@ function createOverlayWindow(currentOverlay, currentMain) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       preload: join(__dirname, "../preload.cjs"),
       backgroundThrottling: false,
       devTools: !!isDev,
-      webgl: false,        // No 3D rendering needed → saves 10-20MB RAM
-      enableWebSQL: false, // No database needed
+      webgl: false,
+      enableWebSQL: false,
     },
   });
+  overlayWindow = window;
 
-  overlayWindow.setIgnoreMouseEvents(!!s.locked, { forward: true });
-  applyAlwaysOnTop(overlayWindow, s.alwaysOnTop);
+  window.setIgnoreMouseEvents(!!s.locked);
+  applyAlwaysOnTop(window, s.alwaysOnTop);
 
   const url = isDev
     ? "http://localhost:5173/overlay.html"
     : join(__dirname, "../../dist/overlay.html");
   if (isDev) {
-    overlayWindow.loadURL(url);
+    window.loadURL(url);
     // Open DevTools automatically in dev mode
-    overlayWindow.webContents.once('did-finish-load', () => {
-      overlayWindow.webContents.openDevTools({ mode: "detach" });
+    window.webContents.once('did-finish-load', () => {
+      window.webContents.openDevTools({ mode: "detach" });
     });
   } else {
-    overlayWindow.loadFile(url);
+    window.loadFile(url);
   }
 
-  enforceExternalLinks(overlayWindow);
+  enforceExternalLinks(window);
 
   if (!isDev) {
-    overlayWindow.webContents.on("before-input-event", (e, input) => {
+    window.webContents.on("before-input-event", (e, input) => {
       const combo =
         (input.control || input.meta) && input.shift && input.key?.toLowerCase() === "i";
       if (combo || input.key === "F12") e.preventDefault();
     });
   }
 
-  overlayWindow.on("closed", () => {
+  window.on("closed", () => {
     overlayWindow = null;
     _onOverlayReadyChange && _onOverlayReadyChange(false);
   });
-  overlayWindow.on("move", () => {
-    const b = overlayWindow.getBounds();
+  window.on("move", () => {
+    const b = window.getBounds();
     _onOverlayMove && _onOverlayMove(b.x, b.y);
   });
 
-  overlayWindow.webContents.on("did-finish-load", () => {
+  window.webContents.on("did-finish-load", () => {
     const data =
-      store.get("timerData") || {
+      activeStore.get("timerData", /** @type {TimerData} */ ({
         player1: { name: "Player 1", score: 0 },
         player2: { name: "Player 2", score: 0 },
-      };
-    overlayWindow.webContents.send("timer-data-sync", data);
+      }));
+    window.webContents.send("timer-data-sync", data);
 
-    sendOverlaySettings(overlayWindow, store, isDev);
-    recomputeOverlaySize(overlayWindow, store, _getBaseDims);
+    sendOverlaySettings(window, activeStore, isDev);
+    recomputeOverlaySize(window, activeStore, _getBaseDims);
 
     _onOverlayReadyChange && _onOverlayReadyChange(true);
-    overlayWindow.show();
+    window.show();
   });
 
-  return overlayWindow;
+  return window;
+}
+
+/** @param {Electron.BrowserWindow} window @param {{ x: number, y: number }} pointer */
+function beginOverlayDrag(window, pointer) {
+  const bounds = window.getBounds();
+  overlayDragSession = { bounds, pointer };
+  return { bounds, snapTarget: null };
+}
+
+/** @param {Electron.BrowserWindow} window @param {{ x: number, y: number }} pointer */
+function updateOverlayDrag(window, pointer) {
+  if (!overlayDragSession) return null;
+  const bounds = {
+    ...overlayDragSession.bounds,
+    x: overlayDragSession.bounds.x + pointer.x - overlayDragSession.pointer.x,
+    y: overlayDragSession.bounds.y + pointer.y - overlayDragSession.pointer.y,
+  };
+  const result = snapBounds(bounds, pointer, screen.getAllDisplays(), screen.getPrimaryDisplay());
+  window.setBounds(result.bounds, false);
+  return result;
+}
+
+/** @param {Electron.BrowserWindow} window */
+function endOverlayDrag(window) {
+  overlayDragSession = null;
+  const current = window.getBounds();
+  const displays = screen.getAllDisplays();
+  const display = findBestDisplay(current, displays) || screen.getPrimaryDisplay();
+  const bounds = clampToDisplay(current, display);
+  window.setBounds(bounds, false);
+  _onOverlayMove && _onOverlayMove(bounds.x, bounds.y);
+  return { bounds, snapTarget: null };
 }
 
 module.exports = {
@@ -283,8 +362,10 @@ module.exports = {
   applyAlwaysOnTop,
   sendOverlaySettings,
   recomputeOverlaySize,
+  beginOverlayDrag,
+  updateOverlayDrag,
+  endOverlayDrag,
 
-  // (utiles si besoin)
   getMainWindow: () => mainWindow,
   getOverlayWindow: () => overlayWindow,
 };

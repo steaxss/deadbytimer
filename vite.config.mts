@@ -6,7 +6,13 @@ import { resolve } from 'node:path'
 export default defineConfig(({ mode }) => ({
   // chemins relatifs en production (file:// dans Electron)
   base: mode === 'development' ? '/' : './',
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'mode-specific-csp',
+    transformIndexHtml: (html) => html.replace(
+      '__CONNECT_SRC__',
+      mode === 'development' ? "connect-src 'self' ws://localhost:5173;" : "connect-src 'self';",
+    ),
+  }],
   server: { port: 5173, strictPort: true },
   resolve: {
     alias: {

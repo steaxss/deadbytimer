@@ -5,6 +5,20 @@
 
 body { font-family: 'Poppins-Regular', system-ui, sans-serif; }
 
+.new-badge {
+  animation: new-badge-pulse 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes new-badge-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 107, 203, 0.18); transform: scale(1); }
+  50% { box-shadow: 0 0 15px rgba(255, 107, 203, 0.48); transform: scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-badge { animation: none; }
+}
+
 .dbd-digits {
   font-variant-numeric: tabular-nums;
   -moz-font-feature-settings: "tnum";

@@ -4,7 +4,7 @@
 // - mappage configurable via %APPDATA%/<app>/gamepad.json
 // - flux brut pour la capture (onGamepadRaw), écriture mapping (setGamepadMapping)
 
-const { app, BrowserWindow } = require("electron");
+const { app } = require("electron");
 const { spawn } = require("child_process");
 const { join, dirname } = require("path");
 const {
@@ -16,19 +16,28 @@ const {
 } = require("fs");
 const log = require("electron-log");
 const { shouldRunGamepadBridge } = require("./runtime-policy.cjs");
+const { parseGamepadProtocolLine } = require("./gamepad-protocol.cjs");
+/** @typedef {"toggle" | "swap"} GamepadAction */
+/** @typedef {{ toggle: string[], swap: string[] }} GamepadMapping */
 const VERBOSE_LOGS =
   process.env.NODE_ENV === "development" ||
   process.env.DEBUG_HK === "1" ||
   process.env.DEBUG_LOGS === "1";
 
+/** @type {ReturnType<typeof spawn> | null} */
 let child = null;
 let isQuitting = false;
+/** @type {ReturnType<typeof setTimeout> | null} */
 let relaunchTimer = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let stabilityTimer = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let forceKillTimer = null;
+let relaunchDelayMs = 1000;
 let initialized = false;
 let stopRequested = false;
-
-const ACTION_THROTTLE_MS = 200;
-const lastActionAt = { toggle: 0, swap: 0 };
+/** @type {((action: GamepadAction) => void) | null} */
+let dispatchHotkey = null;
 
 // --- Résolution du chemin du binaire natif (dev/prod)
 function resolveExePath() {
@@ -48,20 +57,13 @@ function resolveExePath() {
 }
 
 // --- Diffusion vers toutes les fenêtres — envoie { type: ... }
-function broadcastHotkey(action) {
-  const now = Date.now();
-  if (action === "toggle" || action === "swap") {
-    if (now - lastActionAt[action] < ACTION_THROTTLE_MS) return;
-    lastActionAt[action] = now;
-  }
-  for (const win of BrowserWindow.getAllWindows()) {
-    try {
-      win.webContents.send("global-hotkey", { type: action });
-    } catch {}
-  }
+/** @param {GamepadAction} action */
+function dispatchMappedAction(action) {
+  dispatchHotkey?.(action);
 }
 
 // --- Mappage configurable ----------------------------------------------------
+/** @type {GamepadMapping} */
 const DEFAULT_MAPPING = {
   toggle: [],
   swap: [],
@@ -73,15 +75,17 @@ function configFilePath() {
 
 let mapping = { ...DEFAULT_MAPPING };
 
-function normalizeEventName(s) {
-  return String(s || "")
+/** @param {unknown} value */
+function normalizeEventName(value) {
+  return String(value || "")
     .trim()
     .toUpperCase();
 }
 
-function isLegacyDefaults(m) {
-  const t = Array.isArray(m?.toggle) ? m.toggle.map(normalizeEventName) : [];
-  const s = Array.isArray(m?.swap) ? m.swap.map(normalizeEventName) : [];
+/** @param {GamepadMapping} mappingToCheck */
+function isLegacyDefaults(mappingToCheck) {
+  const t = mappingToCheck.toggle.map(normalizeEventName);
+  const s = mappingToCheck.swap.map(normalizeEventName);
   return (
     t.length === 1 && t[0] === "BTN A" && s.length === 1 && s[0] === "BTN RB"
   );
@@ -99,11 +103,12 @@ function loadMapping() {
       return;
     }
 
-    const raw = readFileSync(file, "utf8");
-    const json = JSON.parse(raw);
+    const raw = readFileSync(file, "utf8").replace(/^\uFEFF/u, "");
+    const json = /** @type {Record<string, unknown>} */ (JSON.parse(raw));
 
+    /** @type {GamepadMapping} */
     const out = { toggle: [], swap: [] };
-    for (const key of ["toggle", "swap"]) {
+    for (const key of /** @type {GamepadAction[]} */ (["toggle", "swap"])) {
       const val = json[key];
       if (typeof val === "string") out[key] = [normalizeEventName(val)];
       else if (Array.isArray(val))
@@ -120,22 +125,29 @@ function loadMapping() {
       log.info(`[GAMEPAD] Mapping loaded — toggle: [${mapping.toggle.join(", ") || "none"}] | swap: [${mapping.swap.join(", ") || "none"}]`);
     }
     ensureBridgeState();
-  } catch (e) {
-    log.warn(`[GAMEPAD] loadMapping error — ${e?.message ?? e}`);
+  } catch (error) {
+    log.warn(`[GAMEPAD] loadMapping error — ${errorMessage(error)}`);
     mapping = { ...DEFAULT_MAPPING };
     ensureBridgeState();
   }
 }
 
+/** @param {unknown} error */
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** @param {GamepadMapping} next */
 function saveMapping(next) {
   try {
     const file = configFilePath();
     writeFileSync(file, JSON.stringify(next, null, 2), "utf8");
-  } catch (e) {
-    log.warn(`[GAMEPAD] saveMapping error — ${e?.message ?? e}`);
+  } catch (error) {
+    log.warn(`[GAMEPAD] saveMapping error — ${errorMessage(error)}`);
   }
 }
 
+/** @param {GamepadAction} action @param {unknown} eventLabel @param {{ append?: boolean }} [options] */
 function setGamepadMapping(action, eventLabel, { append = false } = {}) {
   const key = action === "swap" ? "swap" : "toggle";
   const label = normalizeEventName(eventLabel);
@@ -148,6 +160,7 @@ function setGamepadMapping(action, eventLabel, { append = false } = {}) {
 }
 
 // Vider completement une action.
+/** @param {GamepadAction} action */
 function clearGamepadMapping(action) {
   const key = action === "swap" ? "swap" : "toggle";
   const next = { ...mapping, [key]: [] };
@@ -157,7 +170,9 @@ function clearGamepadMapping(action) {
 }
 
 // --- Flux brut pour la capture ------------------------------------------------
+/** @type {Set<(event: string) => void>} */
 const rawListeners = new Set();
+/** @param {(event: string) => void} cb */
 function onGamepadRaw(cb) {
   if (typeof cb === "function") {
     rawListeners.add(cb);
@@ -169,16 +184,15 @@ function onGamepadRaw(cb) {
   }
   return () => {};
 }
+/** @param {string} ev */
 function emitRaw(ev) {
   for (const cb of rawListeners) {
     try {
       cb(ev);
-    } catch {}
+    } catch (error) {
+      log.error(`[GAMEPAD] Raw listener failed â€” ${errorMessage(error)}`);
+    }
   }
-}
-
-function hasMappedActions() {
-  return (mapping.toggle || []).length > 0 || (mapping.swap || []).length > 0;
 }
 
 function shouldRunBridge() {
@@ -186,14 +200,50 @@ function shouldRunBridge() {
 }
 
 function stopBridge(reason = "idle") {
-  clearTimeout(relaunchTimer);
+  if (relaunchTimer) clearTimeout(relaunchTimer);
   relaunchTimer = null;
+  if (stabilityTimer) clearTimeout(stabilityTimer);
+  stabilityTimer = null;
   if (!child) return;
+  if (stopRequested) return;
   stopRequested = true;
   if (VERBOSE_LOGS) log.info(`[GAMEPAD] Bridge stopping — reason: ${reason}`);
+  const stoppingChild = child;
   try {
-    child.kill();
-  } catch {}
+    if (!stoppingChild.stdin || stoppingChild.stdin.destroyed) {
+      stoppingChild.kill();
+      return;
+    }
+    stoppingChild.stdin.once("error", () => {
+      if (child !== stoppingChild) return;
+      try { stoppingChild.kill(); } catch (error) {
+        log.warn(`[GAMEPAD] Failed to kill bridge after stdin error â€” ${errorMessage(error)}`);
+      }
+    });
+    stoppingChild.stdin.end("QUIT\n");
+  } catch {
+    stoppingChild.kill();
+    return;
+  }
+  if (forceKillTimer) clearTimeout(forceKillTimer);
+  forceKillTimer = setTimeout(() => {
+    forceKillTimer = null;
+    if (child !== stoppingChild) return;
+    try { stoppingChild.kill(); } catch (error) {
+      log.warn(`[GAMEPAD] Forced bridge termination failed â€” ${errorMessage(error)}`);
+    }
+  }, 2500);
+}
+
+function scheduleRelaunch() {
+  if (isQuitting || !shouldRunBridge() || relaunchTimer) return;
+  const delayMs = relaunchDelayMs;
+  relaunchDelayMs = Math.min(relaunchDelayMs * 2, 30_000);
+  relaunchTimer = setTimeout(() => {
+    relaunchTimer = null;
+    launch();
+  }, delayMs);
+  relaunchTimer.unref?.();
 }
 
 function ensureBridgeState() {
@@ -206,6 +256,7 @@ function ensureBridgeState() {
 }
 
 // --- Process natif -----------------------------------------------------------
+/** @param {unknown} name */
 function handleGamepadEventName(name) {
   const ev = normalizeEventName(name);
   if (!ev) return;
@@ -215,11 +266,11 @@ function handleGamepadEventName(name) {
 
   // Déclenchement selon mapping
   if ((mapping.toggle || []).includes(ev)) {
-    broadcastHotkey("toggle");
+    dispatchMappedAction("toggle");
     return;
   }
   if ((mapping.swap || []).includes(ev)) {
-    broadcastHotkey("swap");
+    dispatchMappedAction("swap");
     return;
   }
 }
@@ -234,47 +285,69 @@ function launch() {
 
   stopRequested = false;
   child = spawn(exe, [], {
-    stdio: ["ignore", "pipe", "ignore"],
+    stdio: ["pipe", "pipe", "ignore"],
     windowsHide: true,
   });
+  const spawnedChild = child;
+  stabilityTimer = setTimeout(() => {
+    if (child === spawnedChild) relaunchDelayMs = 1000;
+    stabilityTimer = null;
+  }, 30_000);
+  stabilityTimer.unref?.();
 
   if (VERBOSE_LOGS) log.info(`[GAMEPAD] Bridge started — PID: ${child.pid}`);
 
   let buffer = "";
-  child.stdout.on("data", (chunk) => {
+  child.stdout?.on("data", (chunk) => {
     buffer += chunk.toString("utf8");
+    if (buffer.length > 4096) {
+      log.warn("[GAMEPAD] Native protocol buffer exceeded 4096 bytes; dropping malformed data");
+      buffer = "";
+      return;
+    }
     let idx;
     while ((idx = buffer.indexOf("\n")) >= 0) {
       const line = buffer.slice(0, idx).trim();
       buffer = buffer.slice(idx + 1);
-      if (line) handleGamepadEventName(line);
+      const eventName = parseGamepadProtocolLine(line);
+      if (eventName) handleGamepadEventName(eventName);
     }
   });
 
   child.on("exit", (code) => {
+    if (child !== spawnedChild) return;
     const intentional = stopRequested || isQuitting;
     if (VERBOSE_LOGS) {
       log.info(`[GAMEPAD] Bridge exited (code: ${code ?? "null"})${intentional ? "" : " — relaunching if needed"}`);
     }
     stopRequested = false;
     child = null;
-    if (intentional || !shouldRunBridge()) return;
-    clearTimeout(relaunchTimer);
-    relaunchTimer = setTimeout(launch, 1000);
+    if (forceKillTimer) clearTimeout(forceKillTimer);
+    forceKillTimer = null;
+    if (stabilityTimer) clearTimeout(stabilityTimer);
+    stabilityTimer = null;
+    if (isQuitting || !shouldRunBridge()) return;
+    scheduleRelaunch();
   });
 
   child.on("error", (err) => {
-    log.warn(`[GAMEPAD] Bridge error — ${err?.message ?? err} — relaunching in 1.5s`);
+    if (child !== spawnedChild) return;
+    log.warn(`[GAMEPAD] Bridge error — ${errorMessage(err)} — relaunching in 1.5s`);
     stopRequested = false;
     child = null;
+    if (forceKillTimer) clearTimeout(forceKillTimer);
+    forceKillTimer = null;
+    if (stabilityTimer) clearTimeout(stabilityTimer);
+    stabilityTimer = null;
     if (isQuitting || !shouldRunBridge()) return;
-    clearTimeout(relaunchTimer);
-    relaunchTimer = setTimeout(launch, 1500);
+    scheduleRelaunch();
   });
 }
 
-function setupGamepadExe() {
-  if (process.platform !== "win32") return; // l’app est Windows-only, garde au cas où
+/** @param {(action: GamepadAction) => void} actionDispatcher */
+function setupGamepadExe(actionDispatcher) {
+  dispatchHotkey = actionDispatcher;
+  if (process.platform !== "win32") return;
 
   if (initialized) {
     ensureBridgeState();
@@ -285,7 +358,9 @@ function setupGamepadExe() {
   loadMapping();
   try {
     watch(configFilePath(), { persistent: false }, () => loadMapping());
-  } catch {}
+  } catch (error) {
+    log.warn(`[GAMEPAD] Unable to watch mapping file â€” ${errorMessage(error)}`);
+  }
   ensureBridgeState();
 
   app.on("before-quit", () => {

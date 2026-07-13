@@ -46,8 +46,8 @@ export default function UpdateModal() {
     setError(null);
     try {
       await window.api.updater.startDownload();
-    } catch (err: any) {
-      setError(err.message || 'Download failed');
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : 'Download failed');
       setIsDownloading(false);
     }
   };

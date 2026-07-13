@@ -2,15 +2,20 @@ export class PreciseTimer {
   private _running = false;
   private _startedAt = 0;
   private _accum = 0;
+  private readonly now: () => number;
+
+  constructor(now: () => number = () => performance.now()) {
+    this.now = now;
+  }
 
   start() {
     if (this._running) return;
-    this._startedAt = performance.now();
+    this._startedAt = this.now();
     this._running = true;
   }
   pause() {
     if (!this._running) return;
-    this._accum += performance.now() - this._startedAt;
+    this._accum += this.now() - this._startedAt;
     this._running = false;
   }
   reset() {
@@ -20,7 +25,7 @@ export class PreciseTimer {
   }
   get running() { return this._running; }
   get elapsedMs() {
-    return this._running ? this._accum + (performance.now() - this._startedAt) : this._accum;
+    return this._running ? this._accum + (this.now() - this._startedAt) : this._accum;
   }
 }
 

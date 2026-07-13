@@ -22,18 +22,6 @@
   contain: content;
 }
 
-.drag-handle {
-  position: absolute; top: 0; left: 0; right: 0; height: 30px;
-  background: linear-gradient(90deg, rgba(181,121,255,0.15) 0%, rgba(181,121,255,0.25) 50%, rgba(181,121,255,0.15) 100%);
-  border-bottom: 2px solid rgba(181,121,255,0.4);
-  box-shadow: 0 2px 10px rgba(181,121,255,0.3);
-  display: none; align-items: center; justify-content: center;
-  cursor: move; -webkit-app-region: drag;
-  font-size: 0.85rem; color: #B579FF; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
-  z-index: 1000;
-}
-.drag-handle.visible { display: flex; }
-
 .name { padding: 0 15px; }
 
 .name, .score-value {

@@ -1,0 +1,56 @@
+*, ::before, ::after {
+  box-sizing: border-box;
+  border-width: 0;
+  border-style: solid;
+  border-color: #e5e7eb;
+}
+
+html {
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  tab-size: 4;
+}
+
+body {
+  margin: 0;
+  line-height: inherit;
+  font-family: 'Poppins-Regular', system-ui, sans-serif;
+}
+
+.pointer-events-none { pointer-events: none; }
+.select-none { user-select: none; }
+
+.overlay-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 2147483647;
+  border: 2px solid rgba(255, 36, 36, 0.96);
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .78), 0 0 18px rgba(255, 36, 36, .36), inset 0 0 0 1px rgba(255, 255, 255, .16);
+  cursor: move;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+}
+.overlay-editor.is-dragging { cursor: grabbing; }
+.overlay-editor.is-snapping { box-shadow: 0 0 0 1px rgba(0, 0, 0, .85), 0 0 26px rgba(255, 36, 36, .72), inset 0 0 0 1px rgba(255, 255, 255, .26); }
+.overlay-editor__corner { position: absolute; width: 10px; height: 10px; background: #ff2424; box-shadow: 0 0 0 1px rgba(0, 0, 0, .7), 0 0 10px rgba(255, 36, 36, .7); }
+.overlay-editor__corner.top-left { top: 2px; left: 2px; }
+.overlay-editor__corner.top-right { top: 2px; right: 2px; }
+.overlay-editor__corner.bottom-left { bottom: 2px; left: 2px; }
+.overlay-editor__corner.bottom-right { right: 2px; bottom: 2px; }
+.overlay-editor__badge, .overlay-editor__snap {
+  position: absolute; left: 4px; display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 8px;
+  border: 1px solid rgba(255, 36, 36, .9); background: rgba(18, 10, 10, .94); color: #fff5f5;
+  font: 700 11px/1 'Poppins-Regular', sans-serif; text-transform: uppercase; letter-spacing: .04em; box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
+}
+.overlay-editor__badge { top: 4px; }
+.overlay-editor__badge strong { color: #ff4b4b; }
+.overlay-editor__snap { bottom: 4px; color: #ffdfdf; }
+.overlay-editor__lock {
+  position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 1px solid rgba(255, 36, 36, .9); border-radius: 6px; background: rgba(18, 10, 10, .94); color: #ff5a5a; cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
+}
+.overlay-editor__lock:hover, .overlay-editor__lock:focus-visible { color: #fff5f5; background: rgba(120, 18, 18, .96); outline: 2px solid #fff; outline-offset: 1px; }
+.overlay-editor__lock svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

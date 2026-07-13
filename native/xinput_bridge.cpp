@@ -1,18 +1,21 @@
 // native/xinput_bridge.cpp
 // Compile : cl /O2 /EHsc xinput_bridge.cpp /link /SUBSYSTEM:CONSOLE
-// Emissions stdout (une ligne par "press") :
-//   BTN A|B|X|Y|LB|RB|LS|RS|START|BACK
-//   DPAD UP|DOWN|LEFT|RIGHT
-//   TRIGGER LT|RT
-//   AXIS LX_POS|LX_NEG|LY_POS|LY_NEG|RX_POS|RX_NEG|RY_POS|RY_NEG
+// Protocole stdout v1 (une ligne par "press") : DBT1<TAB><event>
+// Events : BTN, DPAD, TRIGGER et AXIS validés côté Electron.
 //
 // Le Node bridge mappe ensuite ces libellés vers "toggle" / "swap".
 
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #include <Xinput.h>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
+#include <atomic>
+#include <iostream>
+#include <string>
+#include <thread>
 
 #pragma comment(lib, "Xinput9_1_0.lib") // fallback à l’édition disponible
 
@@ -39,6 +42,7 @@ static bool loadXInput() {
 }
 
 static inline void emit(const char* s) {
+    std::fputs("DBT1\t", stdout);
     std::fputs(s, stdout);
     std::fputc('\n', stdout);
     std::fflush(stdout);
@@ -56,9 +60,12 @@ struct ControllerState {
     bool ltDown = false;
     bool rtDown = false;
     AxisLatch lx{}, ly{}, rx{}, ry{};
+    ULONGLONG nextProbeAt = 0;
 };
 
 static const int TRIGGER_THRESHOLD = 30; // 0..255
+static const DWORD CONNECTED_POLL_MS = 8;
+static const DWORD DISCONNECTED_POLL_MS = 2000;
 static const SHORT LEFT_DEADZONE  = XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE;  // 7849
 static const SHORT RIGHT_DEADZONE = XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE; // 8689
 
@@ -172,13 +179,31 @@ int main() {
         return 0;
     }
 
+    std::atomic<bool> stopRequested{false};
+    std::thread controlThread([&stopRequested]() {
+        std::string command;
+        while (std::getline(std::cin, command)) {
+            if (command == "QUIT") break;
+        }
+        stopRequested.store(true, std::memory_order_relaxed);
+    });
+
     ControllerState ctrl[4];
 
-    while (true) {
+    while (!stopRequested.load(std::memory_order_relaxed)) {
+        const ULONGLONG now = GetTickCount64();
+        ULONGLONG nextWakeAt = now + DISCONNECTED_POLL_MS;
         for (DWORD i = 0; i < 4; ++i) {
+            if (now < ctrl[i].nextProbeAt) {
+                nextWakeAt = std::min(nextWakeAt, ctrl[i].nextProbeAt);
+                continue;
+            }
+
             XINPUT_STATE st{};
             DWORD res = pXInputGetState(i, &st);
             if (res == ERROR_SUCCESS) {
+                ctrl[i].nextProbeAt = now + CONNECTED_POLL_MS;
+                nextWakeAt = std::min(nextWakeAt, ctrl[i].nextProbeAt);
                 if (!ctrl[i].connected) {
                     ctrl[i].connected = true;
                     ctrl[i].initialized = false;
@@ -191,10 +216,12 @@ int main() {
                 if (!ctrl[i].initialized) {
                     ctrl[i].prev = st;
                     ctrl[i].initialized = true;
-                } else {
+                } else if (st.dwPacketNumber != ctrl[i].prev.dwPacketNumber) {
                     // boutons (détecte uniquement les fronts montants)
                     checkButtons(st.Gamepad, ctrl[i].prev.Gamepad);
                     ctrl[i].prev = st;
+                } else {
+                    continue;
                 }
                 // gâchettes + axes (gérés via latch indépendants)
                 checkTriggers(ctrl[i], st.Gamepad);
@@ -202,10 +229,18 @@ int main() {
             } else {
                 // déconnexion / indispo
                 ctrl[i] = ControllerState{};
+                ctrl[i].nextProbeAt = now + DISCONNECTED_POLL_MS;
+                nextWakeAt = std::min(nextWakeAt, ctrl[i].nextProbeAt);
             }
         }
-        Sleep(8); // ~125 Hz
+        const ULONGLONG afterPoll = GetTickCount64();
+        const DWORD sleepMs = nextWakeAt > afterPoll
+            ? static_cast<DWORD>(std::min<ULONGLONG>(nextWakeAt - afterPoll, DISCONNECTED_POLL_MS))
+            : 1;
+        Sleep(sleepMs);
     }
     // Note : process stoppé par le parent (kill), pas de cleanup nécessaire
+    controlThread.join();
+    if (hXInput) FreeLibrary(hXInput);
     return 0;
 }

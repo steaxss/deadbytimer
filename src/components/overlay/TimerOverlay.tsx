@@ -4,6 +4,7 @@ import { formatMillisDynamic } from "@/utils/timer";
 import ScrollingName from "@/components/ScrollingName";
 import { NAME_BG, ACCENTS_MAP, NameTheme, AccentKey } from "@/themes/palette";
 import { sanitizePlayerName } from "@/utils/sanitize";
+import OverlayEditor from "@/components/overlay/OverlayEditor";
 
 type TD = {
   player1: { name: string; score: number };
@@ -20,8 +21,9 @@ function writeTimerSpans(spans: HTMLSpanElement[], ms: number) {
   const fmt = formatMillisDynamic(ms);
   let i = 0;
   for (; i < fmt.length && i < spans.length; i++) {
-    const ch = fmt[i];
+    const ch = fmt.charAt(i);
     const span = spans[i];
+    if (!span) continue;
     if (span.textContent !== ch) span.textContent = ch;
     const isSep = ch === ':' || ch === '.';
     const want = isSep ? 'timer-char separator' : 'timer-char';
@@ -29,7 +31,8 @@ function writeTimerSpans(spans: HTMLSpanElement[], ms: number) {
     if (span.style.display === 'none') span.style.display = '';
   }
   for (; i < spans.length; i++) {
-    if (spans[i].style.display !== 'none') spans[i].style.display = 'none';
+    const span = spans[i];
+    if (span && span.style.display !== 'none') span.style.display = 'none';
   }
 }
 
@@ -49,6 +52,7 @@ export default function TimerOverlay() {
   const [scale, setScale] = React.useState(100);
   const [autoScoreEnabled, setAutoScoreEnabled] = React.useState(true);
   const [autoScoreThresholdMs, setAutoScoreThresholdMs] = React.useState(25_000);
+  const pauseResumeEnabledRef = React.useRef(false);
 
   // Refs for direct DOM manipulation (bypass React for timer text updates)
   const t1ContainerRef = React.useRef<HTMLSpanElement>(null);
@@ -96,7 +100,7 @@ export default function TimerOverlay() {
         }
       });
     })();
-    const cleanup = window.api.timer.onSync((d: any) => {
+    const cleanup = window.api.timer.onSync((d) => {
       setPlayers({
         player1: {
           name: sanitizePlayerName(d?.player1?.name || "Player 1"),
@@ -113,13 +117,15 @@ export default function TimerOverlay() {
 
   // Receive overlay settings (lock + scale + theme + auto-score)
   React.useEffect(() => {
-    const cleanup = window.api.overlay.onSettings((s: any) => {
+    const cleanup = window.api.overlay.onSettings((s) => {
       setLocked(!!s.locked);
       setScale(s.scale || 100);
 
       const nt: NameTheme = s?.nameTheme === 'dark'
         ? 'dark' : (s?.nameTheme === 'white' ? 'white' : 'default');
-      const ak: AccentKey = (s?.accentKey in ACCENTS_MAP ? s.accentKey : 'default') as AccentKey;
+      const candidateAccent = s.accentKey;
+      const ak: AccentKey = candidateAccent && candidateAccent in ACCENTS_MAP
+        ? candidateAccent : 'default';
 
       const root = document.documentElement;
       root.style.setProperty('--name-bg', NAME_BG[nt]);
@@ -132,6 +138,7 @@ export default function TimerOverlay() {
         ? '0.6px rgba(0,0,0,0.65)' : '0px transparent');
 
       setAutoScoreEnabled(s?.autoScoreEnabled !== false);
+      pauseResumeEnabledRef.current = s?.pauseResumeEnabled === true;
       const th = Number(s?.autoScoreThresholdSec);
       setAutoScoreThresholdMs(Number.isFinite(th) ? th * 1000 : 25_000);
     });
@@ -140,9 +147,10 @@ export default function TimerOverlay() {
 
   // Hotkeys globales (venant du main via uiohook)
   React.useEffect(() => {
-    const cleanup = window.api.hotkeys.on((p: any) => {
+    const cleanup = window.api.hotkeys.on((p) => {
       const api = useTimerStore.getState();
-      if (p?.type === "toggle") api.toggle();
+      if (p?.type === "toggle") api.toggle(pauseResumeEnabledRef.current);
+      else if (p?.type === "reset") api.reset(api.active);
       else if (p?.type === "swap") api.select(api.active === 1 ? 2 : 1);
     });
     return cleanup;
@@ -221,9 +229,7 @@ export default function TimerOverlay() {
       if (!el) return;
       window.api.overlay.measure(el.offsetWidth, el.offsetHeight);
     };
-    // @ts-ignore
-    if (document.fonts?.ready) {
-      // @ts-ignore
+    if (document.fonts.ready) {
       document.fonts.ready.then(() => {
         measure();
         setTimeout(measure, 50);
@@ -314,13 +320,11 @@ export default function TimerOverlay() {
       className="pointer-events-none select-none"
       style={{
         width: Math.round(520 * s),
-        height: Math.round((120 + (locked ? 0 : 30)) * s),
+        height: Math.round(120 * s),
         overflow: "hidden",
+        position: "relative",
       }}
     >
-      {/* Drag handle (visible quand unlock) */}
-      <div className={`drag-handle ${locked ? "" : "visible"}`}>Drag to move</div>
-
       {/* Zoom par transform sur le contenu interne */}
       <div
         style={{
@@ -359,6 +363,7 @@ export default function TimerOverlay() {
           </div>
         </div>
       </div>
+      <OverlayEditor locked={locked} scale={scale} />
     </div>
   );
 }

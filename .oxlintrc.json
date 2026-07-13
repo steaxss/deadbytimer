@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "rules": {
+    "consistent-function-scoping": "off",
+    "no-array-sort": "off",
+    "no-await-in-loop": "off",
+    "no-control-regex": "off",
+    "no-empty": "error",
+    "no-shadow": "off",
+    "no-underscore-dangle": "off",
+    "no-unused-expressions": ["error", { "allowShortCircuit": true }],
+    "no-unused-vars": "error",
+    "require-module-specifiers": "off",
+    "unicorn/no-useless-fallback-in-spread": "error"
+  },
+  "ignorePatterns": [
+    "dist/**",
+    "release/**",
+    "node_modules/**"
+  ]
+}

@@ -39,13 +39,17 @@ export default function PreferencesModal({ appVersion, onClose }: PreferencesMod
 
   const handleRestart = async () => {
     setRestarting(true);
-    try { await window.api.hotkeys.restartHooks(); } catch {}
+    try { await window.api.hotkeys.restartHooks(); } catch (error) {
+      console.error("Failed to restart input hooks", error);
+    }
     // Give uIOhook ~1s to restart, then re-fetch status
     setTimeout(async () => {
       try {
         const h = await window.api.hotkeys.get();
         setUiohookLoaded(h.uiohookLoaded ?? false);
-      } catch {}
+      } catch (error) {
+        console.error("Failed to refresh input hook status", error);
+      }
       setRestarting(false);
     }, 1200);
   };

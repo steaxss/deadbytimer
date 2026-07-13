@@ -1,6 +1,6 @@
 {
   "name": "dbdtimer-steaxs",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "private": true,
   "description": "DBD 1v1 Timer Overlay by Steaxs (Free)",
   "main": "electron/main.mjs",
@@ -11,16 +11,19 @@
     "dev": "concurrently -k -n VITE,ELECTRON \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "dev:update": "concurrently -k -n VITE,ELECTRON \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development SIMULATE_UPDATE=1 electron .\"",
     "electron:dev": "npm run dev",
-    "build": "node scripts/set-build-mode.mjs prod && vite build && npm run obfuscate:dist && electron-builder",
-    "build:prod": "node scripts/set-build-mode.mjs prod && vite build && npm run obfuscate:dist && electron-builder --publish always",
-    "build:test": "node scripts/set-build-mode.mjs test && vite build && npm run obfuscate:dist && electron-builder --publish never",
-    "build:portable": "vite build && npm run obfuscate:dist && electron-builder --win portable",
-    "build:installer": "vite build && npm run obfuscate:dist && electron-builder --win nsis",
-    "build:dir": "vite build && npm run obfuscate:dist && electron-builder --win dir",
-    "obfuscate:dist": "javascript-obfuscator dist --output dist --compact true --control-flow-flattening false --dead-code-injection false --string-array true --string-array-encoding base64 --string-array-threshold 0.5 --rename-properties false --target browser",
-    "typecheck": "tsc --noEmit",
-    "test": "node scripts/run-unit-tests.cjs",
-    "test:unit": "node scripts/run-unit-tests.cjs"
+    "build": "node scripts/set-build-mode.mjs prod && vite build && electron-builder",
+    "build:prod": "node scripts/set-build-mode.mjs prod && vite build && electron-builder --publish always",
+    "build:test": "node scripts/set-build-mode.mjs test && vite build && electron-builder --publish never",
+    "build:portable": "vite build && electron-builder --win portable",
+    "build:installer": "vite build && electron-builder --win nsis",
+    "build:dir": "vite build && electron-builder --win dir",
+    "check:lines": "node scripts/check-source-lines.mjs",
+    "lint": "oxlint src electron scripts --deny-warnings",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json",
+    "verify": "npm run check:lines && npm run lint && npm run typecheck && npm test && npm audit && npm audit --omit=dev",
+    "test": "node scripts/run-unit-tests.cjs && npm run test:timer",
+    "test:unit": "node scripts/run-unit-tests.cjs",
+    "test:timer": "tsc --ignoreConfig src/utils/timer.ts --target ES2022 --module commonjs --outDir .test-build && node scripts/run-timer-tests.cjs"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
@@ -33,21 +36,22 @@
     "zustand": "^4.5.2"
   },
   "devDependencies": {
-    "@types/node": "^20.12.12",
+    "@types/node": "^24.13.3",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "@types/semver": "^7.7.1",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.4.19",
-    "concurrently": "^9.0.1",
+    "concurrently": "^10.0.3",
     "cross-env": "^7.0.3",
     "electron": "^42.3.3",
-    "electron-builder": "^26.15.2",
-    "javascript-obfuscator": "^4.0.2",
+    "electron-builder": "^26.15.3",
+    "oxlint": "^1.73.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.7",
-    "typescript": "^5.5.4",
+    "typescript": "^7.0.2",
     "vite": "^8.0.16",
-    "wait-on": "^7.2.0"
+    "wait-on": "^9.0.10"
   },
   "build": {
     "appId": "com.steaxs.dbdtimer.free",
@@ -70,7 +74,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
       "shortcutName": "DBD 1V1 Timer Overlay"
     },
     "files": [
@@ -79,7 +83,11 @@
       "package.json",
       "!**/*.map",
       "!**/*.ts",
-      "!src/**"
+      "!src/**",
+      "!node_modules/uiohook-napi/libuiohook/**",
+      "!node_modules/uiohook-napi/src/**",
+      "!node_modules/uiohook-napi/prebuilds/darwin-*/**",
+      "!node_modules/uiohook-napi/prebuilds/linux-*/**"
     ],
     "asar": true,
     "asarUnpack": [

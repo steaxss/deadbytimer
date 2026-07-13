@@ -15,6 +15,7 @@ dist-electron
 
 # Build outputs
 release
+.test-build/
 
 # Editor directories and files
 .vscode/*
@@ -51,6 +52,5 @@ resources/
 
 # Other
 project-overview-free.md
-.claude/settings.local.json
 AUTO_UPDATE_GUIDE.md
 .env.production

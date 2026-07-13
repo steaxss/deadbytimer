@@ -1,10 +1,19 @@
+/** @typedef {"start" | "reset" | "swap"} InputAction */
+/** @typedef {{ keycode: number | null, modifiers: number }} HotkeyChord */
+/** @typedef {Partial<Record<InputAction, number | HotkeyChord | null>>} HotkeyCodes */
+/** @typedef {Partial<Record<InputAction, string | null>>} InputLabels */
+/** @typedef {{ toggle?: string[], swap?: string[] }} GamepadMapping */
+
+/** @param {unknown} label */
 function isFunctionKeyLabel(label) {
   return typeof label === "string" && /^F([1-9]|1[0-9]|2[0-4])$/i.test(label);
 }
 
+/** @param {unknown} label */
 function inferFunctionKeyCode(label) {
-  if (!isFunctionKeyLabel(label)) return null;
+  if (typeof label !== "string" || !isFunctionKeyLabel(label)) return null;
   const n = Number(label.slice(1));
+  /** @type {Record<number, number>} */
   const map = {
     1: 0x003b,
     2: 0x003c,
@@ -34,12 +43,15 @@ function inferFunctionKeyCode(label) {
   return map[n] ?? null;
 }
 
+/**
+ * @param {{ hotkeys?: HotkeyCodes, hotkeysLabel?: InputLabels, mouseBinds?: InputLabels }} bindings
+ */
 function normalizeInputBindings({ hotkeys, hotkeysLabel, mouseBinds }) {
-  const nextHotkeys = { ...(hotkeys || {}) };
-  const nextMouseBinds = { ...(mouseBinds || {}) };
+  const nextHotkeys = { ...hotkeys };
+  const nextMouseBinds = { ...mouseBinds };
   let changed = false;
 
-  for (const key of ["start", "swap"]) {
+  for (const key of /** @type {InputAction[]} */ (["start", "reset", "swap"])) {
     const label = hotkeysLabel?.[key];
     const inferredFKeyCode = inferFunctionKeyCode(label);
 
@@ -57,19 +69,26 @@ function normalizeInputBindings({ hotkeys, hotkeysLabel, mouseBinds }) {
   return { hotkeys: nextHotkeys, mouseBinds: nextMouseBinds, changed };
 }
 
+/**
+ * @param {{ hotkeys?: HotkeyCodes, hotkeysLabel?: InputLabels, mouseBinds?: InputLabels }} bindings
+ */
 function runtimeNeedsUiohook({ hotkeys, hotkeysLabel, mouseBinds }) {
   return Boolean(
-    (Number.isFinite(hotkeys?.start) && !isFunctionKeyLabel(hotkeysLabel?.start)) ||
-    (Number.isFinite(hotkeys?.swap) && !isFunctionKeyLabel(hotkeysLabel?.swap)) ||
+    (hotkeys?.start != null && (typeof hotkeys.start !== "number" || !isFunctionKeyLabel(hotkeysLabel?.start))) ||
+    (hotkeys?.reset != null && (typeof hotkeys.reset !== "number" || !isFunctionKeyLabel(hotkeysLabel?.reset))) ||
+    (hotkeys?.swap != null && (typeof hotkeys.swap !== "number" || !isFunctionKeyLabel(hotkeysLabel?.swap))) ||
     mouseBinds?.start ||
+    mouseBinds?.reset ||
     mouseBinds?.swap
   );
 }
 
+/** @param {GamepadMapping | null | undefined} mapping */
 function hasMappedGamepadActions(mapping) {
   return Boolean((mapping?.toggle || []).length || (mapping?.swap || []).length);
 }
 
+/** @param {{ mapping?: GamepadMapping, rawListenerCount?: number }} state */
 function shouldRunGamepadBridge({ mapping, rawListenerCount }) {
   return hasMappedGamepadActions(mapping) || Number(rawListenerCount || 0) > 0;
 }
