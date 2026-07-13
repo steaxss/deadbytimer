@@ -1,3 +1,5 @@
+const { isHotkeyChord } = require("../hotkeys/binding.cjs");
+
 const ACCENTS = new Set([
   "default", "rose", "rouge", "orange", "or", "jaune", "vert", "menthe",
   "bleu_fonce", "bleu_clair", "cyan", "violet", "lavande", "marron",
@@ -78,12 +80,16 @@ function parseTimerData(value) {
 /** @param {unknown} value */
 function parseHotkeyPatch(value) {
   const input = record(value);
-  exactKeys(input, ["start", "swap"], "hotkey");
-  /** @type {{ start?: number | null, swap?: number | null }} */ const output = {};
-  for (const key of ["start", "swap"]) {
+  exactKeys(input, ["start", "reset", "swap"], "hotkey");
+  /** @type {{ start?: number | { keycode: number | null, modifiers: number } | null, reset?: number | { keycode: number | null, modifiers: number } | null, swap?: number | { keycode: number | null, modifiers: number } | null }} */ const output = {};
+  for (const key of ["start", "reset", "swap"]) {
     if (input[key] === undefined) continue;
-    if (input[key] !== null && (!Number.isSafeInteger(input[key]) || /** @type {number} */ (input[key]) < 0 || /** @type {number} */ (input[key]) > 0xffff)) throw new TypeError(`Invalid ${key} hotkey`);
-    output[/** @type {"start" | "swap"} */ (key)] = /** @type {number | null} */ (input[key]);
+    const binding = input[key];
+    if (binding !== null && !isHotkeyChord(binding)
+      && (!Number.isSafeInteger(binding) || /** @type {number} */ (binding) < 0 || /** @type {number} */ (binding) > 0xffff)) {
+      throw new TypeError(`Invalid ${key} hotkey`);
+    }
+    output[/** @type {"start" | "reset" | "swap"} */ (key)] = /** @type {number | { keycode: number | null, modifiers: number } | null} */ (binding);
   }
   return output;
 }

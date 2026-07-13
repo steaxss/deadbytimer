@@ -1,5 +1,6 @@
-/** @typedef {"start" | "swap"} InputAction */
-/** @typedef {Partial<Record<InputAction, number | null>>} HotkeyCodes */
+/** @typedef {"start" | "reset" | "swap"} InputAction */
+/** @typedef {{ keycode: number | null, modifiers: number }} HotkeyChord */
+/** @typedef {Partial<Record<InputAction, number | HotkeyChord | null>>} HotkeyCodes */
 /** @typedef {Partial<Record<InputAction, string | null>>} InputLabels */
 /** @typedef {{ toggle?: string[], swap?: string[] }} GamepadMapping */
 
@@ -50,7 +51,7 @@ function normalizeInputBindings({ hotkeys, hotkeysLabel, mouseBinds }) {
   const nextMouseBinds = { ...mouseBinds };
   let changed = false;
 
-  for (const key of /** @type {InputAction[]} */ (["start", "swap"])) {
+  for (const key of /** @type {InputAction[]} */ (["start", "reset", "swap"])) {
     const label = hotkeysLabel?.[key];
     const inferredFKeyCode = inferFunctionKeyCode(label);
 
@@ -73,9 +74,11 @@ function normalizeInputBindings({ hotkeys, hotkeysLabel, mouseBinds }) {
  */
 function runtimeNeedsUiohook({ hotkeys, hotkeysLabel, mouseBinds }) {
   return Boolean(
-    (Number.isFinite(hotkeys?.start) && !isFunctionKeyLabel(hotkeysLabel?.start)) ||
-    (Number.isFinite(hotkeys?.swap) && !isFunctionKeyLabel(hotkeysLabel?.swap)) ||
+    (hotkeys?.start != null && (typeof hotkeys.start !== "number" || !isFunctionKeyLabel(hotkeysLabel?.start))) ||
+    (hotkeys?.reset != null && (typeof hotkeys.reset !== "number" || !isFunctionKeyLabel(hotkeysLabel?.reset))) ||
+    (hotkeys?.swap != null && (typeof hotkeys.swap !== "number" || !isFunctionKeyLabel(hotkeysLabel?.swap))) ||
     mouseBinds?.start ||
+    mouseBinds?.reset ||
     mouseBinds?.swap
   );
 }

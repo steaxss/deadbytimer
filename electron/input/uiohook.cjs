@@ -2,15 +2,17 @@
 // Charge uIOhook et gère clavier + souris (capture & runtime)
 
 const log = require("electron-log");
-/** @typedef {"toggle" | "swap"} HotkeyAction */
-/** @typedef {{ start: number | null, swap: number | null }} HotkeyCodes */
-/** @typedef {{ start: string | null, swap: string | null }} MouseBinds */
+const { chordFromEvent, describeBinding, matchesKeyboardEvent } = require("../hotkeys/binding.cjs");
+/** @typedef {"toggle" | "reset" | "swap"} HotkeyAction */
+/** @typedef {{ keycode: number | null, modifiers: number }} HotkeyChord */
+/** @typedef {{ start: number | HotkeyChord | null, reset: number | HotkeyChord | null, swap: number | HotkeyChord | null }} HotkeyCodes */
+/** @typedef {{ start: string | null, reset: string | null, swap: string | null }} MouseBinds */
 /** @typedef {import("uiohook-napi").UiohookKeyboardEvent} KeyboardEvent */
 /** @typedef {import("uiohook-napi").UiohookMouseEvent} MouseEvent */
 /** @typedef {import("uiohook-napi").UiohookWheelEvent} WheelEvent */
 /** @typedef {{ rotation?: number, amount?: number, deltaY?: number, button?: unknown }} MouseInput */
 /** @typedef {{ keydown: (event: KeyboardEvent) => void, keyup: (event: KeyboardEvent) => void, mousedown: (event: MouseEvent) => void, mouseup: (event: MouseEvent) => void, wheel: (event: WheelEvent) => void }} HookHandlers */
-/** @typedef {{ require: NodeRequire, FORCE_NO_UIOHOOK: boolean, hasVCRedist: () => boolean, dialog: typeof import("electron").dialog, shell: typeof import("electron").shell, VC_REDIST_X64_URL: string, logHK: (message: string, details?: unknown) => void, getOverlayWindow: () => Electron.BrowserWindow | null, dispatchHotkey: (action: HotkeyAction) => void, isCapturing: () => boolean, getCaptureBlockUntil: () => number, onCaptureKeyboardCode: (code: number) => void, onCaptureMouseLabel: (label: string) => void, getHotkeys: () => HotkeyCodes, getMouseBinds: () => MouseBinds, setUsingUiohook: (usingHook: boolean) => void }} UiohookContext */
+/** @typedef {{ require: NodeRequire, FORCE_NO_UIOHOOK: boolean, hasVCRedist: () => boolean, dialog: typeof import("electron").dialog, shell: typeof import("electron").shell, VC_REDIST_X64_URL: string, logHK: (message: string, details?: unknown) => void, getOverlayWindow: () => Electron.BrowserWindow | null, dispatchHotkey: (action: HotkeyAction) => void, isCapturing: () => boolean, getCaptureBlockUntil: () => number, onCaptureKeyboardBinding: (binding: number | HotkeyChord) => void, onCaptureMouseLabel: (label: string) => void, getHotkeys: () => HotkeyCodes, getMouseBinds: () => MouseBinds, setUsingUiohook: (usingHook: boolean) => void }} UiohookContext */
 const VERBOSE_LOGS =
   process.env.NODE_ENV === "development" ||
   process.env.DEBUG_HK === "1" ||
@@ -195,7 +197,10 @@ function _startHook() {
 
     // Capture: récupérer le keycode
     if (context.isCapturing()) {
-      if (!isRepeat) context.onCaptureKeyboardCode(keycode);
+      if (!isRepeat) {
+        const chord = chordFromEvent(e);
+        context.onCaptureKeyboardBinding(chord.modifiers ? chord : keycode);
+      }
       return;
     }
 
@@ -206,9 +211,11 @@ function _startHook() {
     if (isRepeat) return;
 
     const hk = context.getHotkeys();
-    if (Number.isFinite(hk.start) && keycode === hk.start) {
+    if (matchesKeyboardEvent(hk.start, e)) {
       context.dispatchHotkey("toggle");
-    } else if (Number.isFinite(hk.swap) && keycode === hk.swap) {
+    } else if (matchesKeyboardEvent(hk.reset, e)) {
+      context.dispatchHotkey("reset");
+    } else if (matchesKeyboardEvent(hk.swap, e)) {
       context.dispatchHotkey("swap");
     }
   };
@@ -261,6 +268,8 @@ function _startHook() {
     const mb = context.getMouseBinds();
     if (mb.start && label === mb.start) {
       context.dispatchHotkey("toggle");
+    } else if (mb.reset && label === mb.reset) {
+      context.dispatchHotkey("reset");
     } else if (mb.swap && label === mb.swap) {
       context.dispatchHotkey("swap");
     }
@@ -290,6 +299,8 @@ function _startHook() {
     const mb = context.getMouseBinds();
     if (mb.start && label === mb.start) {
       context.dispatchHotkey("toggle");
+    } else if (mb.reset && label === mb.reset) {
+      context.dispatchHotkey("reset");
     } else if (mb.swap && label === mb.swap) {
       context.dispatchHotkey("swap");
     }
@@ -330,7 +341,7 @@ function _startHook() {
   const runtimeActive = _reasons.has("runtime");
   context.setUsingUiohook(runtimeActive);
   if (VERBOSE_LOGS) {
-    log.info(`[UIOHOOK] Started — runtime: ${runtimeActive ? "on" : "off"} | reasons: [${[..._reasons].join(", ") || "none"}] | kb-start: ${hk.start ?? "null"} | kb-swap: ${hk.swap ?? "null"} | mouse-start: ${mb.start ?? "null"} | mouse-swap: ${mb.swap ?? "null"}`);
+    log.info(`[UIOHOOK] Started — runtime: ${runtimeActive ? "on" : "off"} | reasons: [${[..._reasons].join(", ") || "none"}] | keyboard: toggle=${describeBinding(hk.start)}, reset=${describeBinding(hk.reset)}, swap=${describeBinding(hk.swap)} | mouse: toggle=${mb.start ?? "none"}, reset=${mb.reset ?? "none"}, swap=${mb.swap ?? "none"}`);
   }
   return true;
 }

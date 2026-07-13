@@ -1,5 +1,6 @@
-/** @typedef {{ start: number | null, swap: number | null }} HotkeyCodes */
-/** @typedef {{ start: string | null, swap: string | null }} HotkeyLabels */
+/** @typedef {{ keycode: number | null, modifiers: number }} HotkeyChord */
+/** @typedef {{ start: number | HotkeyChord | null, reset: number | HotkeyChord | null, swap: number | HotkeyChord | null }} HotkeyCodes */
+/** @typedef {{ start: string | null, reset: string | null, swap: string | null }} HotkeyLabels */
 /** @typedef {{ x: number, y: number, scale: number, locked: boolean, alwaysOnTop: boolean, nameTheme: string, accentKey: string, autoScoreEnabled: boolean, autoScoreThresholdSec: number }} OverlaySettings */
 /** @typedef {{ player1: { name: string, score: number }, player2: { name: string, score: number } }} TimerData */
 const { createSenderGuard } = require("./security.cjs");
@@ -148,7 +149,7 @@ function registerAppIpc(context) {
     context.getOverlayWindow()?.webContents.send("timer-data-sync", timerData);
     return true;
   });
-  ipcMain.handle("hotkeys-get", (event) => { assertSender(event, "panel"); return { ...context.getHotkeys(), startLabel: context.getHotkeyLabels().start, swapLabel: context.getHotkeyLabels().swap, mode: context.getUsingUiohook() ? "pass-through" : "fallback", uiohookLoaded: context.uio.isLoaded() }; });
+  ipcMain.handle("hotkeys-get", (event) => { assertSender(event, "panel"); return { ...context.getHotkeys(), startLabel: context.getHotkeyLabels().start, resetLabel: context.getHotkeyLabels().reset, swapLabel: context.getHotkeyLabels().swap, mode: context.getUsingUiohook() ? "pass-through" : "fallback", uiohookLoaded: context.uio.isLoaded() }; });
   ipcMain.handle("gamepad-mapping-get", (event) => { assertSender(event, "panel"); return context.getGamepadMapping(); });
   ipcMain.handle("gamepad-mapping-clear", (event, action) => {
     assertSender(event, "panel");
@@ -164,15 +165,15 @@ function registerAppIpc(context) {
   });
   ipcMain.handle("hotkeys-clear", (event, action) => {
     assertSender(event, "panel");
-    if (action !== "start" && action !== "swap") throw new TypeError("Invalid hotkey action");
-    const key = action === "start" ? "start" : "swap";
+    if (action !== "start" && action !== "reset" && action !== "swap") throw new TypeError("Invalid hotkey action");
+    const key = action;
     const codes = { ...context.getHotkeys(), [key]: null };
-    const labels = { ...context.getHotkeyLabels(), [key]: key === "start" ? "F1" : "F2" };
+    const labels = { ...context.getHotkeyLabels(), [key]: key === "start" ? "F1" : key === "swap" ? "F2" : null };
     const binds = { ...context.getMouseBinds(), [key]: null };
     context.setHotkeys(codes); context.setHotkeyLabels(labels); context.setMouseBinds(binds);
     context.persistHotkeys(codes); context.persistHotkeyLabels(labels); context.persistMouseBinds(binds);
     context.refreshInputRuntime();
-    return { ...codes, startLabel: labels.start, swapLabel: labels.swap };
+    return { ...codes, startLabel: labels.start, resetLabel: labels.reset, swapLabel: labels.swap };
   });
   ipcMain.handle("hotkeys-restart-hooks", (event) => {
     assertSender(event, "panel");

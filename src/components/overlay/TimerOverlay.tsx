@@ -148,6 +148,7 @@ export default function TimerOverlay() {
     const cleanup = window.api.hotkeys.on((p) => {
       const api = useTimerStore.getState();
       if (p?.type === "toggle") api.toggle();
+      else if (p?.type === "reset") api.reset(api.active);
       else if (p?.type === "swap") api.select(api.active === 1 ? 2 : 1);
     });
     return cleanup;

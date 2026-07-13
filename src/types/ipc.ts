@@ -2,8 +2,9 @@ import type { AccentKey, NameTheme } from "../themes/palette";
 
 export type PlayerData = Readonly<{ name: string; score: number }>;
 export type TimerData = Readonly<{ player1: PlayerData; player2: PlayerData }>;
-export type HotkeyAction = "start" | "swap";
+export type HotkeyAction = "start" | "reset" | "swap";
 export type HotkeySource = "any" | "desktop" | "gamepad";
+export type HotkeyChord = Readonly<{ keycode: number | null; modifiers: number }>;
 
 export type OverlaySettings = Readonly<{
   locked?: boolean;
@@ -20,9 +21,11 @@ export type OverlayDragState = Readonly<{
 }>;
 
 export type HotkeySettings = Readonly<{
-  start: number | null;
-  swap: number | null;
+  start: number | HotkeyChord | null;
+  reset: number | HotkeyChord | null;
+  swap: number | HotkeyChord | null;
   startLabel?: string;
+  resetLabel?: string;
   swapLabel?: string;
   mode?: "pass-through" | "fallback";
   uiohookLoaded?: boolean;
@@ -59,13 +62,13 @@ export interface RendererApi {
   };
   hotkeys: {
     get(): Promise<HotkeySettings>;
-    set(settings: Partial<Pick<HotkeySettings, "start" | "swap">>): Promise<void>;
-    clear(action: HotkeyAction): Promise<Required<Pick<HotkeySettings, "start" | "swap" | "startLabel" | "swapLabel">>>;
+    set(settings: Partial<Pick<HotkeySettings, "start" | "reset" | "swap">>): Promise<void>;
+    clear(action: HotkeyAction): Promise<Pick<HotkeySettings, "start" | "reset" | "swap" | "startLabel" | "resetLabel" | "swapLabel">>;
     restartHooks(): Promise<boolean>;
     capture(action: HotkeyAction | Readonly<{ type: HotkeyAction; source?: HotkeySource }>, source?: HotkeySource): Promise<void>;
     cancel(): Promise<void>;
     onCaptured(callback: (payload: CapturedHotkey) => void): Dispose;
-    on(callback: (payload: Readonly<{ type: "toggle" | "swap" }>) => void): Dispose;
+    on(callback: (payload: Readonly<{ type: "toggle" | "reset" | "swap" }>) => void): Dispose;
     onMode(callback: (mode: "pass-through" | "fallback") => void): Dispose;
   };
   gamepad: {

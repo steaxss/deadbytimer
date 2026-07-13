@@ -74,7 +74,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
       "shortcutName": "DBD 1V1 Timer Overlay"
     },
     "files": [

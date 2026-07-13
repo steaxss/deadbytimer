@@ -7,6 +7,23 @@ const log = require("electron-log");
 let context = null;
 /** @type {import("electron-updater").AppUpdater | null} */
 let autoUpdater = null;
+let lastErrorMessage = "";
+let lastErrorAt = 0;
+
+/** @param {unknown} error */
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** @param {string} operation @param {unknown} error */
+function reportUpdaterError(operation, error) {
+  const message = errorMessage(error);
+  const now = Date.now();
+  if (message === lastErrorMessage && now - lastErrorAt < 1000) return;
+  lastErrorMessage = message;
+  lastErrorAt = now;
+  log.error(`[UPDATER] ${operation} failed — ${message}`);
+}
 
 function mainWindow() {
   return context?.getMainWindow() ?? null;
@@ -21,8 +38,12 @@ function send(channel, payload) {
 function getAutoUpdater() {
   if (autoUpdater) return autoUpdater;
   autoUpdater = require("electron-updater").autoUpdater;
-  autoUpdater.logger = log;
-  log.transports.file.level = "info";
+  autoUpdater.logger = {
+    debug: () => {},
+    info: () => {},
+    warn: (...args) => log.warn("[UPDATER]", ...args),
+    error: () => {},
+  };
   autoUpdater.autoDownload = false;
   autoUpdater.allowPrerelease = false;
   autoUpdater.allowDowngrade = false;
@@ -52,7 +73,7 @@ function getAutoUpdater() {
     send("update-downloaded", { version: info.version });
   });
   autoUpdater.on("error", (error) => {
-    log.error("Auto-updater error:", error);
+    reportUpdaterError("operation", error);
     send("update-error", { message: error.message });
   });
   return autoUpdater;
@@ -103,7 +124,7 @@ function checkForUpdates() {
 function scheduleUpdateCheck(mode) {
   setTimeout(() => {
     if (!mode.isDev && !mode.isTestBuild) {
-      checkForUpdates().catch((error) => log.error("checkForUpdates error:", error));
+      checkForUpdates().catch((error) => reportUpdaterError("update check", error));
       return;
     }
     const simulate = (!mode.isDev && mode.isTestBuild) || (mode.isDev && mode.simulateDevelopment);

@@ -14,9 +14,12 @@ import fs from "node:fs";
 import log from "electron-log";
 
 const require = createRequire(import.meta.url);
+const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+require("./logging/configure.cjs").configureLogging(log, { development: isDev });
 
-/** @typedef {{ start: number | null, swap: number | null }} HotkeyCodes */
-/** @typedef {{ start: string | null, swap: string | null }} HotkeyLabels */
+/** @typedef {{ keycode: number | null, modifiers: number }} HotkeyChord */
+/** @typedef {{ start: number | HotkeyChord | null, reset: number | HotkeyChord | null, swap: number | HotkeyChord | null }} HotkeyCodes */
+/** @typedef {{ start: string | null, reset: string | null, swap: string | null }} HotkeyLabels */
 /** @typedef {{ x: number, y: number, scale: number, locked: boolean, alwaysOnTop: boolean, nameTheme: string, accentKey: string, autoScoreEnabled: boolean, autoScoreThresholdSec: number }} OverlaySettings */
 /** @typedef {{ player1: { name: string, score: number }, player2: { name: string, score: number } }} TimerData */
 /** @typedef {{ windowState: { x?: number, y?: number, width?: number, height?: number }, overlaySettings: OverlaySettings, timerData: TimerData, hotkeys: HotkeyCodes, hotkeysLabel: HotkeyLabels, mouseBinds: HotkeyLabels, _appVersion: string }} AppStore */
@@ -27,7 +30,8 @@ const capture = require("./hotkeys/capture.cjs");
 const uio = require("./input/uiohook.cjs");
 const updates = require("./updates/updater.cjs");
 const { registerAppIpc } = require("./ipc/register.cjs");
-const { isAlphaNumLabel, makeLabelFromBeforeInput } = require("./hotkeys/labels.cjs");
+const { isAlphaNumLabel, makeChordLabelFromBeforeInput } = require("./hotkeys/labels.cjs");
+const { describeBinding } = require("./hotkeys/binding.cjs");
 const { createDeferredWriter } = require("./persistence/deferred-writer.cjs");
 const { createRateLimiter } = require("./input/rate-limiter.cjs");
 const {
@@ -45,10 +49,6 @@ const {
 /* -------------------- auto-updater config -------------------- */
 const isPortable = !!process.env.PORTABLE_EXECUTABLE_DIR;
 const RELEASES_URL = 'https://github.com/steaxss/deadbytimer/releases/latest';
-
-// Max 500 KB puis rotation (1 ancien fichier conservé) → logs légers
-log.transports.file.maxSize = 500 * 1024;
-log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}";
 
 /** Charge .env/.env.development UNIQUEMENT en dev, si "dotenv" est présent. */
 (function loadDevEnv() {
@@ -73,7 +73,6 @@ const DEBUG_HK = process.env.DEBUG_HK === "1";
 const DEBUG_LOGS = process.env.DEBUG_LOGS === "1";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 const VERBOSE_LOGS = isDev || DEBUG_HK || DEBUG_LOGS;
 
 // Build mode flag injected by set-build-mode.mjs before electron-builder
@@ -126,9 +125,9 @@ const defaults = {
     player1: { name: "Player 1", score: 0 },
     player2: { name: "Player 2", score: 0 },
   },
-  [K.HK_CODES]: { start: null, swap: null },
-  [K.HK_LABELS]: { start: "F1", swap: "F2" },
-  [K.MOUSE_BINDS]: { start: null, swap: null },
+  [K.HK_CODES]: { start: null, reset: null, swap: null },
+  [K.HK_LABELS]: { start: "F1", reset: null, swap: "F2" },
+  [K.MOUSE_BINDS]: { start: null, reset: null, swap: null },
 };
 
 /** @template {keyof typeof defaults} T @param {T} key @returns {(typeof defaults)[T]} */
@@ -250,7 +249,7 @@ function refreshInputRuntime() {
 }
 
 /* -------------------- dispatch centralisé vers l’overlay -------------------- */
-/** @param {"toggle" | "swap"} type */
+/** @param {"toggle" | "reset" | "swap"} type */
 function dispatchHotkey(type) {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   if (!canFire(type, 220)) return;
@@ -312,7 +311,7 @@ capture.initCapture({
     mouseBinds = next;
     store.set(K.MOUSE_BINDS, mouseBinds);
   },
-  makeLabelFromBeforeInput,
+  makeChordLabelFromBeforeInput,
   isAlphaNumLabel,
   refreshInputRuntime,
   enableUiohookCapture: () => uio.enable("capture"),
@@ -336,7 +335,7 @@ uio.setupUiohook({
   // capture integration:
   isCapturing: () => capture.isCapturing(),
   getCaptureBlockUntil: () => capture.getCaptureBlockUntil(),
-  onCaptureKeyboardCode: (code) => capture.onKeyboardCode(code),
+  onCaptureKeyboardBinding: (binding) => capture.onKeyboardCode(binding),
   onCaptureMouseLabel: (label) => capture.onMouseLabel(label),
   // binds & codes
   getHotkeys: () => hotkeys,
@@ -401,8 +400,8 @@ app.whenReady().then(() => {
       const gm = getGamepadMapping();
       const mode = usingUiohook ? "pass-through" : "fallback";
       log.info(`[CONFIG] Input mode: ${mode} | uiohook: ${uio.isLoaded() ? (uio.isRunning() ? "running" : "loaded-idle") : "unavailable"}`);
-      log.info(`[CONFIG] Keyboard — toggle: "${hkLabels.start}" (code: ${hkCodes.start ?? "null"}) | swap: "${hkLabels.swap}" (code: ${hkCodes.swap ?? "null"})`);
-      log.info(`[CONFIG] Mouse — toggle: ${mb.start ?? "null"} | swap: ${mb.swap ?? "null"}`);
+      log.info(`[CONFIG] Keyboard — toggle: "${hkLabels.start}" (${describeBinding(hkCodes.start)}) | reset: "${hkLabels.reset ?? "none"}" (${describeBinding(hkCodes.reset)}) | swap: "${hkLabels.swap}" (${describeBinding(hkCodes.swap)})`);
+      log.info(`[CONFIG] Mouse — toggle: ${mb.start ?? "null"} | reset: ${mb.reset ?? "null"} | swap: ${mb.swap ?? "null"}`);
       log.info(`[CONFIG] Gamepad — toggle: [${(gm.toggle ?? []).join(", ") || "none"}] | swap: [${(gm.swap ?? []).join(", ") || "none"}]`);
     }, 1200);
   }

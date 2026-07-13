@@ -31,4 +31,17 @@ function makeLabelFromBeforeInput(input) {
   return key && key.length <= 6 ? key.toUpperCase() : code || "KEY";
 }
 
-module.exports = { isAlphaNumLabel, makeLabelFromBeforeInput };
+/** @param {Electron.Input} input */
+function makeChordLabelFromBeforeInput(input) {
+  const keyLabel = makeLabelFromBeforeInput(input);
+  const modifierLabels = [];
+  if (input.control) modifierLabels.push("CTRL");
+  if (input.alt) modifierLabels.push("ALT");
+  if (input.shift) modifierLabels.push("SHIFT");
+  if (input.meta) modifierLabels.push("META");
+  const isModifier = /^(CTRL|ALT|SHIFT|META)$/.test(keyLabel);
+  if (!isModifier) modifierLabels.push(keyLabel);
+  return [...new Set(modifierLabels)].join("+");
+}
+
+module.exports = { isAlphaNumLabel, makeLabelFromBeforeInput, makeChordLabelFromBeforeInput };

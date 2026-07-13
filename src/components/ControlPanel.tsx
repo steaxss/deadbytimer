@@ -10,11 +10,15 @@ import OverlaySettingsSection from "./control-panel/OverlaySettingsSection";
 import PlayersSection from "./control-panel/PlayersSection";
 import PromotionSections from "./control-panel/PromotionSections";
 import GamepadHotkeysSection from "./control-panel/GamepadHotkeysSection";
+import DesktopHotkeysSection from "./control-panel/DesktopHotkeysSection";
+import type { HotkeyChord } from "@/types/ipc";
 
 type HKGet = {
-  start: number | null;
-  swap: number | null;
+  start: number | HotkeyChord | null;
+  reset: number | HotkeyChord | null;
+  swap: number | HotkeyChord | null;
   startLabel?: string;
+  resetLabel?: string;
   swapLabel?: string;
 };
 
@@ -76,11 +80,12 @@ const ControlPanel: React.FC = () => {
   });
 
   // Desktop hotkeys (keyboard/mouse)
-  const [hkLabels, setHkLabels] = useState<{ start: string; swap: string }>({
+  const [hkLabels, setHkLabels] = useState<{ start: string; reset: string; swap: string }>({
     start: "F1",
+    reset: "—",
     swap: "F2",
   });
-  const [capturing, setCapturing] = useState<null | "start" | "swap">(null);
+  const [capturing, setCapturing] = useState<null | "start" | "reset" | "swap">(null);
 
   // Gamepad
   const [gp, setGp] = useState<GamepadMapping>({ toggle: [], swap: [] });
@@ -113,7 +118,7 @@ const ControlPanel: React.FC = () => {
     });
 
     window.api.hotkeys.get().then((h: HKGet) => {
-      setHkLabels({ start: h.startLabel || "F1", swap: h.swapLabel || "F2" });
+      setHkLabels({ start: h.startLabel || "F1", reset: h.resetLabel || "—", swap: h.swapLabel || "F2" });
     });
 
     // Charger le mapping manette.
@@ -153,14 +158,14 @@ const ControlPanel: React.FC = () => {
 
     // Capture feedback
     const cleanupHotkeysCaptured = window.api.hotkeys.onCaptured(
-      (p: { type: "start" | "swap"; keycode?: number | null; label?: string; source?: "desktop" | "gamepad" }) => {
+      (p: { type: "start" | "reset" | "swap"; keycode?: number | null; label?: string; source?: "desktop" | "gamepad" }) => {
         // Desktop only: maj du libellé clavier/souris
         if ((p.source || "desktop") === "desktop" && p.label) {
           setHkLabels((prev) => ({ ...prev, [p.type]: p.label! }));
           setCapturing(null);
           // Re-sync les deux labels depuis le store (safety net contre les race conditions)
           window.api.hotkeys.get().then((h: HKGet) => {
-            setHkLabels({ start: h.startLabel || "F1", swap: h.swapLabel || "F2" });
+            setHkLabels({ start: h.startLabel || "F1", reset: h.resetLabel || "—", swap: h.swapLabel || "F2" });
           });
         }
 
@@ -267,86 +272,14 @@ const ControlPanel: React.FC = () => {
       </header>
 
       <div>
-        {/* Hotkeys (desktop) */}
-        <section className="mb-4 rounded-xl border border-white/10 bg-white/5 backdrop-blur overflow-hidden">
-          <button
-            className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/[0.04] transition"
-            onClick={() => setKbOpen(v => !v)}
-          >
-            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">⌨️ Keyboard / Mouse Hotkeys</span>
-            <svg
-              className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${kbOpen ? "rotate-180" : ""}`}
-              viewBox="0 0 16 16" fill="none"
-            >
-              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          {kbOpen && (
-            <div className="px-4 pb-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Start/Stop/Reset Key</div>
-                    <button
-                      className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                      onClick={async () => {
-                        try {
-                          const result = await window.api.hotkeys.clear("start");
-                          setHkLabels({ ...hkLabels, start: result.startLabel || "F1" });
-                        } catch (error) {
-                          console.error("Failed to clear the start hotkey", error);
-                        }
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <button
-                    className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                      capturing === "start" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-                    }`}
-                    onClick={() => {
-                      setCapturing("start");
-                      window.api.hotkeys.capture({ type: "start", source: "desktop" });
-                    }}
-                  >
-                    {capturing === "start" ? "Press a key…" : hkLabels.start}
-                  </button>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Swap Timer Key</div>
-                    <button
-                      className="text-xs rounded-md border border-white/15 px-2 py-1 hover:bg-white/10"
-                      onClick={async () => {
-                        try {
-                          const result = await window.api.hotkeys.clear("swap");
-                          setHkLabels({ ...hkLabels, swap: result.swapLabel || "F2" });
-                        } catch (error) {
-                          console.error("Failed to clear the swap hotkey", error);
-                        }
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <button
-                    className={`w-full rounded-lg px-3 py-3 text-center text-base font-semibold tracking-wide transition ${
-                      capturing === "swap" ? "bg-violet-600" : "bg-zinc-800 hover:bg-zinc-700"
-                    }`}
-                    onClick={() => {
-                      setCapturing("swap");
-                      window.api.hotkeys.capture({ type: "swap", source: "desktop" });
-                    }}
-                  >
-                    {capturing === "swap" ? "Press a key…" : hkLabels.swap}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
+        <DesktopHotkeysSection
+          open={kbOpen}
+          setOpen={setKbOpen}
+          labels={hkLabels}
+          setLabels={setHkLabels}
+          capturing={capturing}
+          setCapturing={setCapturing}
+        />
 
         <GamepadHotkeysSection
           open={gpOpen} setOpen={setGpOpen}

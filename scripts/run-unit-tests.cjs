@@ -16,6 +16,9 @@ const { createDeferredWriter } = require("../electron/persistence/deferred-write
 const uiohookRuntime = require("../electron/input/uiohook.cjs");
 const { parseGamepadProtocolLine } = require("../electron/input/gamepad-protocol.cjs");
 const { createRateLimiter } = require("../electron/input/rate-limiter.cjs");
+const { MODIFIER, chordFromEvent, describeBinding, isHotkeyChord, matchesKeyboardEvent } = require("../electron/hotkeys/binding.cjs");
+const { makeChordLabelFromBeforeInput } = require("../electron/hotkeys/labels.cjs");
+const { MAX_TOTAL_BYTES, RETAIN_BYTES, ROTATE_AT_BYTES, truncateText } = require("../electron/logging/configure.cjs");
 
 const tests = [];
 
@@ -117,6 +120,28 @@ test("gamepad bridge only runs when a mapping exists or a capture listener is ac
   );
 });
 
+test("log retention stays below the disk budget and truncates oversized text", () => {
+  assert.equal(ROTATE_AT_BYTES < MAX_TOTAL_BYTES, true);
+  assert.equal(RETAIN_BYTES < ROTATE_AT_BYTES, true);
+  assert.equal(truncateText("short", 10), "short");
+  assert.match(truncateText("1234567890", 5), /^12345… \[truncated 5 chars\]$/);
+});
+
+test("keyboard chords require an exact modifier set and support modifier-only bindings", () => {
+  const ctrlAltK = { keycode: 0x0025, modifiers: MODIFIER.CTRL | MODIFIER.ALT };
+  assert.equal(isHotkeyChord(ctrlAltK), true);
+  assert.equal(matchesKeyboardEvent(ctrlAltK, { keycode: 0x0025, ctrlKey: true, altKey: true }), true);
+  assert.equal(matchesKeyboardEvent(ctrlAltK, { keycode: 0x0025, ctrlKey: true, altKey: true, shiftKey: true }), false);
+  assert.deepEqual(chordFromEvent({ keycode: 0x0038, ctrlKey: true, altKey: true }), {
+    keycode: null,
+    modifiers: MODIFIER.CTRL | MODIFIER.ALT,
+  });
+  assert.equal(matchesKeyboardEvent({ keycode: null, modifiers: 3 }, { keycode: 0x0038, ctrlKey: true, altKey: true }), true);
+  assert.equal(describeBinding({ keycode: 37, modifiers: 3 }), "chord:keycode=37,mask=3");
+  assert.equal(makeChordLabelFromBeforeInput({ key: "Alt", alt: true, control: true }), "CTRL+ALT");
+  assert.equal(makeChordLabelFromBeforeInput({ key: "k", alt: true, control: true }), "CTRL+ALT+K");
+});
+
 test("gamepad protocol accepts only versioned known events", () => {
   assert.equal(parseGamepadProtocolLine("DBT1\tBTN A"), "BTN A");
   assert.equal(parseGamepadProtocolLine("DBT1\tAXIS RY_NEG"), "AXIS RY_NEG");
@@ -161,6 +186,14 @@ test("IPC payload validators accept product contracts and reject malformed data"
   assert.deepEqual(parseDimensions({ width: 520, height: 120 }), { width: 520, height: 120 });
   assert.throws(() => parseDimensions({ width: 0, height: 120 }), /dimensions/);
   assert.throws(() => parseDimensions({ width: 520, height: 120, extra: 1 }), /Unknown/);
+  assert.deepEqual(parseHotkeyPatch({ start: { keycode: 37, modifiers: 3 } }), {
+    start: { keycode: 37, modifiers: 3 },
+  });
+  assert.deepEqual(parseHotkeyPatch({ swap: { keycode: null, modifiers: 3 } }), {
+    swap: { keycode: null, modifiers: 3 },
+  });
+  assert.deepEqual(parseHotkeyPatch({ reset: 19 }), { reset: 19 });
+  assert.throws(() => parseHotkeyPatch({ start: { keycode: 37, modifiers: 0 } }), /hotkey/);
   assert.deepEqual(parsePointer({ x: 12.4, y: -8.7 }), { x: 12, y: -9 });
   assert.throws(() => parsePointer({ x: 1, y: 2, injected: true }), /Unknown/);
 });
