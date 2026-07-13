@@ -67,6 +67,8 @@ const api = {
     getVersion: () => ipcRenderer.invoke('app-version'),
     openPremium: () => ipcRenderer.invoke('open-premium'),
     openLogFolder: () => ipcRenderer.invoke('open-log-folder'),
+    openDbdConfigFolder: () => ipcRenderer.invoke('open-dbd-config-folder'),
+    copySetupText: (kind) => ipcRenderer.invoke('copy-setup-text', kind),
   }
 };
 

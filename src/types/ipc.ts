@@ -14,6 +14,7 @@ export type OverlaySettings = Readonly<{
   accentKey?: AccentKey;
   autoScoreEnabled?: boolean;
   autoScoreThresholdSec?: number;
+  pauseResumeEnabled?: boolean;
 }>;
 export type OverlayDragState = Readonly<{
   bounds: Readonly<{ x: number; y: number; width: number; height: number }>;
@@ -84,6 +85,8 @@ export interface RendererApi {
     getVersion(): Promise<string>;
     openPremium(): Promise<void>;
     openLogFolder(): Promise<boolean>;
+    openDbdConfigFolder(): Promise<string>;
+    copySetupText(kind: "launchArgs" | "iniSettings"): Promise<boolean>;
   };
   updater: {
     startDownload(): Promise<void>;

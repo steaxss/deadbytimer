@@ -1,15 +1,17 @@
 /** @typedef {{ keycode: number | null, modifiers: number }} HotkeyChord */
 /** @typedef {{ start: number | HotkeyChord | null, reset: number | HotkeyChord | null, swap: number | HotkeyChord | null }} HotkeyCodes */
 /** @typedef {{ start: string | null, reset: string | null, swap: string | null }} HotkeyLabels */
-/** @typedef {{ x: number, y: number, scale: number, locked: boolean, alwaysOnTop: boolean, nameTheme: string, accentKey: string, autoScoreEnabled: boolean, autoScoreThresholdSec: number }} OverlaySettings */
+/** @typedef {{ x: number, y: number, scale: number, locked: boolean, alwaysOnTop: boolean, nameTheme: string, accentKey: string, autoScoreEnabled: boolean, autoScoreThresholdSec: number, pauseResumeEnabled: boolean }} OverlaySettings */
 /** @typedef {{ player1: { name: string, score: number }, player2: { name: string, score: number } }} TimerData */
 const { createSenderGuard } = require("./security.cjs");
-const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer } = require("./validation.cjs");
+const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer, getSetupCopyText } = require("./validation.cjs");
+const { join } = require("node:path");
 
 /**
  * @typedef {object} IpcContext
  * @property {typeof import("electron").ipcMain} ipcMain
  * @property {typeof import("electron").app} app
+ * @property {typeof import("electron").clipboard} clipboard
  * @property {typeof import("electron").shell} shell
  * @property {typeof import("../windows/windows.cjs")} windows
  * @property {typeof import("../input/uiohook.cjs")} uio
@@ -197,6 +199,17 @@ function registerAppIpc(context) {
   ipcMain.handle("app-version", (event) => { assertSender(event, "panel"); return context.app.getVersion(); });
   ipcMain.handle("open-premium", (event) => { assertSender(event, "panel"); return context.shell.openExternal("https://dbdoverlaytools.com/"); });
   ipcMain.handle("open-log-folder", (event) => { assertSender(event, "panel"); context.shell.openPath(context.app.getPath("logs")); return true; });
+  ipcMain.handle("open-dbd-config-folder", (event) => {
+    assertSender(event, "panel");
+    const localAppData = process.env.LOCALAPPDATA;
+    if (!localAppData) return "LOCALAPPDATA is unavailable";
+    return context.shell.openPath(join(localAppData, "DeadByDaylight", "Saved", "Config", "WindowsClient"));
+  });
+  ipcMain.handle("copy-setup-text", (event, kind) => {
+    assertSender(event, "panel");
+    context.clipboard.writeText(getSetupCopyText(kind));
+    return true;
+  });
   context.registerUpdaterIpc((event) => assertSender(event, "panel"));
 }
 

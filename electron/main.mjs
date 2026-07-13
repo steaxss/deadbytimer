@@ -1,5 +1,6 @@
 import {
   app,
+  clipboard,
   ipcMain,
   globalShortcut,
   shell,
@@ -20,7 +21,7 @@ require("./logging/configure.cjs").configureLogging(log, { development: isDev })
 /** @typedef {{ keycode: number | null, modifiers: number }} HotkeyChord */
 /** @typedef {{ start: number | HotkeyChord | null, reset: number | HotkeyChord | null, swap: number | HotkeyChord | null }} HotkeyCodes */
 /** @typedef {{ start: string | null, reset: string | null, swap: string | null }} HotkeyLabels */
-/** @typedef {{ x: number, y: number, scale: number, locked: boolean, alwaysOnTop: boolean, nameTheme: string, accentKey: string, autoScoreEnabled: boolean, autoScoreThresholdSec: number }} OverlaySettings */
+/** @typedef {{ x: number, y: number, scale: number, locked: boolean, alwaysOnTop: boolean, nameTheme: string, accentKey: string, autoScoreEnabled: boolean, autoScoreThresholdSec: number, pauseResumeEnabled: boolean }} OverlaySettings */
 /** @typedef {{ player1: { name: string, score: number }, player2: { name: string, score: number } }} TimerData */
 /** @typedef {{ windowState: { x?: number, y?: number, width?: number, height?: number }, overlaySettings: OverlaySettings, timerData: TimerData, hotkeys: HotkeyCodes, hotkeysLabel: HotkeyLabels, mouseBinds: HotkeyLabels, _appVersion: string }} AppStore */
 
@@ -120,6 +121,7 @@ const defaults = {
     accentKey: 'default',
     autoScoreEnabled: true,
     autoScoreThresholdSec: 25,
+    pauseResumeEnabled: false,
   },
   [K.TIMER]: {
     player1: { name: "Player 1", score: 0 },
@@ -252,6 +254,7 @@ function refreshInputRuntime() {
 /** @param {"toggle" | "reset" | "swap"} type */
 function dispatchHotkey(type) {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  if (type === "reset" && getStore(K.OVERLAY).pauseResumeEnabled !== true) return;
   if (!canFire(type, 220)) return;
   overlayWindow.webContents.send("global-hotkey", { type });
   logHK("DISPATCH", type);
@@ -349,7 +352,7 @@ uio.setupUiohook({
 /* -------------------- IPC (panneau ↔ main) -------------------- */
 function setupIPC() {
   registerAppIpc({
-    ipcMain, app, shell, windows, uio, capture, store, isDev,
+    ipcMain, app, clipboard, shell, windows, uio, capture, store, isDev,
     getMainWindow: () => mainWindow,
     setMainWindow: (window) => { mainWindow = window; },
     getOverlayWindow: () => overlayWindow,

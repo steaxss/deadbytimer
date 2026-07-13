@@ -11,7 +11,7 @@ type S = {
   status: Record<1|2, Status>
   clicks: Record<1|2, 0|1|2>
   select: (n:1|2)=>void
-  toggle: ()=>void
+  toggle: (pauseResumeEnabled?: boolean)=>void
   reset: (n:1|2)=>void
   elapsed: (n:1|2)=>number
 }
@@ -23,7 +23,7 @@ export const useTimerStore = create<S>((set, get) => ({
 
   select: (n) => set((s)=>({ active: n, clicks: { ...s.clicks, [n]: s.clicks[n] as 0|1|2 } })),
 
-  toggle: () => {
+  toggle: (pauseResumeEnabled = false) => {
     const { active, status, clicks } = get()
     const timer = active === 1 ? t1 : t2
     if (status[active] === 'running') {
@@ -32,8 +32,13 @@ export const useTimerStore = create<S>((set, get) => ({
       return
     }
     if (status[active] === 'paused') {
-      timer.start()
-      set({ status: { ...status, [active]: 'running' }, clicks: { ...clicks, [active]: 0 } })
+      if (pauseResumeEnabled) {
+        timer.start()
+        set({ status: { ...status, [active]: 'running' }, clicks: { ...clicks, [active]: 0 } })
+      } else {
+        timer.reset()
+        set({ status: { ...status, [active]: 'stopped' }, clicks: { ...clicks, [active]: 0 } })
+      }
       return
     }
     // stopped → start

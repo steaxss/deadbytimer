@@ -11,6 +11,7 @@ import PlayersSection from "./control-panel/PlayersSection";
 import PromotionSections from "./control-panel/PromotionSections";
 import GamepadHotkeysSection from "./control-panel/GamepadHotkeysSection";
 import DesktopHotkeysSection from "./control-panel/DesktopHotkeysSection";
+import TroubleshootingSection from "./control-panel/TroubleshootingSection";
 import type { HotkeyChord } from "@/types/ipc";
 
 type HKGet = {
@@ -50,6 +51,11 @@ const ACCENT_LABELS_EN: Record<AccentKey, string> = {
   fuchsia: "Fuchsia",
   emeraude: "Emerald",
   peche: "Peach",
+  pastel_rose: "Pastel Pink",
+  pastel_peche: "Pastel Peach",
+  pastel_sauge: "Pastel Sage",
+  pastel_ciel: "Pastel Sky",
+  pastel_lilas: "Pastel Lilac",
   pride: "Pride Rainbow",
 };
 
@@ -72,6 +78,7 @@ const ControlPanel: React.FC = () => {
   // Auto-score
   const [autoScore, setAutoScore] = useState<boolean>(true);
   const [autoScoreThresholdSec] = useState<number>(25);
+  const [pauseResumeEnabled, setPauseResumeEnabled] = useState(false);
 
   // Players
   const [players, setPlayers] = useState({
@@ -137,6 +144,7 @@ const ControlPanel: React.FC = () => {
       );
       if (s?.accentKey && ACCENTS.some((a) => a.key === s.accentKey)) setAccentKey(s.accentKey);
       if (typeof s?.autoScoreEnabled === "boolean") setAutoScore(s.autoScoreEnabled);
+      if (typeof s?.pauseResumeEnabled === "boolean") setPauseResumeEnabled(s.pauseResumeEnabled);
     });
 
     // Sync timer
@@ -271,6 +279,8 @@ const ControlPanel: React.FC = () => {
         </div>
       </header>
 
+      <TroubleshootingSection />
+
       <div>
         <DesktopHotkeysSection
           open={kbOpen}
@@ -279,6 +289,8 @@ const ControlPanel: React.FC = () => {
           setLabels={setHkLabels}
           capturing={capturing}
           setCapturing={setCapturing}
+          pauseResumeEnabled={pauseResumeEnabled}
+          setPauseResumeEnabled={setPauseResumeEnabled}
         />
 
         <GamepadHotkeysSection

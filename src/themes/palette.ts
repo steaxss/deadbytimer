@@ -23,6 +23,11 @@ export type AccentKey =
   | 'fuchsia'
   | 'emeraude'
   | 'peche'
+  | 'pastel_rose'
+  | 'pastel_peche'
+  | 'pastel_sauge'
+  | 'pastel_ciel'
+  | 'pastel_lilas'
   | 'pride';
 
 export const NAME_BG: Record<NameTheme, string> = {
@@ -55,6 +60,11 @@ export const ACCENTS: { key: AccentKey; label: string; gradient: string }[] = [
   { key: 'emeraude',   label: '💎 Émeraude',       gradient: 'linear-gradient(90deg, #10b981 0%, #34d399 50%, #6ee7b7 100%)' },
   { key: 'peche',      label: '🍑 Pêche',          gradient: 'linear-gradient(90deg, #fb923c 0%, #fdba74 50%, #fed7aa 100%)' },
   { key: 'pride',      label: '🏳️‍🌈 Pride',          gradient: 'linear-gradient(90deg, #ff0080 0%, #ff6b35 25%, #ffd60a 50%, #00d9ff 75%, #a855f7 100%)' },
+  { key: 'pastel_rose',  label: 'Pastel rose',  gradient: 'linear-gradient(90deg, #815063 0%, #92586C 50%, #9D5F74 100%)' },
+  { key: 'pastel_peche', label: 'Pastel peach', gradient: 'linear-gradient(90deg, #805746 0%, #91604D 50%, #9A6652 100%)' },
+  { key: 'pastel_sauge', label: 'Pastel sage',  gradient: 'linear-gradient(90deg, #486B5C 0%, #527665 50%, #587C6B 100%)' },
+  { key: 'pastel_ciel',  label: 'Pastel sky',   gradient: 'linear-gradient(90deg, #486783 0%, #52728F 50%, #587795 100%)' },
+  { key: 'pastel_lilas', label: 'Pastel lilac', gradient: 'linear-gradient(90deg, #66537F 0%, #715B8C 50%, #7C6499 100%)' },
 ];
 
 export const ACCENTS_MAP: Record<AccentKey, string> =

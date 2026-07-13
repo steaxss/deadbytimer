@@ -15,8 +15,8 @@ Version 3.3.0 focuses on smoother gameplay, more reliable timing and better cont
 
 - Added support for modifier combinations such as `Ctrl+Alt`, `Ctrl+Alt+K`, `Ctrl+Shift+F` and similar combinations.
 - Modifier combinations require an exact match, helping prevent accidental triggers.
-- The main timer key now cycles through **Start → Pause → Resume**.
-- Added a separate configurable **Reset Timer** key so resetting can no longer happen accidentally through the main timer key.
+- The main timer key keeps the familiar **Start → Pause → Reset** cycle by default.
+- Added an optional **Pause / Resume mode** that changes the main key to **Start → Pause → Resume** and enables a separate configurable **Reset Timer** key.
 - Existing keyboard, mouse and function-key bindings remain compatible.
 
 ### Improved overlay positioning
@@ -26,6 +26,15 @@ Version 3.3.0 focuses on smoother gameplay, more reliable timing and better cont
 - Added mouse-wheel scaling directly from the unlocked overlay.
 - Added a quick lock control to finish positioning without returning to the control panel.
 - Improved multi-monitor placement and recovery when the overlay is moved outside the usable display area.
+
+### Guided setup and personalization
+
+- Added an in-app troubleshooting guide for the recommended Dead by Daylight fullscreen and DirectX 12 configuration.
+- Added direct folder access and copy actions for launch arguments and `GameUserSettings.ini` values.
+- Documented the recommended read-only configuration and the alternative fullscreen values for ReShade compatibility.
+- Added five readable pastel score accents: pink, peach, sage, sky and lilac.
+- Added dismissible animated **NEW** badges for newly introduced features and colors.
+- The timer overlay now uses the same Windows icon as the control panel.
 
 ## Stability and compatibility
 
@@ -45,7 +54,8 @@ Version 3.3.0 focuses on smoother gameplay, more reliable timing and better cont
 ## Upgrade notes
 
 - Existing timer settings and hotkeys are preserved automatically.
-- The new Reset Timer hotkey is unassigned by default and can be configured from **Keyboard / Mouse Hotkeys**.
+- **Pause / Resume mode** is disabled by default to preserve the existing timer workflow.
+- When Pause / Resume mode is enabled, the separate Reset Timer hotkey is unassigned by default and can be configured from **Keyboard / Mouse Hotkeys**.
 - No additional runtime or manual migration step is required.
 
 Thank you for using Dead by Timer.

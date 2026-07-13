@@ -52,6 +52,7 @@ export default function TimerOverlay() {
   const [scale, setScale] = React.useState(100);
   const [autoScoreEnabled, setAutoScoreEnabled] = React.useState(true);
   const [autoScoreThresholdMs, setAutoScoreThresholdMs] = React.useState(25_000);
+  const pauseResumeEnabledRef = React.useRef(false);
 
   // Refs for direct DOM manipulation (bypass React for timer text updates)
   const t1ContainerRef = React.useRef<HTMLSpanElement>(null);
@@ -137,6 +138,7 @@ export default function TimerOverlay() {
         ? '0.6px rgba(0,0,0,0.65)' : '0px transparent');
 
       setAutoScoreEnabled(s?.autoScoreEnabled !== false);
+      pauseResumeEnabledRef.current = s?.pauseResumeEnabled === true;
       const th = Number(s?.autoScoreThresholdSec);
       setAutoScoreThresholdMs(Number.isFinite(th) ? th * 1000 : 25_000);
     });
@@ -147,7 +149,7 @@ export default function TimerOverlay() {
   React.useEffect(() => {
     const cleanup = window.api.hotkeys.on((p) => {
       const api = useTimerStore.getState();
-      if (p?.type === "toggle") api.toggle();
+      if (p?.type === "toggle") api.toggle(pauseResumeEnabledRef.current);
       else if (p?.type === "reset") api.reset(api.active);
       else if (p?.type === "swap") api.select(api.active === 1 ? 2 : 1);
     });

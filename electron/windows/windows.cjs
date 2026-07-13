@@ -251,6 +251,7 @@ function createOverlayWindow(currentOverlay, _currentMain) {
     skipTaskbar: false,
     focusable: true,
     title: "DBD Timer Overlay by Steaxs & Doc",
+    icon: iconPath,
     acceptFirstMouse: true,
     backgroundColor: "#00000000",
     useContentSize: true,

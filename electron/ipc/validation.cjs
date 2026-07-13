@@ -4,7 +4,8 @@ const ACCENTS = new Set([
   "default", "rose", "rouge", "orange", "or", "jaune", "vert", "menthe",
   "bleu_fonce", "bleu_clair", "cyan", "violet", "lavande", "marron",
   "anthracite", "argent", "corail", "turquoise", "indigo", "fuchsia",
-  "emeraude", "peche", "pride",
+  "emeraude", "peche", "pride", "pastel_rose", "pastel_peche",
+  "pastel_sauge", "pastel_ciel", "pastel_lilas",
 ]);
 
 /** @param {unknown} value */
@@ -30,7 +31,7 @@ function finiteNumber(value, field) {
 /** @param {unknown} value */
 function parseOverlayPatch(value) {
   const input = record(value);
-  const allowed = new Set(["x", "y", "scale", "locked", "alwaysOnTop", "nameTheme", "accentKey", "autoScoreEnabled", "autoScoreThresholdSec"]);
+  const allowed = new Set(["x", "y", "scale", "locked", "alwaysOnTop", "nameTheme", "accentKey", "autoScoreEnabled", "autoScoreThresholdSec", "pauseResumeEnabled"]);
   for (const key of Object.keys(input)) if (!allowed.has(key)) throw new TypeError(`Unknown overlay setting: ${key}`);
   /** @type {Record<string, string | number | boolean>} */
   const output = {};
@@ -40,7 +41,7 @@ function parseOverlayPatch(value) {
     if (scale < 50 || scale > 200) throw new RangeError("scale must be between 50 and 200");
     output.scale = scale;
   }
-  for (const key of ["locked", "alwaysOnTop", "autoScoreEnabled"]) {
+  for (const key of ["locked", "alwaysOnTop", "autoScoreEnabled", "pauseResumeEnabled"]) {
     if (input[key] !== undefined) {
       if (typeof input[key] !== "boolean") throw new TypeError(`${key} must be boolean`);
       output[key] = input[key];
@@ -116,4 +117,11 @@ function parsePointer(value) {
   return { x: Math.round(x), y: Math.round(y) };
 }
 
-module.exports = { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer };
+/** @param {unknown} value */
+function getSetupCopyText(value) {
+  if (value === "launchArgs") return "-dx12 -fullscreen";
+  if (value === "iniSettings") return "FullscreenMode=1\nLastConfirmedFullscreenMode=1\nPreferredFullscreenMode=1";
+  throw new TypeError("Invalid setup text");
+}
+
+module.exports = { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer, getSetupCopyText };

@@ -10,7 +10,7 @@ const {
   shouldRunGamepadBridge,
 } = require("../electron/input/runtime-policy.cjs");
 const { createSenderGuard } = require("../electron/ipc/security.cjs");
-const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer } = require("../electron/ipc/validation.cjs");
+const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer, getSetupCopyText } = require("../electron/ipc/validation.cjs");
 const { clampToDisplay, findBestDisplay, snapBounds } = require("../electron/windows/overlay-layout.cjs");
 const { createDeferredWriter } = require("../electron/persistence/deferred-writer.cjs");
 const uiohookRuntime = require("../electron/input/uiohook.cjs");
@@ -175,6 +175,7 @@ test("input rate limiter uses a monotonic clock per action", () => {
 
 test("IPC payload validators accept product contracts and reject malformed data", () => {
   assert.deepEqual(parseOverlayPatch({ scale: 125, locked: false, accentKey: "cyan" }), { scale: 125, locked: false, accentKey: "cyan" });
+  assert.deepEqual(parseOverlayPatch({ accentKey: "pastel_lilas" }), { accentKey: "pastel_lilas" });
   assert.throws(() => parseOverlayPatch({ scale: 500 }), /scale/);
   assert.throws(() => parseOverlayPatch({ unexpected: true }), /Unknown/);
   assert.deepEqual(parseHotkeyPatch({ start: 59, swap: null }), { start: 59, swap: null });
@@ -196,6 +197,9 @@ test("IPC payload validators accept product contracts and reject malformed data"
   assert.throws(() => parseHotkeyPatch({ start: { keycode: 37, modifiers: 0 } }), /hotkey/);
   assert.deepEqual(parsePointer({ x: 12.4, y: -8.7 }), { x: 12, y: -9 });
   assert.throws(() => parsePointer({ x: 1, y: 2, injected: true }), /Unknown/);
+  assert.equal(getSetupCopyText("launchArgs"), "-dx12 -fullscreen");
+  assert.match(getSetupCopyText("iniSettings"), /PreferredFullscreenMode=1$/);
+  assert.throws(() => getSetupCopyText("arbitrary"), /Invalid setup text/);
 });
 
 test("overlay layout snaps per display and keeps a usable area visible", () => {

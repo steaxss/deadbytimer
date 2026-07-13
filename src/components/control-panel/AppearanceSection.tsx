@@ -1,5 +1,6 @@
 import type React from "react";
 import { ACCENTS, NAME_BG, type AccentKey, type NameTheme } from "@/themes/palette";
+import NewBadge, { dismissNewFeature } from "@/components/NewBadge";
 
 type Props = {
   nameTheme: NameTheme;
@@ -10,11 +11,20 @@ type Props = {
   accentLabels: Record<AccentKey, string>;
 };
 
-function Swatch({ title, background, isActive, onClick }: { title: string; background: string; isActive: boolean; onClick: () => void }) {
-  return <button onClick={onClick} title={title} aria-label={title} aria-pressed={isActive}
-    className={["h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none",
-      isActive ? "border-white ring-2 ring-white/50 ring-offset-2 ring-offset-zinc-900" : "border-white/10 hover:border-white/30"].join(" ")}
-    style={{ background }} />;
+function Swatch({ title, background, isActive, onClick, newFeatureId }: { title: string; background: string; isActive: boolean; onClick: () => void; newFeatureId?: string | undefined }) {
+  return (
+    <span className="relative inline-flex">
+      <button onClick={onClick} title={title} aria-label={title} aria-pressed={isActive}
+        className={["h-7 w-14 sm:w-16 rounded-lg border-2 transition outline-none",
+          isActive ? "border-white ring-2 ring-white/50 ring-offset-2 ring-offset-zinc-900" : "border-white/10 hover:border-white/30"].join(" ")}
+        style={{ background }} />
+      {newFeatureId && (
+        <span className="absolute -right-1.5 -top-2 z-10">
+          <NewBadge featureId={newFeatureId} compact />
+        </span>
+      )}
+    </span>
+  );
 }
 
 export default function AppearanceSection({ nameTheme, setNameTheme, accentKey, setAccentKey, onPremium, accentLabels: ACCENT_LABELS_EN }: Props) {
@@ -60,8 +70,10 @@ export default function AppearanceSection({ nameTheme, setNameTheme, accentKey, 
               title={ACCENT_LABELS_EN[a.key as AccentKey]}
               background={a.gradient}
               isActive={accentKey === (a.key as AccentKey)}
+              newFeatureId={a.key.startsWith("pastel_") ? `accent-${a.key}-v1` : undefined}
               onClick={() => {
                 const k = a.key as AccentKey;
+                if (a.key.startsWith("pastel_")) dismissNewFeature(`accent-${a.key}-v1`);
                 setAccentKey(k);
                 window.api.overlay.updateSettings({ accentKey: k });
               }}
@@ -78,8 +90,10 @@ export default function AppearanceSection({ nameTheme, setNameTheme, accentKey, 
             <svg className="w-3 h-3 shrink-0 text-amber-400/60 group-hover:text-amber-400 transition-colors" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 1l1.5 9.5L23 12l-9.5 1.5L12 23l-1.5-9.5L1 12l9.5-1.5L12 1z"/>
             </svg>
-            & more accent colors available with{' '}
-            <span className="text-amber-300/90 font-semibold group-hover:text-amber-300 transition-colors">Premium</span>
+            <span>
+              <span className="text-amber-300/90 font-semibold group-hover:text-amber-300 transition-colors">Premium</span>
+              {' '}adds complete themes, more colors, and features like DBDLeague Ladder opponent auto-detection with rank display.
+            </span>
           </span>
           <span className="ml-3 shrink-0 text-xs font-semibold text-amber-500/60 group-hover:text-amber-400 transition-colors">
             Unlock →
