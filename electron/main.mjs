@@ -30,6 +30,7 @@ const windows = require("./windows/windows.cjs");
 const capture = require("./hotkeys/capture.cjs");
 const uio = require("./input/uiohook.cjs");
 const updates = require("./updates/updater.cjs");
+const transition = require("./updates/transition.cjs");
 const { registerAppIpc } = require("./ipc/register.cjs");
 const { isAlphaNumLabel, makeChordLabelFromBeforeInput } = require("./hotkeys/labels.cjs");
 const { describeBinding } = require("./hotkeys/binding.cjs");
@@ -230,6 +231,7 @@ function runtimeNeedsUiohook() {
 }
 
 function refreshInputRuntime() {
+  if (transition.mandatory) return;
   normalizeInputBindings();
 
   const needsUiohook = runtimeNeedsUiohook();
@@ -253,6 +255,7 @@ function refreshInputRuntime() {
 /* -------------------- dispatch centralisé vers l’overlay -------------------- */
 /** @param {"toggle" | "reset" | "swap"} type */
 function dispatchHotkey(type) {
+  if (transition.mandatory) return;
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   if (type === "reset" && getStore(K.OVERLAY).pauseResumeEnabled !== true) return;
   if (!canFire(type, 220)) return;
@@ -389,11 +392,13 @@ app.whenReady().then(() => {
 
   mainWindow = windows.createMainWindow(store, iconPath, isDev);
   setupIPC();
-  setupGamepadExe(dispatchHotkey);
-  refreshInputRuntime();
-  setTimeout(() => {
-    overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
-  }, 800);
+  if (!transition.mandatory) {
+    setupGamepadExe(dispatchHotkey);
+    refreshInputRuntime();
+    setTimeout(() => {
+      overlayWindow = windows.createOverlayWindow(overlayWindow, mainWindow);
+    }, 800);
+  }
 
   if (VERBOSE_LOGS) {
     setTimeout(() => {

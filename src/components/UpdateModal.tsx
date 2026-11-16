@@ -56,7 +56,20 @@ export default function UpdateModal() {
     window.api.updater.installNow();
   };
 
-  if (!updateInfo) return null;
+  if (!updateInfo) return (
+    <div className="fixed inset-0 flex items-center justify-center bg-zinc-950 p-6 text-white">
+      <div className="max-w-md rounded-2xl border border-white/20 bg-zinc-900 p-6 text-center">
+        <h1 className="text-2xl font-bold">Dead by Timer has moved</h1>
+        <p className="mt-4 text-zinc-300">This version can no longer be used. Install the new Dead by Timer to continue.</p>
+        <p className="mt-4 text-sm text-zinc-400">{error || 'Checking the installation download…'}</p>
+        {error && <button className="mt-4 rounded-lg bg-violet-600 px-5 py-3 font-semibold" onClick={() => {
+          setError(null);
+          void window.api.updater.check().catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'Check failed'));
+        }}>TRY AGAIN</button>}
+        <button className="mt-4 block w-full text-sm text-violet-300 underline" onClick={() => window.api.updater.openReleases()}>Download from the official page</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -69,8 +82,8 @@ export default function UpdateModal() {
             </svg>
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white">Update Required</h2>
-            <p className="text-sm text-zinc-400">Version {updateInfo.version}</p>
+            <h2 className="text-xl font-bold text-white">Install Dead by Timer</h2>
+            <p className="text-sm text-zinc-400">Version {updateInfo.version} · Required to continue</p>
           </div>
         </div>
 
@@ -119,7 +132,7 @@ export default function UpdateModal() {
                   onClick={handleDownload}
                   className="flex-1 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-3 font-semibold text-white hover:from-violet-600 hover:to-fuchsia-600 transition"
                 >
-                  Download Update
+                  Download Dead by Timer
                 </button>
               )}
 
@@ -137,7 +150,7 @@ export default function UpdateModal() {
                   onClick={handleInstall}
                   className="flex-1 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 px-4 py-3 font-semibold text-white hover:from-emerald-600 hover:to-green-600 transition"
                 >
-                  Install Now & Restart
+                  Install Dead by Timer
                 </button>
               )}
             </div>
@@ -145,7 +158,7 @@ export default function UpdateModal() {
         )}
 
         <p className="mt-4 text-center text-xs text-zinc-500">
-          You must update to continue using DBD Timer.
+          This version is no longer usable. Installation requires Windows administrator approval.
         </p>
       </div>
     </div>

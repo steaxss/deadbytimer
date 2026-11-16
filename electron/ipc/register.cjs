@@ -6,6 +6,7 @@
 const { createSenderGuard } = require("./security.cjs");
 const { parseOverlayPatch, parseTimerData, parseHotkeyPatch, parseDimensions, parsePointer, getSetupCopyText } = require("./validation.cjs");
 const { join } = require("node:path");
+const transition = require("../updates/transition.cjs");
 
 /**
  * @typedef {object} IpcContext
@@ -53,6 +54,7 @@ function registerAppIpc(context) {
   const assertSender = createSenderGuard(context);
   ipcMain.handle("overlay-show", (event) => {
     assertSender(event, "panel");
+    if (transition.mandatory) return false;
     const overlay = context.windows.createOverlayWindow(context.getOverlayWindow(), context.getMainWindow());
     context.setOverlayWindow(overlay);
     return true;

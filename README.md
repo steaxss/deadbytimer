@@ -1,3 +1,9 @@
+> **Deprecated ? replaced by [Dead by Timer v2](https://github.com/steaxss/deadbytimer-v2).**
+>
+> New users: [download the current Dead by Timer](https://github.com/steaxss/deadbytimer-v2/releases/latest).
+> Existing users: install the final **3.4.0** update, then follow the required installation of the new application.
+> This repository and its final update remain available for existing installations.
+
 # DBD 1v1 Timer Overlay
 
 [![Version 3.3.0](https://img.shields.io/badge/Version-3.3.0-informational)](https://github.com/steaxss/deadbytimer)

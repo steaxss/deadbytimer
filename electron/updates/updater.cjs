@@ -1,5 +1,6 @@
 const { app, shell } = require("electron");
 const log = require("electron-log");
+const transition = require("./transition.cjs");
 
 /** @typedef {{ getMainWindow: () => Electron.BrowserWindow | null, isPortable: boolean, verboseLogs: boolean }} UpdaterContext */
 
@@ -38,6 +39,7 @@ function send(channel, payload) {
 function getAutoUpdater() {
   if (autoUpdater) return autoUpdater;
   autoUpdater = require("electron-updater").autoUpdater;
+  autoUpdater.setFeedURL({ provider: "generic", url: transition.feed, channel: transition.channel });
   autoUpdater.logger = {
     debug: () => {},
     info: () => {},
@@ -86,6 +88,10 @@ function initializeUpdater(updaterContext) {
 
 /** @param {{ ipcMain: typeof import("electron").ipcMain, simulate: boolean, releasesUrl: string, assertSender: (event: Electron.IpcMainInvokeEvent) => void }} options */
 function registerUpdaterIpc({ ipcMain, simulate, releasesUrl, assertSender }) {
+  ipcMain.handle("updater-check", (event) => {
+    assertSender(event);
+    return checkForUpdates();
+  });
   ipcMain.handle("updater-start-download", async (event) => {
     assertSender(event);
     if (!simulate) return getAutoUpdater().downloadUpdate();
@@ -111,9 +117,9 @@ function registerUpdaterIpc({ ipcMain, simulate, releasesUrl, assertSender }) {
       app.quit();
       return;
     }
-    getAutoUpdater().quitAndInstall(true, true);
+    getAutoUpdater().quitAndInstall(false, true);
   });
-  ipcMain.handle("updater-open-releases", (event) => { assertSender(event); return shell.openExternal(releasesUrl); });
+  ipcMain.handle("updater-open-releases", (event) => { assertSender(event); return shell.openExternal(transition.mandatory ? transition.releases : releasesUrl); });
 }
 
 function checkForUpdates() {

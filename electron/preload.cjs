@@ -50,6 +50,7 @@ const api = {
     clear: (action) => ipcRenderer.invoke('gamepad-mapping-clear', action),
   },
   updater: {
+    check: () => ipcRenderer.invoke('updater-check'),
     startDownload: () => ipcRenderer.invoke('updater-start-download'),
     installNow: () => ipcRenderer.invoke('updater-install-now'),
     onAvailable: (cb) => subscribe('update-available', cb),

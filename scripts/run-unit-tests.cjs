@@ -229,6 +229,22 @@ test("IPC sender guard enforces window identity and rejects subframes", () => {
   assert.throws(() => guard({ sender: panel.webContents, senderFrame: {} }, "both"), /subframes/);
 });
 
+test("the transition refuses to create a legacy overlay even through trusted IPC", () => {
+  const { registerAppIpc } = require("../electron/ipc/register.cjs");
+  const handlers = new Map();
+  const frame = {};
+  const panel = { webContents: { id: 10, mainFrame: frame } };
+  registerAppIpc({
+    ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
+    getMainWindow: () => panel,
+    getOverlayWindow: () => null,
+    registerUpdaterIpc() {},
+    capture: { setupCaptureIPC() {} },
+    windows: { createOverlayWindow() { throw new Error("Legacy overlay started"); } },
+  });
+  assert.equal(handlers.get("overlay-show")({ sender: panel.webContents, senderFrame: frame }), false);
+});
+
 test("deferred persistence coalesces writes and flushes the newest value", () => {
   const writes = [];
   const writer = createDeferredWriter({ write: (value) => writes.push(value), delayMs: 60_000 });
@@ -284,12 +300,17 @@ test("electron-updater stays unloaded until the first update operation", async (
   const originalLoad = Module._load;
   let updaterLoads = 0;
   let checks = 0;
+  let feed;
+  let installation;
+  const handlers = new Map();
   const fakeUpdater = {
     logger: null,
     autoDownload: true,
     allowPrerelease: true,
     allowDowngrade: true,
     on() {},
+    setFeedURL(value) { feed = value; },
+    quitAndInstall(...args) { installation = args; },
     checkForUpdates: async () => { checks += 1; return null; },
   };
   try {
@@ -311,6 +332,22 @@ test("electron-updater stays unloaded until the first update operation", async (
     await updater.checkForUpdates();
     assert.equal(updaterLoads, 1);
     assert.equal(checks, 1);
+    assert.deepEqual(feed, {
+      provider: "generic",
+      url: "https://github.com/steaxss/deadbytimer/releases/download/v3.4.0/",
+      channel: "migration",
+    });
+    updater.registerUpdaterIpc({
+      ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
+      simulate: false,
+      releasesUrl: "https://github.com/steaxss/deadbytimer/releases/latest",
+      assertSender: (event) => { if (event !== "trusted") throw new Error("Untrusted sender"); },
+    });
+    assert.throws(() => handlers.get("updater-install-now")("other"), /Untrusted sender/);
+    handlers.get("updater-install-now")("trusted");
+    assert.deepEqual(installation, [false, true]);
+    await handlers.get("updater-check")("trusted");
+    assert.equal(checks, 2);
   } finally {
     Module._load = originalLoad;
   }

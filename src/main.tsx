@@ -1,5 +1,5 @@
 import ReactDOM from 'react-dom/client'
-import ControlPanel from './components/ControlPanel'
+import UpdateModal from './components/UpdateModal'
 import './index.css'
 
-ReactDOM.createRoot(document.getElementById('root')!).render(<ControlPanel />)
+ReactDOM.createRoot(document.getElementById('root')!).render(<UpdateModal />)
