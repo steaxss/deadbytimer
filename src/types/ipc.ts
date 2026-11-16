@@ -89,7 +89,7 @@ export interface RendererApi {
     copySetupText(kind: "launchArgs" | "iniSettings"): Promise<boolean>;
   };
   updater: {
-    check(): Promise<unknown>;
+    check(): Promise<boolean>;
     startDownload(): Promise<void>;
     installNow(): Promise<void>;
     openReleases(): Promise<void>;

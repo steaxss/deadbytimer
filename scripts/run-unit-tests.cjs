@@ -346,7 +346,7 @@ test("electron-updater stays unloaded until the first update operation", async (
     assert.throws(() => handlers.get("updater-install-now")("other"), /Untrusted sender/);
     handlers.get("updater-install-now")("trusted");
     assert.deepEqual(installation, [false, true]);
-    await handlers.get("updater-check")("trusted");
+    assert.equal(await handlers.get("updater-check")("trusted"), true);
     assert.equal(checks, 2);
   } finally {
     Module._load = originalLoad;

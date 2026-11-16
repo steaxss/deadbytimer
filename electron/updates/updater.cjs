@@ -88,9 +88,10 @@ function initializeUpdater(updaterContext) {
 
 /** @param {{ ipcMain: typeof import("electron").ipcMain, simulate: boolean, releasesUrl: string, assertSender: (event: Electron.IpcMainInvokeEvent) => void }} options */
 function registerUpdaterIpc({ ipcMain, simulate, releasesUrl, assertSender }) {
-  ipcMain.handle("updater-check", (event) => {
+  ipcMain.handle("updater-check", async (event) => {
     assertSender(event);
-    return checkForUpdates();
+    await checkForUpdates();
+    return true;
   });
   ipcMain.handle("updater-start-download", async (event) => {
     assertSender(event);
